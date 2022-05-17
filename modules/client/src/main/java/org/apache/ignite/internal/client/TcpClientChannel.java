@@ -212,6 +212,12 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
                 payloadWriter.accept(payloadCh);
             }
 
+            // TODO IGNITE-16928 Thin 3.0: Implement sessions for Java client
+            // 1. Connection can fail during write
+            // 2. Connection can fail during request handling
+            // 3. Connection can fail during read.
+            // On reconnect and when session is restored, we must check which requests exist on the server side.
+            // Some of them might be lost completely - those can be safely retried, even without the retry policy.
             write(req).addListener(f -> {
                 if (!f.isSuccess()) {
                     fut.completeExceptionally(new IgniteClientConnectionException("Failed to send request", f.cause()));
