@@ -237,7 +237,15 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
         var buf = packer.getBuffer();
 
         // writeAndFlush releases pooled buffer.
-        ctx.writeAndFlush(buf);
+        // TODO: If this fails, and connection is lost, reset reader index and store the buffer in the session.
+        ctx.writeAndFlush(buf).addListener(f -> {
+            if (f.cause() != null) {
+                // TODO Flush failed => push the buffer to the session queue.
+                // Retain and reset.
+                buf.retain();
+                buf.resetReaderIndex();
+            }
+        });
     }
 
     private void writeError(long requestId, Throwable err, ChannelHandlerContext ctx) {
@@ -302,7 +310,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
 
                 fut.whenComplete((Object res, Object err) -> {
                     if (err != null) {
-                        out.close();
+                        out.close(); // TODO: Don't close, reuse!
                         writeError(reqId, (Throwable) err, ctx);
                     } else {
                         write(out, ctx);
@@ -310,7 +318,9 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
                 });
             }
         } catch (Throwable t) {
-            out.close();
+            // TODO IGNITE-16928 Thin 3.0: Implement sessions for Java client
+            // Once we got a complete message from the client, we must prepare the response and keep it until the session expires.
+            out.close();  // TODO: Don't close, reuse!
 
             writeError(requestId, t, ctx);
         }
