@@ -421,10 +421,17 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
             var featuresLen = unpacker.unpackBinaryHeader();
             unpacker.skipValues(featuresLen);
 
+            var sessionId = unpacker.unpackUuid();
+
             var extensionsLen = unpacker.unpackMapHeader();
             unpacker.skipValues(extensionsLen);
 
-            protocolCtx = new ProtocolContext(srvVer, ProtocolBitmaskFeature.allFeaturesAsEnumSet(), serverIdleTimeout, clusterNode);
+            protocolCtx = new ProtocolContext(
+                    srvVer,
+                    ProtocolBitmaskFeature.allFeaturesAsEnumSet(),
+                    serverIdleTimeout,
+                    clusterNode,
+                    sessionId);
         }
     }
 

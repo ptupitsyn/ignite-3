@@ -23,6 +23,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import java.util.BitSet;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.apache.ignite.client.handler.requests.cluster.ClientClusterGetNodesRequest;
 import org.apache.ignite.client.handler.requests.compute.ClientComputeExecuteColocatedRequest;
@@ -200,6 +201,8 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
             var extensionsLen = unpacker.unpackMapHeader();
             unpacker.skipValues(extensionsLen);
 
+            session = sessionHandler.createSession();
+
             // Response.
             ProtocolVersion.LATEST_VER.pack(packer);
             packer.packInt(ClientErrorCode.SUCCESS);
@@ -211,11 +214,11 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
             packer.packString(localMember.name());
 
             packer.packBinaryHeader(0); // Features.
+            packer.packUuid(session.id());
             packer.packMapHeader(0); // Extensions.
 
             write(packer.getBuffer(), ctx);
 
-            session = sessionHandler.createSession();
             session.channelActive(buf -> write(buf, ctx));
         } catch (Throwable t) {
             packer.close();
