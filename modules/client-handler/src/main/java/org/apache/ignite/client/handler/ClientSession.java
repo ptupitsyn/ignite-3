@@ -3,6 +3,8 @@ package org.apache.ignite.client.handler;
 import io.netty.buffer.ByteBuf;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
 
 public final class ClientSession {
@@ -14,6 +16,8 @@ public final class ClientSession {
 
     /** Pending outgoing messages (TODO data structure choice - ?). */
     private final ConcurrentLinkedQueue<ByteBuf> messageQueue = new ConcurrentLinkedQueue<>();
+
+    private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
 
     private volatile Consumer<ByteBuf> messageConsumer;
 
@@ -29,39 +33,56 @@ public final class ClientSession {
 
     public void channelInactive() {
         // TODO: Start timer or save current time.
-        // TOOD: Locking
-        messageConsumer = null;
+        rwLock.writeLock().lock();
+
+        try {
+            messageConsumer = null;
+        }
+        finally {
+            rwLock.writeLock().unlock();
+        }
     }
 
     public void channelActive(Consumer<ByteBuf> messageConsumer) {
-        // TODO: Locking
-        assert this.messageConsumer == null : "Invalid session state: channel is already active.";
+        rwLock.writeLock().lock();
 
-        this.messageConsumer = messageConsumer;
+        try {
+            assert this.messageConsumer == null : "Invalid session state: channel is already active.";
+            assert !closed : "Invalid session state: closed."; // TODO: is this possible in practice?
 
-        while (true) {
-            ByteBuf buf = messageQueue.remove();
+            this.messageConsumer = messageConsumer;
 
-            if (buf == null) {
-                return;
+            while (true) {
+                ByteBuf buf = messageQueue.remove();
+
+                if (buf == null) {
+                    return;
+                }
+
+                messageConsumer.accept(buf);
             }
-
-            messageConsumer.accept(buf);
+        } finally {
+            rwLock.writeLock().unlock();
         }
     }
 
     public void send(ByteBuf buf) {
-        // TODO: Locking.
-        if (closed) {
-            // Session has been closed - discard requests.
-            buf.release();
-            return;
-        }
+        rwLock.readLock().lock();
 
-        if (messageConsumer != null) {
-            messageConsumer.accept(buf);
-        } else {
-            messageQueue.add(buf);
+        try {
+            if (closed) {
+                // Session has been closed - discard requests.
+                buf.release();
+                return;
+            }
+
+            if (messageConsumer != null) {
+                messageConsumer.accept(buf);
+            } else {
+                messageQueue.add(buf);
+            }
+        } finally {
+            rwLock.readLock().unlock();
         }
     }
 }
