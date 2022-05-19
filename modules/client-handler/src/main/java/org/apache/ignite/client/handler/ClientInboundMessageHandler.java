@@ -194,7 +194,6 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
             var features = BitSet.valueOf(unpacker.readPayload(featuresLen));
 
             clientContext = new ClientContext(clientVer, clientCode, features);
-            session = sessionHandler.createSession();
 
             LOG.debug("Handshake: " + clientContext);
 
@@ -214,7 +213,10 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
             packer.packBinaryHeader(0); // Features.
             packer.packMapHeader(0); // Extensions.
 
-            write(packer, ctx);
+            write(packer.getBuffer(), ctx);
+
+            session = sessionHandler.createSession();
+            session.channelActive(buf -> write(buf, ctx));
         } catch (Throwable t) {
             packer.close();
 
@@ -232,7 +234,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
                 errPacker.packInt(ClientErrorCode.FAILED);
                 errPacker.packString(message);
 
-                write(errPacker, ctx);
+                write(errPacker.getBuffer(), ctx);
             } catch (Throwable t2) {
                 errPacker.close();
                 exceptionCaught(ctx, t2);
@@ -244,9 +246,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
         ctx.write(Unpooled.wrappedBuffer(ClientMessageCommon.MAGIC_BYTES));
     }
 
-    private void write(ClientMessagePacker packer, ChannelHandlerContext ctx) {
-        var buf = packer.getBuffer();
-
+    private void write(ByteBuf buf, ChannelHandlerContext ctx) {
         ctx.writeAndFlush(buf).addListener(f -> {
             if (f.cause() != null) {
                 var ses = session;
@@ -287,7 +287,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
 
             packer.packString(msg);
 
-            write(packer, ctx);
+            write(packer.getBuffer(), ctx);
         } catch (Throwable t) {
             packer.close();
             exceptionCaught(ctx, t);
@@ -318,7 +318,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
 
             if (fut == null) {
                 // Operation completed synchronously.
-                write(out, ctx);
+                write(out.getBuffer(), ctx);
             } else {
                 final var reqId = requestId;
 
@@ -327,7 +327,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
                         out.close(); // TODO: Don't close, reuse!
                         writeError(reqId, (Throwable) err, ctx);
                     } else {
-                        write(out, ctx);
+                        write(out.getBuffer(), ctx);
                     }
                 });
             }

@@ -3,6 +3,7 @@ package org.apache.ignite.client.handler;
 import io.netty.buffer.ByteBuf;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.Consumer;
 
 public final class ClientSession {
     /** Session ID. */
@@ -14,6 +15,10 @@ public final class ClientSession {
     /** Pending outgoing messages (TODO data structure choice - ?). */
     private final ConcurrentLinkedQueue<ByteBuf> messageQueue = new ConcurrentLinkedQueue<>();
 
+    private volatile Consumer<ByteBuf> messageConsumer;
+
+    private volatile boolean closed;
+
     public UUID id() {
         return id;
     }
@@ -24,11 +29,24 @@ public final class ClientSession {
 
     public void channelInactive() {
         // TODO: Start timer or save current time.
+        // TOOD: Locking
+        messageConsumer = null;
+    }
+
+    public void channelActive(Consumer<ByteBuf> messageConsumer) {
+        this.messageConsumer = messageConsumer;
     }
 
     public void enqueueMessage(ByteBuf buf) {
-        // TODO: RW lock - don't enqueue messages if this session has timed out.
-        // TODO: When reconnected, send old messages to the new socket (this method may be called when we already have a new connection)
-        messageQueue.add(buf);
+        // TODO: Locking.
+        if (closed) {
+            return;
+        }
+
+        if (messageConsumer != null) {
+            messageConsumer.accept(buf);
+        } else {
+            messageQueue.add(buf);
+        }
     }
 }
