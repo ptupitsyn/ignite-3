@@ -166,6 +166,8 @@ public class ClientHandlerModule implements IgniteComponent {
 
         ServerBootstrap bootstrap = bootstrapFactory.createServerBootstrap();
 
+        ClientSessionHandler sessionHandler = new ClientSessionHandler();
+
         bootstrap.childHandler(new ChannelInitializer<>() {
                     @Override
                     protected void initChannel(Channel ch) {
@@ -180,6 +182,7 @@ public class ClientHandlerModule implements IgniteComponent {
                         ch.pipeline().addLast(
                                 new ClientMessageDecoder(),
                                 new ClientInboundMessageHandler(
+                                        sessionHandler,
                                         igniteTables,
                                         igniteTransactions,
                                         queryProcessor,

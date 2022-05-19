@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import org.apache.ignite.Ignite;
 import org.apache.ignite.client.handler.ClientInboundMessageHandler;
+import org.apache.ignite.client.handler.ClientSessionHandler;
 import org.apache.ignite.compute.IgniteCompute;
 import org.apache.ignite.configuration.schemas.clientconnector.ClientConnectorConfiguration;
 import org.apache.ignite.internal.client.proto.ClientMessageDecoder;
@@ -151,6 +152,8 @@ public class TestClientHandlerModule implements IgniteComponent {
 
         ServerBootstrap bootstrap = bootstrapFactory.createServerBootstrap();
 
+        ClientSessionHandler sessionHandler = new ClientSessionHandler();
+
         bootstrap.childHandler(new ChannelInitializer<>() {
                     @Override
                     protected void initChannel(Channel ch) {
@@ -158,6 +161,7 @@ public class TestClientHandlerModule implements IgniteComponent {
                                 new ClientMessageDecoder(),
                                 new ConnectionDropHandler(requestCounter, shouldDropConnection),
                                 new ClientInboundMessageHandler(
+                                        sessionHandler,
                                         ignite.tables(),
                                         ignite.transactions(),
                                         mock(QueryProcessor.class),

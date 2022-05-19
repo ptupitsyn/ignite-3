@@ -115,6 +115,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
     /**
      * Constructor.
      *
+     * @param sessionHandler     Client session handler.
      * @param igniteTables       Ignite tables API entry point.
      * @param igniteTransactions Transactions API.
      * @param processor          Sql query processor.
@@ -123,6 +124,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
      * @param clusterService     Cluster.
      */
     public ClientInboundMessageHandler(
+            ClientSessionHandler sessionHandler,
             IgniteTables igniteTables,
             IgniteTransactions igniteTransactions,
             QueryProcessor processor,
