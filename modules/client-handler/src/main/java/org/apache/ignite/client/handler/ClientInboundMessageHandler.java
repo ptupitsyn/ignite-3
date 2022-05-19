@@ -97,9 +97,6 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
     /** JDBC Handler. */
     private final JdbcQueryEventHandler jdbcQueryEventHandler;
 
-    /** Connection resources. */
-    private final ClientResourceRegistry resources = new ClientResourceRegistry();
-
     /** Configuration. */
     private final ClientConnectorView configuration;
 
@@ -116,7 +113,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
     private volatile ClientContext clientContext;
 
     /** Session. */
-    private volatile ClientSession clientSession;
+    private volatile ClientSession session;
 
     /**
      * Constructor.
@@ -151,7 +148,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
         this.compute = compute;
         this.clusterService = clusterService;
 
-        this.jdbcQueryEventHandler = new JdbcQueryEventHandlerImpl(processor, new JdbcMetadataCatalog(igniteTables));
+        jdbcQueryEventHandler = new JdbcQueryEventHandlerImpl(processor, new JdbcMetadataCatalog(igniteTables));
     }
 
     /** {@inheritDoc} */
@@ -173,7 +170,11 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
     /** {@inheritDoc} */
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        resources.close();
+        var ses = session;
+
+        if (ses != null) {
+            ses.channelInactive();
+        }
 
         super.channelInactive(ctx);
     }
@@ -193,7 +194,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
             var features = BitSet.valueOf(unpacker.readPayload(featuresLen));
 
             clientContext = new ClientContext(clientVer, clientCode, features);
-            clientSession = sessionHandler.createSession();
+            session = sessionHandler.createSession();
 
             LOG.debug("Handshake: " + clientContext);
 
@@ -246,14 +247,17 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
     private void write(ClientMessagePacker packer, ChannelHandlerContext ctx) {
         var buf = packer.getBuffer();
 
-        // writeAndFlush releases pooled buffer.
-        // TODO: If this fails, and connection is lost, reset reader index and store the buffer in the session.
         ctx.writeAndFlush(buf).addListener(f -> {
             if (f.cause() != null) {
-                // TODO Flush failed => push the buffer to the session queue.
-                // Retain and reset.
-                buf.retain();
-                buf.resetReaderIndex();
+                var ses = session;
+
+                if (ses != null) {
+                    // Failed to send a message due to connection loss.
+                    // Save the message to the session and resend on reconnect.
+                    buf.retain();
+                    buf.resetReaderIndex();
+                    ses.enqueueMessage(buf);
+                }
             }
         });
     }
@@ -355,52 +359,52 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
                 return ClientTableGetRequest.process(in, out, igniteTables);
 
             case ClientOp.TUPLE_UPSERT:
-                return ClientTupleUpsertRequest.process(in, igniteTables, resources);
+                return ClientTupleUpsertRequest.process(in, igniteTables, session.resources());
 
             case ClientOp.TUPLE_GET:
-                return ClientTupleGetRequest.process(in, out, igniteTables, resources);
+                return ClientTupleGetRequest.process(in, out, igniteTables, session.resources());
 
             case ClientOp.TUPLE_UPSERT_ALL:
-                return ClientTupleUpsertAllRequest.process(in, igniteTables, resources);
+                return ClientTupleUpsertAllRequest.process(in, igniteTables, session.resources());
 
             case ClientOp.TUPLE_GET_ALL:
-                return ClientTupleGetAllRequest.process(in, out, igniteTables, resources);
+                return ClientTupleGetAllRequest.process(in, out, igniteTables, session.resources());
 
             case ClientOp.TUPLE_GET_AND_UPSERT:
-                return ClientTupleGetAndUpsertRequest.process(in, out, igniteTables, resources);
+                return ClientTupleGetAndUpsertRequest.process(in, out, igniteTables, session.resources());
 
             case ClientOp.TUPLE_INSERT:
-                return ClientTupleInsertRequest.process(in, out, igniteTables, resources);
+                return ClientTupleInsertRequest.process(in, out, igniteTables, session.resources());
 
             case ClientOp.TUPLE_INSERT_ALL:
-                return ClientTupleInsertAllRequest.process(in, out, igniteTables, resources);
+                return ClientTupleInsertAllRequest.process(in, out, igniteTables, session.resources());
 
             case ClientOp.TUPLE_REPLACE:
-                return ClientTupleReplaceRequest.process(in, out, igniteTables, resources);
+                return ClientTupleReplaceRequest.process(in, out, igniteTables, session.resources());
 
             case ClientOp.TUPLE_REPLACE_EXACT:
-                return ClientTupleReplaceExactRequest.process(in, out, igniteTables, resources);
+                return ClientTupleReplaceExactRequest.process(in, out, igniteTables, session.resources());
 
             case ClientOp.TUPLE_GET_AND_REPLACE:
-                return ClientTupleGetAndReplaceRequest.process(in, out, igniteTables, resources);
+                return ClientTupleGetAndReplaceRequest.process(in, out, igniteTables, session.resources());
 
             case ClientOp.TUPLE_DELETE:
-                return ClientTupleDeleteRequest.process(in, out, igniteTables, resources);
+                return ClientTupleDeleteRequest.process(in, out, igniteTables, session.resources());
 
             case ClientOp.TUPLE_DELETE_ALL:
-                return ClientTupleDeleteAllRequest.process(in, out, igniteTables, resources);
+                return ClientTupleDeleteAllRequest.process(in, out, igniteTables, session.resources());
 
             case ClientOp.TUPLE_DELETE_EXACT:
-                return ClientTupleDeleteExactRequest.process(in, out, igniteTables, resources);
+                return ClientTupleDeleteExactRequest.process(in, out, igniteTables, session.resources());
 
             case ClientOp.TUPLE_DELETE_ALL_EXACT:
-                return ClientTupleDeleteAllExactRequest.process(in, out, igniteTables, resources);
+                return ClientTupleDeleteAllExactRequest.process(in, out, igniteTables, session.resources());
 
             case ClientOp.TUPLE_GET_AND_DELETE:
-                return ClientTupleGetAndDeleteRequest.process(in, out, igniteTables, resources);
+                return ClientTupleGetAndDeleteRequest.process(in, out, igniteTables, session.resources());
 
             case ClientOp.TUPLE_CONTAINS_KEY:
-                return ClientTupleContainsKeyRequest.process(in, out, igniteTables, resources);
+                return ClientTupleContainsKeyRequest.process(in, out, igniteTables, session.resources());
 
             case ClientOp.SQL_EXEC:
                 return ClientSqlExecuteRequest.execute(in, out, jdbcQueryEventHandler);
@@ -433,13 +437,13 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
                 return ClientSqlQueryMetadataRequest.process(in, out, jdbcQueryEventHandler);
 
             case ClientOp.TX_BEGIN:
-                return ClientTransactionBeginRequest.process(out, igniteTransactions, resources);
+                return ClientTransactionBeginRequest.process(out, igniteTransactions, session.resources());
 
             case ClientOp.TX_COMMIT:
-                return ClientTransactionCommitRequest.process(in, resources);
+                return ClientTransactionCommitRequest.process(in, session.resources());
 
             case ClientOp.TX_ROLLBACK:
-                return ClientTransactionRollbackRequest.process(in, resources);
+                return ClientTransactionRollbackRequest.process(in, session.resources());
 
             case ClientOp.COMPUTE_EXECUTE:
                 return ClientComputeExecuteRequest.process(in, out, compute, clusterService);
