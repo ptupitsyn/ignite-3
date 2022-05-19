@@ -256,7 +256,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
                     // Save the message to the session and resend on reconnect.
                     buf.retain();
                     buf.resetReaderIndex();
-                    ses.enqueueMessage(buf);
+                    ses.send(buf);
                 }
             }
         });
@@ -287,7 +287,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
 
             packer.packString(msg);
 
-            write(packer.getBuffer(), ctx);
+            session.send(packer.getBuffer());
         } catch (Throwable t) {
             packer.close();
             exceptionCaught(ctx, t);
@@ -318,7 +318,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
 
             if (fut == null) {
                 // Operation completed synchronously.
-                write(out.getBuffer(), ctx);
+                session.send(out.getBuffer());
             } else {
                 final var reqId = requestId;
 
@@ -327,7 +327,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
                         out.close(); // TODO: Don't close, reuse!
                         writeError(reqId, (Throwable) err, ctx);
                     } else {
-                        write(out.getBuffer(), ctx);
+                        session.send(out.getBuffer());
                     }
                 });
             }

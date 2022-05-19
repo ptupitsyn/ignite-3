@@ -34,12 +34,27 @@ public final class ClientSession {
     }
 
     public void channelActive(Consumer<ByteBuf> messageConsumer) {
+        // TODO: Locking
+        assert this.messageConsumer == null : "Invalid session state: channel is already active.";
+
         this.messageConsumer = messageConsumer;
+
+        while (true) {
+            ByteBuf buf = messageQueue.remove();
+
+            if (buf == null) {
+                return;
+            }
+
+            messageConsumer.accept(buf);
+        }
     }
 
-    public void enqueueMessage(ByteBuf buf) {
+    public void send(ByteBuf buf) {
         // TODO: Locking.
         if (closed) {
+            // Session has been closed - discard requests.
+            buf.release();
             return;
         }
 
