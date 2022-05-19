@@ -109,8 +109,14 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
     /** Cluster. */
     private final ClusterService clusterService;
 
+    /** Session handler. */
+    private final ClientSessionHandler sessionHandler;
+
     /** Context. */
-    private ClientContext clientContext;
+    private volatile ClientContext clientContext;
+
+    /** Session. */
+    private volatile ClientSession clientSession;
 
     /**
      * Constructor.
@@ -138,6 +144,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
         assert compute != null;
         assert clusterService != null;
 
+        this.sessionHandler = sessionHandler;
         this.igniteTables = igniteTables;
         this.igniteTransactions = igniteTransactions;
         this.configuration = configuration;
@@ -186,6 +193,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
             var features = BitSet.valueOf(unpacker.readPayload(featuresLen));
 
             clientContext = new ClientContext(clientVer, clientCode, features);
+            clientSession = sessionHandler.createSession();
 
             LOG.debug("Handshake: " + clientContext);
 

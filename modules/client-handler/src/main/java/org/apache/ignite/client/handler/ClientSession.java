@@ -13,4 +13,7 @@ public final class ClientSession {
     /** Pending responses (TODO data structure choice - ?). */
     private final ConcurrentLinkedQueue<Object> responseQueue = new ConcurrentLinkedQueue<>();
 
+    public UUID id() {
+        return id;
+    }
 }
