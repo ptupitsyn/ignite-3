@@ -177,6 +177,9 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
     /** {@inheritDoc} */
     @Override
     public void onDisconnected(@Nullable Exception e) {
+        // TODO:
+        // 1. Reconnect
+        // 2. Find out which requests are lost and re-send them (except heartbeats).
         close(e);
     }
 
@@ -236,14 +239,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
             // 3. Connection can fail during read.
             // On reconnect and when session is restored, we must check which requests exist on the server side.
             // Some of them might be lost completely - those can be safely retried, even without the retry policy.
-            write(req).addListener(f -> {
-                if (!f.isSuccess()) {
-                    // We don't remove the request from pendingReqs to be able to re-send it on reconnect.
-                    // TODO: Don't complete the future here, try reconnect and re-send.
-                    // TODO: Don't re-send heartbeats.
-                    fut.completeExceptionally(new IgniteClientConnectionException("Failed to send request", f.cause()));
-                }
-            });
+            write(req);
 
             return fut;
         } catch (Throwable t) {
