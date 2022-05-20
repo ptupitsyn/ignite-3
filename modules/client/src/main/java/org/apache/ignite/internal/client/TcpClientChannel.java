@@ -83,9 +83,6 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
     /** Active requests. */
     private final Map<Long, ClientRequestFuture> pendingReqs = new ConcurrentHashMap<>();
 
-    /** Pending outgoing messages (keys in pendingReqs). */
-    private final Queue<Long> outbox = new ConcurrentLinkedQueue<>();
-
     /** Closed flag. */
     private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -227,8 +224,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
             // Some of them might be lost completely - those can be safely retried, even without the retry policy.
             write(req).addListener(f -> {
                 if (!f.isSuccess()) {
-                    outbox.add(id);
-
+                    // We don't remove the request from pendingReqs to be able to re-send it on reconnect.
                     // TODO: Don't complete the future here, try reconnect and re-send.
                     fut.completeExceptionally(new IgniteClientConnectionException("Failed to send request", f.cause()));
                 }
