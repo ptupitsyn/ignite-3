@@ -259,6 +259,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
                 if (ses != null) {
                     // Failed to send a message due to connection loss.
                     // Save the message to the session and resend on reconnect.
+                    // TODO: Pooled buffer might be already reused at this point. We may want to retain it before writing.
                     buf.retain();
                     buf.resetReaderIndex();
                     ses.send(buf);

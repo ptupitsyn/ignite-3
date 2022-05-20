@@ -112,6 +112,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
 
         connectTimeout = cfg.clientConfiguration().connectTimeout();
 
+        // TODO: Save connMgr for connection restore.
         sock = connMgr.open(cfg.getAddress(), this, this);
 
         handshake(DEFAULT_VERSION);
