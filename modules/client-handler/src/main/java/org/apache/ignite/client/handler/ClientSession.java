@@ -53,7 +53,7 @@ public final class ClientSession {
             this.messageConsumer = messageConsumer;
 
             while (true) {
-                ByteBuf buf = messageQueue.remove();
+                ByteBuf buf = messageQueue.poll();
 
                 if (buf == null) {
                     return;
