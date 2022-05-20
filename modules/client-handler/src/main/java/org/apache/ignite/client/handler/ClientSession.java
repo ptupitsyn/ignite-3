@@ -101,7 +101,7 @@ public final class ClientSession {
     }
 
     public void sendQueuedBuffers() {
-        rwLock.writeLock();
+        rwLock.writeLock().lock();
 
         try {
             if (closed || messageConsumer == null) {
