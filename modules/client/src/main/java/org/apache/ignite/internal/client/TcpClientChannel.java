@@ -56,6 +56,7 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Implements {@link ClientChannel} over TCP.
+ * Represents a single logical connection in terms of https://cwiki.apache.org/confluence/display/IGNITE/IEP-90+Client+Lifecycle.
  */
 class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientConnectionStateHandler {
     /** Protocol version used by default on first connection attempt. */
