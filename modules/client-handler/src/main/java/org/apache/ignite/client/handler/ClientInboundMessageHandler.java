@@ -329,7 +329,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
 
                 fut.whenComplete((Object res, Object err) -> {
                     if (err != null) {
-                        out.close(); // TODO: Don't close, reuse!
+                        out.close(); // TODO: Don't close, reuse for error!
                         writeError(reqId, (Throwable) err, ctx);
                     } else {
                         session.send(out.getBuffer());
@@ -337,9 +337,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
                 });
             }
         } catch (Throwable t) {
-            // TODO IGNITE-16928 Thin 3.0: Implement sessions for Java client
-            // Once we got a complete message from the client, we must prepare the response and keep it until the session expires.
-            out.close();  // TODO: Don't close, reuse!
+            out.close();  // TODO: Don't close, reuse for error!
 
             writeError(requestId, t, ctx);
         }
