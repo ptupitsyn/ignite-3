@@ -167,7 +167,7 @@ public class ClientHandlerModule implements IgniteComponent {
         ServerBootstrap bootstrap = bootstrapFactory.createServerBootstrap();
 
         // TODO: Pass session timeout from config
-        ClientSessionHandler sessionHandler = new ClientSessionHandler();
+        ClientSessionHandler sessionHandler = new ClientSessionHandler(configuration.connectionRestoreTimeout());
 
         bootstrap.childHandler(new ChannelInitializer<>() {
                     @Override

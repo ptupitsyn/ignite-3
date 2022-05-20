@@ -25,6 +25,8 @@ public final class ClientSession {
 
     private final Consumer<ClientSession> onClosed;
 
+    private final int connectionRestoreTimeout;
+
     private Consumer<ByteBuf> messageConsumer;
 
     private boolean closed;
@@ -33,6 +35,7 @@ public final class ClientSession {
 
     public ClientSession(
             ScheduledExecutorService scheduledExecutorService,
+            int connectionRestoreTimeout,
             Consumer<ByteBuf> messageConsumer,
             Consumer<ClientSession> onClosed) {
         assert scheduledExecutorService != null;
@@ -42,6 +45,7 @@ public final class ClientSession {
         // TODO: Debug logging.
         // TODO: Do we need all this locking, or Netty does everything in one thread sequentially?
         scheduledExecutor = scheduledExecutorService;
+        this.connectionRestoreTimeout = connectionRestoreTimeout;
         this.messageConsumer = messageConsumer;
         this.onClosed = onClosed;
     }
@@ -66,8 +70,7 @@ public final class ClientSession {
 
             long deactivationId = ++this.deactivationId;
 
-            // TODO: Configurable timeout
-            scheduledExecutor.schedule(() -> close(deactivationId), 1000, TimeUnit.MILLISECONDS);
+            scheduledExecutor.schedule(() -> close(deactivationId), connectionRestoreTimeout, TimeUnit.MILLISECONDS);
 
             return true;
         }

@@ -14,6 +14,12 @@ public final class ClientSessionHandler {
     /** Sessions. */
     private final ConcurrentHashMap<UUID, ClientSession> sessions = new ConcurrentHashMap<>();
 
+    private final int connectionRestoreTimeout;
+
+    public ClientSessionHandler(int connectionRestoreTimeout) {
+        this.connectionRestoreTimeout = connectionRestoreTimeout;
+    }
+
     public ClientSession getOrCreateSession(UUID existingSessionId, Consumer<ByteBuf> messageConsumer) {
         if (existingSessionId != null) {
             ClientSession existingSession = sessions.get(existingSessionId);
@@ -23,7 +29,7 @@ public final class ClientSessionHandler {
             }
         }
 
-        var session = new ClientSession(scheduledExecutor, messageConsumer, this::onSessionClosed);
+        var session = new ClientSession(scheduledExecutor, connectionRestoreTimeout, messageConsumer, this::onSessionClosed);
 
         sessions.put(session.id(), session);
 

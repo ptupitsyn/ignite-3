@@ -45,6 +45,11 @@ public class ClientConnectorConfigurationSchema {
     @Value(hasDefault = true)
     public final int connectTimeout = 5000;
 
+    /** Connection restore timeout. */
+    @Min(0)
+    @Value(hasDefault = true)
+    public final int connectionRestoreTimeout = 5000;
+
     /** Idle timeout. */
     @Min(0)
     @Value(hasDefault = true)
