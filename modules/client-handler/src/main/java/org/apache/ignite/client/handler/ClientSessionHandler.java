@@ -2,8 +2,12 @@ package org.apache.ignite.client.handler;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 public final class ClientSessionHandler {
+    private final ScheduledExecutorService scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
+
     private final ConcurrentHashMap<UUID, ClientSession> sessions = new ConcurrentHashMap<>();
 
     public ClientSession getOrCreateSession(UUID existingSessionId) {
