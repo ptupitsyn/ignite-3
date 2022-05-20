@@ -138,6 +138,8 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
      */
     private void open() {
         sock = connMgr.open(address, this, this);
+
+        // TODO: Send session id when already known.
         handshake(DEFAULT_VERSION);
     }
 
