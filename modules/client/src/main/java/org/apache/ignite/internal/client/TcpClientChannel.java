@@ -385,6 +385,9 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
         req.packInt(2); // Client type: general purpose.
 
         req.packBinaryHeader(0); // Features.
+
+        req.packNil(); // Existing session id.
+
         req.packMapHeader(0); // Extensions.
 
         write(req).syncUninterruptibly();
