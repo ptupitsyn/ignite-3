@@ -23,7 +23,6 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import java.util.BitSet;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.apache.ignite.client.handler.requests.cluster.ClientClusterGetNodesRequest;
 import org.apache.ignite.client.handler.requests.compute.ClientComputeExecuteColocatedRequest;
@@ -191,17 +190,21 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
             }
 
             var clientCode = unpacker.unpackInt();
+
             var featuresLen = unpacker.unpackBinaryHeader();
             var features = BitSet.valueOf(unpacker.readPayload(featuresLen));
+
+            // New connection -> null, restored connection -> non-null.
+            var existingSessionId = unpacker.tryUnpackNil() ? null : unpacker.unpackUuid();
+
+            var extensionsLen = unpacker.unpackMapHeader();
+            unpacker.skipValues(extensionsLen);
 
             clientContext = new ClientContext(clientVer, clientCode, features);
 
             LOG.debug("Handshake: " + clientContext);
 
-            var extensionsLen = unpacker.unpackMapHeader();
-            unpacker.skipValues(extensionsLen);
-
-            session = sessionHandler.createSession();
+            session = sessionHandler.getOrCreateSession(existingSessionId);
 
             // Response.
             ProtocolVersion.LATEST_VER.pack(packer);

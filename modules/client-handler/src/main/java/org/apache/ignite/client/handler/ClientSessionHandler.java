@@ -6,7 +6,16 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class ClientSessionHandler {
     private final ConcurrentHashMap<UUID, ClientSession> sessions = new ConcurrentHashMap<>();
 
-    public ClientSession createSession() {
+    public ClientSession getOrCreateSession(UUID existingSessionId) {
+        if (existingSessionId != null) {
+            // TODO: Check expiry here or rely on timer?
+            ClientSession existingSession = sessions.get(existingSessionId);
+
+            if (existingSession != null) {
+                return existingSession;
+            }
+        }
+
         var session = new ClientSession();
 
         sessions.put(session.id(), session);
