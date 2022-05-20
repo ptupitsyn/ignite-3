@@ -135,6 +135,7 @@ public final class ClientSession {
             if (messageConsumer != null) {
                 messageConsumer.accept(buf);
             } else {
+                // TODO: Skip heartbeats here.
                 outbox.add(buf);
             }
         } finally {

@@ -75,6 +75,9 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
     /** Channel. */
     private final ClientConnection sock;
 
+    /** Connection manager. */
+    private final ClientConnectionMultiplexer connMgr;
+
     /** Request id. */
     private final AtomicLong reqId = new AtomicLong(1);
 
@@ -89,6 +92,9 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
 
     /** Connect timeout in milliseconds. */
     private final long connectTimeout;
+
+    /** Address. */
+    private final InetSocketAddress address;
 
     /** Heartbeat timer. */
     private final Timer heartbeatTimer;
@@ -109,10 +115,11 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
                 ? ForkJoinPool.commonPool()
                 : cfg.clientConfiguration().asyncContinuationExecutor();
 
+        this.connMgr = connMgr;
         connectTimeout = cfg.clientConfiguration().connectTimeout();
+        address = cfg.getAddress();
 
-        // TODO: Save connMgr for connection restore.
-        sock = connMgr.open(cfg.getAddress(), this, this);
+        sock = open();
 
         handshake(DEFAULT_VERSION);
 
@@ -125,6 +132,15 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
     @Override
     public void close() {
         close(null);
+    }
+
+    /**
+     * Opens the connection.
+     *
+     * @return Client connection.
+     */
+    private ClientConnection open() {
+        return connMgr.open(address, this, this);
     }
 
     /**
@@ -224,6 +240,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
                 if (!f.isSuccess()) {
                     // We don't remove the request from pendingReqs to be able to re-send it on reconnect.
                     // TODO: Don't complete the future here, try reconnect and re-send.
+                    // TODO: Don't re-send heartbeats.
                     fut.completeExceptionally(new IgniteClientConnectionException("Failed to send request", f.cause()));
                 }
             });
