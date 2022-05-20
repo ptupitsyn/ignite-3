@@ -58,6 +58,22 @@ public final class ClientSession {
         return resources;
     }
 
+    public boolean activate(Consumer<ByteBuf> messageConsumer) {
+        rwLock.writeLock().lock();
+
+        try {
+            if (closed) {
+                return false;
+            }
+
+            this.messageConsumer = messageConsumer;
+
+            return true;
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
     public boolean deactivate() {
         rwLock.writeLock().lock();
 
@@ -75,22 +91,6 @@ public final class ClientSession {
             return true;
         }
         finally {
-            rwLock.writeLock().unlock();
-        }
-    }
-
-    public boolean activate(Consumer<ByteBuf> messageConsumer) {
-        rwLock.writeLock().lock();
-
-        try {
-            if (closed) {
-                return false;
-            }
-
-            this.messageConsumer = messageConsumer;
-
-            return true;
-        } finally {
             rwLock.writeLock().unlock();
         }
     }
