@@ -25,11 +25,11 @@ public final class ClientSession {
 
     private final Consumer<ClientSession> onClosed;
 
-    private volatile Consumer<ByteBuf> messageConsumer;
+    private Consumer<ByteBuf> messageConsumer;
 
-    private volatile boolean closed;
+    private boolean closed;
 
-    private volatile long channelInactiveTime;
+    private long deactivationId;
 
     public ClientSession(
             ScheduledExecutorService scheduledExecutorService,
@@ -40,6 +40,7 @@ public final class ClientSession {
         assert onClosed != null;
 
         // TODO: Debug logging.
+        // TODO: Do we need all this locking, or Netty does everything in one thread sequentially?
         scheduledExecutor = scheduledExecutorService;
         this.messageConsumer = messageConsumer;
         this.onClosed = onClosed;
@@ -63,19 +64,10 @@ public final class ClientSession {
 
             messageConsumer = null;
 
-            long time = System.currentTimeMillis();
-            channelInactiveTime = time;
+            long deactivationId = ++this.deactivationId;
 
             // TODO: Configurable timeout
-            scheduledExecutor.schedule(() -> {
-                // TODO: clock is not monotonic, it is better to rely on some other value (AtomicLong or something).
-                if (time != channelInactiveTime) {
-                    // Channel was activated and deactivated again, this scheduled action is no longer valid.
-                    return;
-                }
-
-                close();
-            }, 1000, TimeUnit.MILLISECONDS);
+            scheduledExecutor.schedule(() -> close(deactivationId), 1000, TimeUnit.MILLISECONDS);
 
             return true;
         }
@@ -101,13 +93,24 @@ public final class ClientSession {
     }
 
     public void sendQueuedBuffers() {
-        while (true) {
-            ByteBuf buf = messageQueue.poll();
+        rwLock.writeLock();
 
-            if (buf == null) {
+        try {
+            if (closed || messageConsumer == null) {
                 return;
             }
-            messageConsumer.accept(buf);
+
+            while (true) {
+                ByteBuf buf = messageQueue.poll();
+
+                if (buf == null) {
+                    break;
+                }
+
+                messageConsumer.accept(buf);
+            }
+        } finally {
+            rwLock.writeLock().unlock();
         }
     }
 
@@ -131,17 +134,33 @@ public final class ClientSession {
         }
     }
 
-    private void close() {
+    private void close(long deactivationId) {
         rwLock.writeLock().lock();
 
         try {
+            if (deactivationId != this.deactivationId) {
+                // Newer deactivation request has been scheduled.
+                return;
+            }
+
             messageConsumer = null;
             closed = true;
+
+            resources.close();
+
+            while (true) {
+                ByteBuf buf = messageQueue.poll();
+
+                if (buf == null) {
+                    break;
+                }
+
+                buf.release();
+            }
+
+            onClosed.accept(this);
         } finally {
             rwLock.writeLock().unlock();
         }
-
-        resources.close();
-        onClosed.accept(this);
     }
 }
