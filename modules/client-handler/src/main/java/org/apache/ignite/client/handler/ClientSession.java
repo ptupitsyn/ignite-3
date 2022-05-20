@@ -3,6 +3,8 @@ package org.apache.ignite.client.handler;
 import io.netty.buffer.ByteBuf;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
@@ -19,9 +21,20 @@ public final class ClientSession {
 
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
 
+    private final ScheduledExecutorService scheduledExecutor;
+
+    private final Consumer<ClientSession> onClosed;
+
     private volatile Consumer<ByteBuf> messageConsumer;
 
     private volatile boolean closed;
+
+    private volatile long channelInactiveTime;
+
+    public ClientSession(ScheduledExecutorService scheduledExecutorService, Consumer<ClientSession> onClosed) {
+        scheduledExecutor = scheduledExecutorService;
+        this.onClosed = onClosed;
+    }
 
     public UUID id() {
         return id;
@@ -31,12 +44,30 @@ public final class ClientSession {
         return resources;
     }
 
-    public void channelInactive() {
-        // TODO: Start timer or save current time.
+    public boolean scheduleExpiration() {
         rwLock.writeLock().lock();
 
         try {
+            if (closed) {
+                return false;
+            }
+
             messageConsumer = null;
+
+            long time = System.currentTimeMillis();
+            channelInactiveTime = time;
+
+            // TODO: Configurable timeout
+            scheduledExecutor.schedule(() -> {
+                if (time != channelInactiveTime) {
+                    // Channel was activated and deactivated again, this scheduled action is no longer valid.
+                    return;
+                }
+
+                close();
+            }, 1000, TimeUnit.MILLISECONDS);
+
+            return true;
         }
         finally {
             rwLock.writeLock().unlock();
@@ -84,5 +115,19 @@ public final class ClientSession {
         } finally {
             rwLock.readLock().unlock();
         }
+    }
+
+    private void close() {
+        rwLock.writeLock().lock();
+
+        try {
+            messageConsumer = null;
+            closed = true;
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+
+        resources.close();
+        onClosed.accept(this);
     }
 }

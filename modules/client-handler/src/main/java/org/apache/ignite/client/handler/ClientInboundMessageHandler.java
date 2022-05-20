@@ -173,7 +173,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
         var ses = session;
 
         if (ses != null) {
-            ses.channelInactive();
+            ses.scheduleExpiration();
         }
 
         super.channelInactive(ctx);

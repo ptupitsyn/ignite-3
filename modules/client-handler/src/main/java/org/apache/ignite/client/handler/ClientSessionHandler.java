@@ -6,30 +6,31 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
 public final class ClientSessionHandler {
+    /** Executor. */
     private final ScheduledExecutorService scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
 
+    /** Sessions. */
     private final ConcurrentHashMap<UUID, ClientSession> sessions = new ConcurrentHashMap<>();
 
     public ClientSession getOrCreateSession(UUID existingSessionId) {
         if (existingSessionId != null) {
-            // TODO: Check expiry here or rely on timer?
             ClientSession existingSession = sessions.get(existingSessionId);
 
-            if (existingSession != null) {
+            // If session exists, and is not closed, then reset its timer and return.
+            // If it is not activated within the timeout, it will be closed (e.g. handshake failed midway).
+            if (existingSession != null && existingSession.scheduleExpiration()) {
                 return existingSession;
             }
         }
 
-        var session = new ClientSession();
+        var session = new ClientSession(scheduledExecutor, this::onSessionClosed);
 
         sessions.put(session.id(), session);
 
         return session;
     }
 
-    public ClientSession getSession(UUID id) {
-        // TODO: Check if session has timed out.
-        // TODO: Periodically check timed out sessions and release their resources? Or start a timer for every session?
-        return sessions.get(id);
+    private void onSessionClosed(ClientSession session) {
+        sessions.remove(session.id());
     }
 }
