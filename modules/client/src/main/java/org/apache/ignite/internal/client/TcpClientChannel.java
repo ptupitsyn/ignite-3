@@ -73,7 +73,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
     private volatile ProtocolContext protocolCtx;
 
     /** Channel. */
-    private final ClientConnection sock;
+    private volatile ClientConnection sock;
 
     /** Connection manager. */
     private final ClientConnectionMultiplexer connMgr;
@@ -119,7 +119,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
         connectTimeout = cfg.clientConfiguration().connectTimeout();
         address = cfg.getAddress();
 
-        sock = open();
+        open();
 
         handshake(DEFAULT_VERSION);
 
@@ -137,10 +137,9 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
     /**
      * Opens the connection.
      *
-     * @return Client connection.
      */
-    private ClientConnection open() {
-        return connMgr.open(address, this, this);
+    private void open() {
+        sock = connMgr.open(address, this, this);
     }
 
     /**
@@ -177,10 +176,16 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
     /** {@inheritDoc} */
     @Override
     public void onDisconnected(@Nullable Exception e) {
-        // TODO:
-        // 1. Reconnect
-        // 2. Find out which requests are lost and re-send them (except heartbeats).
-        close(e);
+        try {
+            // TODO:
+            // 1. Reconnect
+            // 2. Find out which requests are lost and re-send them (except heartbeats).
+
+            open();
+        }
+        catch (IgniteClientConnectionException err) {
+            close(err);
+        }
     }
 
     /** {@inheritDoc} */
