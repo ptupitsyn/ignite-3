@@ -179,9 +179,9 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
     public void onDisconnected(@Nullable Exception e) {
         try {
             // TODO:
-            // 1. Reconnect
-            // 2. Find out which requests are lost and re-send them (except heartbeats).
-
+            // 1. Reconnect with sessionId
+            // 2. If returned sessionId is different, end all requests with error.
+            // 3. If returned sessionId is the same - find out which requests are lost and re-send them (except heartbeats).
             open();
         }
         catch (IgniteClientException err) {
