@@ -178,10 +178,6 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
     @Override
     public void onDisconnected(@Nullable Exception e) {
         try {
-            // TODO:
-            // 1. Reconnect with sessionId
-            // 2. If returned sessionId is different, end all requests with error.
-            // 3. If returned sessionId is the same - find out which requests are lost and re-send them (except heartbeats).
             open();
         }
         catch (IgniteClientException err) {
@@ -408,7 +404,11 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
 
         req.packBinaryHeader(0); // Features.
 
-        req.packNil(); // Existing session id.
+        if (protocolCtx != null) {
+            req.packUuid(protocolCtx.sessionId());
+        } else {
+            req.packNil();
+        }
 
         req.packMapHeader(0); // Extensions.
 
@@ -459,12 +459,20 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
             var extensionsLen = unpacker.unpackMapHeader();
             unpacker.skipValues(extensionsLen);
 
-            protocolCtx = new ProtocolContext(
-                    srvVer,
-                    ProtocolBitmaskFeature.allFeaturesAsEnumSet(),
-                    serverIdleTimeout,
-                    clusterNode,
-                    sessionId);
+            if (protocolCtx == null || sessionId != protocolCtx.sessionId()) {
+                if (protocolCtx != null) {
+                    // Session timed out.
+                    // TODO: End all existing requests with error.
+                }
+
+                // TODO: Reinit heartbeat timer here.
+                protocolCtx = new ProtocolContext(
+                        srvVer,
+                        ProtocolBitmaskFeature.allFeaturesAsEnumSet(),
+                        serverIdleTimeout,
+                        clusterNode,
+                        sessionId);
+            }
         }
     }
 
