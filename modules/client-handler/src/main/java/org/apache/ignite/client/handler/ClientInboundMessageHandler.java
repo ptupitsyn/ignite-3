@@ -267,6 +267,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
             }
             else {
                 // TODO: Written != delivered.
+                // Should we introduce ACK?
                 buf.release();
             }
         });
