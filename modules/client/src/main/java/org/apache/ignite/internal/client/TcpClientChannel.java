@@ -28,12 +28,12 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import org.apache.ignite.Ignite;
 import org.apache.ignite.client.IgniteClientAuthenticationException;
 import org.apache.ignite.client.IgniteClientAuthorizationException;
 import org.apache.ignite.client.IgniteClientConnectionException;
@@ -81,6 +81,9 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
 
     /** Pending requests. */
     private final Map<Long, ClientRequestFuture> pendingReqs = new ConcurrentHashMap<>();
+
+    /** Pending outgoing messages (TODO data structure choice - ?). */
+    private final ConcurrentLinkedQueue<ByteBuf> outbox = new ConcurrentLinkedQueue<>();
 
     /** Closed flag. */
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -454,7 +457,16 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
 
         var buf = packer.getBuffer();
 
-        return sock.send(buf);
+        return sock.send(buf).addListener(f -> {
+            if (f.cause() != null) {
+                    // Failed to send a message due to connection loss.
+                    // Save the message to the session and resend on reconnect.
+                    // TODO: Pooled buffer might be already reused at this point. We may want to retain it before writing.
+                    buf.retain();
+                    buf.resetReaderIndex();
+                    outbox.add(buf);
+            }
+        });
     }
 
     /**

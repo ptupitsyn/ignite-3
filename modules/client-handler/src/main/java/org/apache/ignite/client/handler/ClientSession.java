@@ -16,8 +16,8 @@ public final class ClientSession {
     /** Session resources. */
     private final ClientResourceRegistry resources = new ClientResourceRegistry();
 
-    /** Pending outgoing messages (TODO data structure choice - ?). */
-    private final ConcurrentLinkedQueue<ByteBuf> messageQueue = new ConcurrentLinkedQueue<>();
+    /** Pending outgoing messages. */
+    private final ConcurrentLinkedQueue<ByteBuf> outbox = new ConcurrentLinkedQueue<>();
 
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
 
@@ -104,7 +104,7 @@ public final class ClientSession {
             }
 
             while (true) {
-                ByteBuf buf = messageQueue.poll();
+                ByteBuf buf = outbox.poll();
 
                 if (buf == null) {
                     break;
@@ -130,7 +130,7 @@ public final class ClientSession {
             if (messageConsumer != null) {
                 messageConsumer.accept(buf);
             } else {
-                messageQueue.add(buf);
+                outbox.add(buf);
             }
         } finally {
             rwLock.readLock().unlock();
@@ -152,7 +152,7 @@ public final class ClientSession {
             resources.close();
 
             while (true) {
-                ByteBuf buf = messageQueue.poll();
+                ByteBuf buf = outbox.poll();
 
                 if (buf == null) {
                     break;
