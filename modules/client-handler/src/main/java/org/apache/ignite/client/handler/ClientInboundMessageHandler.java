@@ -161,6 +161,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
 
             if (clientContext == null) {
                 handshake(ctx, unpacker, packer);
+                session.sendQueuedBuffers();
             } else {
                 processOperation(ctx, unpacker, packer);
             }
@@ -221,10 +222,6 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
             packer.packMapHeader(0); // Extensions.
 
             write(packer.getBuffer(), ctx);
-
-            // TODO: What if an exception happens? We don't want the handler below to activate.
-            // Move this somewhere else.
-            session.sendQueuedBuffers();
         } catch (Throwable t) {
             packer.close();
 
