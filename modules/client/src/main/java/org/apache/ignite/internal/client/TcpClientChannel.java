@@ -184,7 +184,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
 
             open();
         }
-        catch (IgniteClientConnectionException err) {
+        catch (IgniteClientException err) {
             close(err);
         }
     }
