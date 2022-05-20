@@ -108,7 +108,7 @@ public abstract class AbstractClientTest {
             long idleTimeout,
             Ignite ignite
     ) {
-        return new TestServer(port, portRange, idleTimeout, ignite);
+        return new TestServer(port, portRange, idleTimeout, (int) idleTimeout, ignite);
     }
 
     /**

@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test;
 public class HeartbeatTest {
     @Test
     public void testHeartbeatLongerThanIdleTimeoutCausesDisconnect() throws Exception {
-        try (var srv = new TestServer(10800, 10, 50, new FakeIgnite())) {
+        try (var srv = new TestServer(10800, 10, 50, 50, new FakeIgnite())) {
             int srvPort = srv.port();
 
             Builder builder = IgniteClient.builder()
@@ -47,7 +47,7 @@ public class HeartbeatTest {
 
     @Test
     public void testHeartbeatShorterThanIdleTimeoutKeepsConnectionAlive() throws Exception {
-        try (var srv = new TestServer(10800, 10, 300, new FakeIgnite())) {
+        try (var srv = new TestServer(10800, 10, 300, 300, new FakeIgnite())) {
             int srvPort = srv.port();
 
             Builder builder = IgniteClient.builder()
@@ -64,7 +64,7 @@ public class HeartbeatTest {
 
     @Test
     public void testInvalidHeartbeatIntervalThrows() throws Exception {
-        try (var srv = new TestServer(10800, 10, 300, new FakeIgnite())) {
+        try (var srv = new TestServer(10800, 10, 300, 300, new FakeIgnite())) {
 
             Builder builder = IgniteClient.builder()
                     .addresses("127.0.0.1:" + srv.port())

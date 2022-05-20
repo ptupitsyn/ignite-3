@@ -84,6 +84,11 @@ public final class ClientSession {
 
             messageConsumer = null;
 
+            if (connectionRestoreTimeout <= 0) {
+                close(deactivationId);
+                return true;
+            }
+
             long deactivationId = ++this.deactivationId;
 
             scheduledExecutor.schedule(() -> close(deactivationId), connectionRestoreTimeout, TimeUnit.MILLISECONDS);

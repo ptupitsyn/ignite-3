@@ -167,9 +167,9 @@ public class ClientComputeTest {
         ignite = new FakeIgnite();
         ignite.tables().createTable(TABLE_NAME, null);
 
-        server1 = new TestServer(10900, 10, 0, ignite, shouldDropConnection, "s1");
-        server2 = new TestServer(10910, 10, 0, ignite, shouldDropConnection, "s2");
-        server3 = new TestServer(10920, 10, 0, ignite, shouldDropConnection, "s3");
+        server1 = new TestServer(10900, 10, 0, 0, ignite, shouldDropConnection, "s1");
+        server2 = new TestServer(10910, 10, 0, 0, ignite, shouldDropConnection, "s2");
+        server3 = new TestServer(10920, 10, 0, 0, ignite, shouldDropConnection, "s3");
     }
 
     private Set<ClusterNode> getClusterNodes(String... names) {
