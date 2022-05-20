@@ -472,6 +472,10 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
                         serverIdleTimeout,
                         clusterNode,
                         sessionId);
+            } else {
+                // TODO: Match pendingReqs against server ids - determine what has been lost.
+                // It would be good to have "safe retry" for those lost requests, but the problem is - we don't know
+                // if they were lost before or after they were handled. ACK may solve this?
             }
         }
     }

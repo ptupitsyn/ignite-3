@@ -266,6 +266,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
                 }
             }
             else {
+                // TODO: Written != delivered.
                 buf.release();
             }
         });
