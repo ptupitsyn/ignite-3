@@ -1,9 +1,11 @@
 package org.apache.ignite.client.handler;
 
+import io.netty.buffer.ByteBuf;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.Consumer;
 
 public final class ClientSessionHandler {
     /** Executor. */
@@ -12,19 +14,16 @@ public final class ClientSessionHandler {
     /** Sessions. */
     private final ConcurrentHashMap<UUID, ClientSession> sessions = new ConcurrentHashMap<>();
 
-    public ClientSession getOrCreateSession(UUID existingSessionId) {
+    public ClientSession getOrCreateSession(UUID existingSessionId, Consumer<ByteBuf> messageConsumer) {
         if (existingSessionId != null) {
             ClientSession existingSession = sessions.get(existingSessionId);
 
-            // If session exists, and is not closed, then reset its timer and return.
-            // If it is not activated within the timeout, it will be closed (e.g. handshake failed midway).
-            // TODO: Timers are not reliable. Instead, we can lock the session until it is activated.
-            if (existingSession != null && existingSession.scheduleExpiration()) {
+            if (existingSession != null && existingSession.activate(messageConsumer)) {
                 return existingSession;
             }
         }
 
-        var session = new ClientSession(scheduledExecutor, this::onSessionClosed);
+        var session = new ClientSession(scheduledExecutor, messageConsumer, this::onSessionClosed);
 
         sessions.put(session.id(), session);
 

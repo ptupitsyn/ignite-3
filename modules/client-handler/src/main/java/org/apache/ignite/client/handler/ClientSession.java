@@ -31,8 +31,17 @@ public final class ClientSession {
 
     private volatile long channelInactiveTime;
 
-    public ClientSession(ScheduledExecutorService scheduledExecutorService, Consumer<ClientSession> onClosed) {
+    public ClientSession(
+            ScheduledExecutorService scheduledExecutorService,
+            Consumer<ByteBuf> messageConsumer,
+            Consumer<ClientSession> onClosed) {
+        assert scheduledExecutorService != null;
+        assert messageConsumer != null;
+        assert onClosed != null;
+
+        // TODO: Debug logging.
         scheduledExecutor = scheduledExecutorService;
+        this.messageConsumer = messageConsumer;
         this.onClosed = onClosed;
     }
 
@@ -44,7 +53,7 @@ public final class ClientSession {
         return resources;
     }
 
-    public boolean scheduleExpiration() {
+    public boolean deactivate() {
         rwLock.writeLock().lock();
 
         try {
@@ -59,6 +68,7 @@ public final class ClientSession {
 
             // TODO: Configurable timeout
             scheduledExecutor.schedule(() -> {
+                // TODO: clock is not monotonic, it is better to rely on some other value (AtomicLong or something).
                 if (time != channelInactiveTime) {
                     // Channel was activated and deactivated again, this scheduled action is no longer valid.
                     return;
@@ -74,26 +84,30 @@ public final class ClientSession {
         }
     }
 
-    public void channelActive(Consumer<ByteBuf> messageConsumer) {
+    public boolean activate(Consumer<ByteBuf> messageConsumer) {
         rwLock.writeLock().lock();
 
         try {
-            assert this.messageConsumer == null : "Invalid session state: channel is already active.";
-            assert !closed : "Invalid session state: closed."; // TODO: is this possible in practice?
+            if (closed) {
+                return false;
+            }
 
             this.messageConsumer = messageConsumer;
 
-            while (true) {
-                ByteBuf buf = messageQueue.poll();
-
-                if (buf == null) {
-                    return;
-                }
-
-                messageConsumer.accept(buf);
-            }
+            return true;
         } finally {
             rwLock.writeLock().unlock();
+        }
+    }
+
+    public void sendQueuedBuffers() {
+        while (true) {
+            ByteBuf buf = messageQueue.poll();
+
+            if (buf == null) {
+                return;
+            }
+            messageConsumer.accept(buf);
         }
     }
 

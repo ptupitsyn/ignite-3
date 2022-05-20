@@ -173,7 +173,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
         var ses = session;
 
         if (ses != null) {
-            ses.scheduleExpiration();
+            ses.deactivate();
         }
 
         super.channelInactive(ctx);
@@ -204,7 +204,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
 
             LOG.debug("Handshake: " + clientContext);
 
-            session = sessionHandler.getOrCreateSession(existingSessionId);
+            session = sessionHandler.getOrCreateSession(existingSessionId, buf -> write(buf, ctx));
 
             // Response.
             ProtocolVersion.LATEST_VER.pack(packer);
@@ -222,8 +222,9 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
 
             write(packer.getBuffer(), ctx);
 
-            // TODO: What if our channel is not active at this point?
-            session.channelActive(buf -> write(buf, ctx));
+            // TODO: What if an exception happens? We don't want the handler below to activate.
+            // Move this somewhere else.
+            session.sendQueuedBuffers();
         } catch (Throwable t) {
             packer.close();
 
