@@ -67,9 +67,10 @@ public class TestServer implements AutoCloseable {
             int port,
             int portRange,
             long idleTimeout,
+            int connectionRestoreTimeout,
             Ignite ignite
     ) {
-        this(port, portRange, idleTimeout, ignite, null, null);
+        this(port, portRange, idleTimeout, connectionRestoreTimeout, ignite, null, null);
     }
 
     /**
@@ -84,6 +85,7 @@ public class TestServer implements AutoCloseable {
             int port,
             int portRange,
             long idleTimeout,
+            int connectionRestoreTimeout,
             Ignite ignite,
             Function<Integer, Boolean> shouldDropConnection,
             String nodeName
@@ -99,7 +101,11 @@ public class TestServer implements AutoCloseable {
         cfg.start();
 
         cfg.getConfiguration(ClientConnectorConfiguration.KEY).change(
-                local -> local.changePort(port).changePortRange(portRange).changeIdleTimeout(idleTimeout)
+                local -> local
+                        .changePort(port)
+                        .changePortRange(portRange)
+                        .changeIdleTimeout(idleTimeout)
+                        .changeConnectionRestoreTimeout(connectionRestoreTimeout)
         ).join();
 
         bootstrapFactory = new NettyBootstrapFactory(cfg.getConfiguration(NetworkConfiguration.KEY), "TestServer-");

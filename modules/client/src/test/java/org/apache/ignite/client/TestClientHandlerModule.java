@@ -152,7 +152,7 @@ public class TestClientHandlerModule implements IgniteComponent {
 
         ServerBootstrap bootstrap = bootstrapFactory.createServerBootstrap();
 
-        ClientSessionHandler sessionHandler = new ClientSessionHandler();
+        ClientSessionHandler sessionHandler = new ClientSessionHandler(configuration.connectionRestoreTimeout());
 
         bootstrap.childHandler(new ChannelInitializer<>() {
                     @Override
