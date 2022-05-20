@@ -18,6 +18,7 @@ public final class ClientSessionHandler {
 
             // If session exists, and is not closed, then reset its timer and return.
             // If it is not activated within the timeout, it will be closed (e.g. handshake failed midway).
+            // TODO: Timers are not reliable. Instead, we can lock the session until it is activated.
             if (existingSession != null && existingSession.scheduleExpiration()) {
                 return existingSession;
             }

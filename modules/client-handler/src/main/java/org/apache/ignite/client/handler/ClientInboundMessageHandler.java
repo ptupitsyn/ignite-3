@@ -222,6 +222,7 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
 
             write(packer.getBuffer(), ctx);
 
+            // TODO: What if our channel is not active at this point?
             session.channelActive(buf -> write(buf, ctx));
         } catch (Throwable t) {
             packer.close();
