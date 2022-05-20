@@ -252,18 +252,21 @@ public class ClientInboundMessageHandler extends ChannelInboundHandlerAdapter {
     }
 
     private void write(ByteBuf buf, ChannelHandlerContext ctx) {
+        buf.retain();
+
         ctx.writeAndFlush(buf).addListener(f -> {
-            if (f.cause() != null) {
+            if (!f.isSuccess()) {
                 var ses = session;
 
                 if (ses != null) {
                     // Failed to send a message due to connection loss.
                     // Save the message to the session and resend on reconnect.
-                    // TODO: Pooled buffer might be already reused at this point. We may want to retain it before writing.
-                    buf.retain();
                     buf.resetReaderIndex();
                     ses.send(buf);
                 }
+            }
+            else {
+                buf.release();
             }
         });
     }

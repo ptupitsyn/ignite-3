@@ -24,6 +24,7 @@ import java.net.InetSocketAddress;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.CompletableFuture;
@@ -79,11 +80,11 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
     /** Request id. */
     private final AtomicLong reqId = new AtomicLong(1);
 
-    /** Pending requests. */
+    /** Active requests. */
     private final Map<Long, ClientRequestFuture> pendingReqs = new ConcurrentHashMap<>();
 
-    /** Pending outgoing messages (TODO data structure choice - ?). */
-    private final ConcurrentLinkedQueue<ByteBuf> outbox = new ConcurrentLinkedQueue<>();
+    /** Pending outgoing messages (keys in pendingReqs). */
+    private final Queue<Long> outbox = new ConcurrentLinkedQueue<>();
 
     /** Closed flag. */
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -202,7 +203,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
             throw new IgniteClientConnectionException("Channel is closed");
         }
 
-        ClientRequestFuture fut = new ClientRequestFuture();
+        ClientRequestFuture fut = new ClientRequestFuture(opCode, payloadWriter);
 
         pendingReqs.put(id, fut);
 
@@ -226,6 +227,9 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
             // Some of them might be lost completely - those can be safely retried, even without the retry policy.
             write(req).addListener(f -> {
                 if (!f.isSuccess()) {
+                    outbox.add(id);
+
+                    // TODO: Don't complete the future here, try reconnect and re-send.
                     fut.completeExceptionally(new IgniteClientConnectionException("Failed to send request", f.cause()));
                 }
             });
@@ -365,7 +369,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
     /** Client handshake. */
     private void handshake(ProtocolVersion ver)
             throws IgniteClientConnectionException {
-        ClientRequestFuture fut = new ClientRequestFuture();
+        ClientRequestFuture fut = new ClientRequestFuture(0, null);
         pendingReqs.put(-1L, fut);
 
         try {
@@ -457,16 +461,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
 
         var buf = packer.getBuffer();
 
-        return sock.send(buf).addListener(f -> {
-            if (f.cause() != null) {
-                    // Failed to send a message due to connection loss.
-                    // Save the message to the session and resend on reconnect.
-                    // TODO: Pooled buffer might be already reused at this point. We may want to retain it before writing.
-                    buf.retain();
-                    buf.resetReaderIndex();
-                    outbox.add(buf);
-            }
-        });
+        return sock.send(buf);
     }
 
     /**
@@ -511,6 +506,14 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
      * Client request future.
      */
     private static class ClientRequestFuture extends CompletableFuture<ClientMessageUnpacker> {
+        private final int opCode;
+
+        private final PayloadWriter payloadWriter;
+
+        public ClientRequestFuture(int opCode, PayloadWriter payloadWriter) {
+            this.opCode = opCode;
+            this.payloadWriter = payloadWriter;
+        }
     }
 
     /**
