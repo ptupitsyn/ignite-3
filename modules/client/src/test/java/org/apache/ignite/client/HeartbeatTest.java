@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 public class HeartbeatTest {
     @Test
     public void testHeartbeatLongerThanIdleTimeoutCausesDisconnect() throws Exception {
+        // TODO: Introduce an option to disable client session restore? Otherwise this test will never work.
         try (var srv = new TestServer(10800, 10, 50, 50, new FakeIgnite())) {
             int srvPort = srv.port();
 
