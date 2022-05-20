@@ -33,6 +33,7 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.apache.ignite.Ignite;
 import org.apache.ignite.client.IgniteClientAuthenticationException;
 import org.apache.ignite.client.IgniteClientAuthorizationException;
 import org.apache.ignite.client.IgniteClientConnectionException;
@@ -290,7 +291,14 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
 
         if (protocolCtx == null) {
             // Process handshake.
-            pendingReqs.remove(-1L).complete(unpacker);
+            ClientRequestFuture handshakeFut = pendingReqs.remove(-1L);
+
+            if (handshakeFut == null) {
+                // TODO: Handshake response was received but not processed yet - we should use some kind of locking here.
+                throw new IgniteClientException("TODO");
+            }
+
+            handshakeFut.complete(unpacker);
             return;
         }
 
