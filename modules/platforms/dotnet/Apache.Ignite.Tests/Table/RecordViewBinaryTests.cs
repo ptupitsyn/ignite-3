@@ -375,11 +375,11 @@ namespace Apache.Ignite.Tests.Table
         [Test]
         public async Task TestGetAllNonExistentKeysReturnsEmptyList()
         {
+            var tuples = new[] { GetTuple(-100) };
+
             for (int i = 0; i < 10000; i++)
             {
-                var res = await TupleView.GetAllAsync(null, new[] { GetTuple(-100) });
-
-                Assert.AreEqual(0, res.Count);
+                await TupleView.GetAllAsync(null, tuples);
             }
 
             var sw = Stopwatch.StartNew();
@@ -387,9 +387,12 @@ namespace Apache.Ignite.Tests.Table
 
             for (int i = 0; i < count; i++)
             {
-                var res = await TupleView.GetAllAsync(null, new[] { GetTuple(-100) });
+                var res = await TupleView.GetAllAsync(null, tuples);
 
-                Assert.AreEqual(0, res.Count);
+                if (res.Count != 0)
+                {
+                    throw new Exception("Why");
+                }
             }
 
             Console.WriteLine(count / sw.Elapsed.TotalSeconds + " RPS");
