@@ -185,7 +185,12 @@ namespace Apache.Ignite.Internal
                 throw new ObjectDisposedException(nameof(ClientSocket));
             }
 
-            var requestId = Interlocked.Increment(ref _requestId);
+            var requestId = _requestId++;
+
+            if (_requestId > 100)
+            {
+                _requestId = 0;
+            }
 
             var taskCompletionSource = new TaskCompletionSource<PooledBuffer>();
 
