@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.ignite.client.handler.ClientResourceRegistry;
 import org.apache.ignite.internal.client.proto.ClientDataType;
 import org.apache.ignite.internal.client.proto.ClientMessagePacker;
@@ -56,6 +57,8 @@ import org.msgpack.core.MessageTypeException;
  * Common table functionality.
  */
 public class ClientTableCommon {
+    private static final ConcurrentHashMap<UUID, TableImpl> tableCache = new ConcurrentHashMap<>();
+
     /**
      * Writes a schema.
      *
@@ -378,11 +381,17 @@ public class ClientTableCommon {
         UUID tableId = unpacker.unpackUuid();
 
         try {
-            TableImpl table = ((IgniteTablesInternal) tables).table(tableId);
+            TableImpl table = tableCache.get(tableId);
+
+            if (table == null) {
+                table = ((IgniteTablesInternal) tables).table(tableId);
+            }
 
             if (table == null) {
                 throw new ClientTableIdDoesNotExistException("Table does not exist: " + tableId);
             }
+
+            tableCache.put(tableId, table);
 
             return table;
         } catch (NodeStoppingException e) {

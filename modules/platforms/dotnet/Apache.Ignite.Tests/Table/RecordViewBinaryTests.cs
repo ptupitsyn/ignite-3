@@ -19,6 +19,7 @@ namespace Apache.Ignite.Tests.Table
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.Globalization;
     using System.Linq;
     using System.Threading.Tasks;
@@ -374,9 +375,24 @@ namespace Apache.Ignite.Tests.Table
         [Test]
         public async Task TestGetAllNonExistentKeysReturnsEmptyList()
         {
-            var res = await TupleView.GetAllAsync(null, new[] { GetTuple(-100) });
+            for (int i = 0; i < 10000; i++)
+            {
+                var res = await TupleView.GetAllAsync(null, new[] { GetTuple(-100) });
 
-            Assert.AreEqual(0, res.Count);
+                Assert.AreEqual(0, res.Count);
+            }
+
+            var sw = Stopwatch.StartNew();
+            var count = 500000;
+
+            for (int i = 0; i < count; i++)
+            {
+                var res = await TupleView.GetAllAsync(null, new[] { GetTuple(-100) });
+
+                Assert.AreEqual(0, res.Count);
+            }
+
+            Console.WriteLine(count / sw.Elapsed.TotalSeconds + " RPS");
         }
 
         [Test]

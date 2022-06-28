@@ -48,11 +48,14 @@ public class ClientTupleGetAllRequest {
             IgniteTables tables,
             ClientResourceRegistry resources
     ) {
-        var table = readTable(in, tables);
-        var tx = readTx(in, resources);
-        var keyTuples = readTuples(in, table, true);
+//        var table = readTable(in, tables);
+//        var tx = readTx(in, resources);
+//        var keyTuples = readTuples(in, table, true);
+//
+//        return table.recordView().getAllAsync(tx, keyTuples).thenAccept(tuples ->
+//            writeTuplesNullable(out, tuples, TuplePart.KEY_AND_VAL, table.schemaView(), true));
 
-        return table.recordView().getAllAsync(tx, keyTuples).thenAccept(tuples ->
-            writeTuplesNullable(out, tuples, TuplePart.KEY_AND_VAL, table.schemaView(), true));
+        out.packNil();
+        return CompletableFuture.completedFuture(null);
     }
 }
