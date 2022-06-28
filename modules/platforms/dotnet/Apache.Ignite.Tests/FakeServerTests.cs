@@ -17,6 +17,8 @@
 
 namespace Apache.Ignite.Tests
 {
+    using System;
+    using System.Diagnostics;
     using System.Threading.Tasks;
     using NUnit.Framework;
 
@@ -31,8 +33,18 @@ namespace Apache.Ignite.Tests
             using var server = new FakeServer();
             using var client = await server.ConnectClientAsync();
 
-            var tables = await client.Tables.GetTablesAsync();
-            Assert.AreEqual(0, tables.Count);
+            var sw = Stopwatch.StartNew();
+            var count = 100000;
+            for (int i = 0; i < count; i++)
+            {
+                var tables = await client.Tables.GetTablesAsync();
+                if (tables.Count != 0)
+                {
+                    throw new Exception("e");
+                }
+            }
+
+            Console.WriteLine(count / sw.Elapsed.TotalSeconds + " RPS");
         }
 
         [Test]
