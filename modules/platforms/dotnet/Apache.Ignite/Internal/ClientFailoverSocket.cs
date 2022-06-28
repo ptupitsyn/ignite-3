@@ -216,6 +216,13 @@ namespace Apache.Ignite.Internal
         /// <returns>Client socket.</returns>
         public async ValueTask<ClientSocket> GetSocketAsync()
         {
+            var socket = _socket;
+
+            if (socket is { IsDisposed: false })
+            {
+                return socket;
+            }
+
             await _socketLock.WaitAsync().ConfigureAwait(false);
 
             try
