@@ -33,10 +33,19 @@ public interface IKeyValueView<TK, TV>
     /// Gets a value associated with the given key.
     /// </summary>
     /// <param name="transaction">The transaction or <c>null</c> to auto commit.</param>
-    /// <param name="key">A record with key columns set.</param>
+    /// <param name="key">Key.</param>
     /// <returns>
     /// A <see cref="Task{TResult}"/> representing the asynchronous operation.
     /// The task result contains a record with all columns.
     /// </returns>
     Task<TV?> GetAsync(ITransaction? transaction, TK key);
+
+    /// <summary>
+    /// Puts a value with a given key.
+    /// </summary>
+    /// <param name="transaction">The transaction or <c>null</c> to auto commit.</param>
+    /// <param name="key">Key.</param>
+    /// <param name="val">Value.</param>
+    /// <returns>A <see cref="Task{TResult}"/> representing the asynchronous operation.</returns>
+    Task PutAsync(ITransaction? transaction, TK key, TV? val);
 }

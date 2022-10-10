@@ -62,6 +62,9 @@ namespace Apache.Ignite.Internal.Table
             RecordBinaryView = new RecordView<IIgniteTuple>(
                 this,
                 new RecordSerializer<IIgniteTuple>(this, TupleSerializerHandler.Instance));
+
+            // TODO: IGNITE-16226
+            KeyValueBinaryView = null!;
         }
 
         /// <inheritdoc/>
@@ -69,6 +72,9 @@ namespace Apache.Ignite.Internal.Table
 
         /// <inheritdoc/>
         public IRecordView<IIgniteTuple> RecordBinaryView { get; }
+
+        /// <inheritdoc/>
+        public IKeyValueView<IIgniteTuple, IIgniteTuple> KeyValueBinaryView { get; }
 
         /// <summary>
         /// Gets the associated socket.
