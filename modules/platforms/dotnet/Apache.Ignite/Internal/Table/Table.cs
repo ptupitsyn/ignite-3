@@ -59,12 +59,10 @@ namespace Apache.Ignite.Internal.Table
             Name = name;
             Id = id;
 
-            RecordBinaryView = new RecordView<IIgniteTuple>(
-                this,
-                new RecordSerializer<IIgniteTuple>(this, TupleSerializerHandler.Instance));
+            var recordSerializer = new RecordSerializer<IIgniteTuple>(this, TupleSerializerHandler.Instance);
 
-            // TODO: IGNITE-16226
-            KeyValueBinaryView = null!;
+            RecordBinaryView = new RecordView<IIgniteTuple>(this, recordSerializer);
+            KeyValueBinaryView = new KeyValueView<IIgniteTuple, IIgniteTuple>(this, recordSerializer, recordSerializer);
         }
 
         /// <inheritdoc/>
