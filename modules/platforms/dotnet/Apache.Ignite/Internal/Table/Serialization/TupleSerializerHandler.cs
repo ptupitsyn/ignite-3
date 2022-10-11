@@ -41,7 +41,7 @@ namespace Apache.Ignite.Internal.Table.Serialization
         }
 
         /// <inheritdoc/>
-        public IIgniteTuple Read(ref MessagePackReader reader, Schema schema, TuplePart part)
+        public IIgniteTuple Read(ref MessagePackReader reader, Schema schema, TuplePart part = TuplePart.KeyAndVal)
         {
             var columns = schema.Columns;
 
@@ -83,7 +83,7 @@ namespace Apache.Ignite.Internal.Table.Serialization
         }
 
         /// <inheritdoc/>
-        public void Write(ref MessagePackWriter writer, Schema schema, IIgniteTuple record, TuplePart part)
+        public void Write(ref MessagePackWriter writer, Schema schema, IIgniteTuple record, TuplePart part = TuplePart.KeyAndVal)
         {
             var columns = schema.Columns;
             var (start, count) = schema.GetRange(part);

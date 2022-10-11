@@ -32,9 +32,9 @@ namespace Apache.Ignite.Internal.Table.Serialization
     internal class ObjectSerializerHandler<T> : IRecordSerializerHandler<T>
         where T : class
     {
-        private readonly ConcurrentDictionary<(int, bool), WriteDelegate<T>> _writers = new();
+        private readonly ConcurrentDictionary<(int, TuplePart), WriteDelegate<T>> _writers = new();
 
-        private readonly ConcurrentDictionary<(int, bool), ReadDelegate<T>> _readers = new();
+        private readonly ConcurrentDictionary<(int, TuplePart), ReadDelegate<T>> _readers = new();
 
         private readonly ConcurrentDictionary<int, ReadValuePartDelegate<T>> _valuePartReaders = new();
 
@@ -45,15 +45,15 @@ namespace Apache.Ignite.Internal.Table.Serialization
         private delegate TV ReadValuePartDelegate<TV>(ref BinaryTupleReader reader, TV key);
 
         /// <inheritdoc/>
-        public T Read(ref MessagePackReader reader, Schema schema, bool keyOnly = false)
+        public T Read(ref MessagePackReader reader, Schema schema, TuplePart part = TuplePart.KeyAndVal)
         {
-            var cacheKey = (schema.Version, keyOnly);
+            var cacheKey = (schema.Version, part);
 
             var readDelegate = _readers.TryGetValue(cacheKey, out var w)
                 ? w
-                : _readers.GetOrAdd(cacheKey, EmitReader(schema, keyOnly));
+                : _readers.GetOrAdd(cacheKey, EmitReader(schema, part));
 
-            var columnCount = keyOnly ? schema.KeyColumnCount : schema.Columns.Count;
+            var columnCount = schema.GetRange(part).Count;
 
             var binaryTupleReader = new BinaryTupleReader(reader.ReadBytesAsMemory(), columnCount);
 
@@ -73,15 +73,15 @@ namespace Apache.Ignite.Internal.Table.Serialization
         }
 
         /// <inheritdoc/>
-        public void Write(ref MessagePackWriter writer, Schema schema, T record, bool keyOnly = false)
+        public void Write(ref MessagePackWriter writer, Schema schema, T record, TuplePart part = TuplePart.KeyAndVal)
         {
-            var cacheKey = (schema.Version, keyOnly);
+            var cacheKey = (schema.Version, part);
 
             var writeDelegate = _writers.TryGetValue(cacheKey, out var w)
                 ? w
-                : _writers.GetOrAdd(cacheKey, EmitWriter(schema, keyOnly));
+                : _writers.GetOrAdd(cacheKey, EmitWriter(schema, part));
 
-            var count = keyOnly ? schema.KeyColumnCount : schema.Columns.Count;
+            var count = schema.GetRange(part).Count;
             var noValueSet = writer.WriteBitSet(count);
             var tupleBuilder = new BinaryTupleBuilder(count);
 
@@ -98,7 +98,7 @@ namespace Apache.Ignite.Internal.Table.Serialization
             }
         }
 
-        private static WriteDelegate<T> EmitWriter(Schema schema, bool keyOnly)
+        private static WriteDelegate<T> EmitWriter(Schema schema, TuplePart part)
         {
             var type = typeof(T);
 
@@ -112,11 +112,11 @@ namespace Apache.Ignite.Internal.Table.Serialization
             var il = method.GetILGenerator();
 
             var columns = schema.Columns;
-            var count = keyOnly ? schema.KeyColumnCount : columns.Count;
+            var (start, count) = schema.GetRange(part);
 
             for (var index = 0; index < count; index++)
             {
-                var col = columns[index];
+                var col = columns[index + start];
                 var fieldInfo = type.GetFieldIgnoreCase(col.Name);
 
                 if (fieldInfo == null)
@@ -147,7 +147,7 @@ namespace Apache.Ignite.Internal.Table.Serialization
             return (WriteDelegate<T>)method.CreateDelegate(typeof(WriteDelegate<T>));
         }
 
-        private static ReadDelegate<T> EmitReader(Schema schema, bool keyOnly)
+        private static ReadDelegate<T> EmitReader(Schema schema, TuplePart part)
         {
             var type = typeof(T);
 
@@ -168,11 +168,11 @@ namespace Apache.Ignite.Internal.Table.Serialization
             il.Emit(OpCodes.Stloc_0); // T res
 
             var columns = schema.Columns;
-            var count = keyOnly ? schema.KeyColumnCount : columns.Count;
+            var (start, count) = schema.GetRange(part);
 
             for (var i = 0; i < count; i++)
             {
-                var col = columns[i];
+                var col = columns[i + start];
                 var fieldInfo = type.GetFieldIgnoreCase(col.Name);
 
                 EmitFieldRead(fieldInfo, il, col, i);
