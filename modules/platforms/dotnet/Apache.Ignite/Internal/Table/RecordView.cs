@@ -62,7 +62,7 @@ namespace Apache.Ignite.Internal.Table
         {
             IgniteArgumentCheck.NotNull(key, nameof(key));
 
-            using var resBuf = await DoRecordOutOpAsync(ClientOp.TupleGet, transaction, key, keyOnly: true).ConfigureAwait(false);
+            using var resBuf = await DoRecordOutOpAsync(ClientOp.TupleGet, transaction, key, TuplePart.Key).ConfigureAwait(false);
             var resSchema = await _table.ReadSchemaAsync(resBuf).ConfigureAwait(false);
 
             return _ser.ReadValue(resBuf, resSchema, key);
@@ -84,7 +84,7 @@ namespace Apache.Ignite.Internal.Table
             var tx = transaction.ToInternal();
 
             using var writer = ProtoCommon.GetMessageWriter();
-            _ser.WriteMultiple(writer, tx, schema, iterator, keyOnly: true);
+            _ser.WriteMultiple(writer, tx, schema, iterator, TuplePart.Key);
 
             using var resBuf = await DoOutInOpAsync(ClientOp.TupleGetAll, tx, writer).ConfigureAwait(false);
             var resSchema = await _table.ReadSchemaAsync(resBuf).ConfigureAwait(false);
@@ -207,7 +207,7 @@ namespace Apache.Ignite.Internal.Table
         {
             IgniteArgumentCheck.NotNull(key, nameof(key));
 
-            using var resBuf = await DoRecordOutOpAsync(ClientOp.TupleDelete, transaction, key, keyOnly: true).ConfigureAwait(false);
+            using var resBuf = await DoRecordOutOpAsync(ClientOp.TupleDelete, transaction, key, TuplePart.Key).ConfigureAwait(false);
             return resBuf.GetReader().ReadBoolean();
         }
 
@@ -225,7 +225,7 @@ namespace Apache.Ignite.Internal.Table
         {
             IgniteArgumentCheck.NotNull(key, nameof(key));
 
-            using var resBuf = await DoRecordOutOpAsync(ClientOp.TupleGetAndDelete, transaction, key, keyOnly: true).ConfigureAwait(false);
+            using var resBuf = await DoRecordOutOpAsync(ClientOp.TupleGetAndDelete, transaction, key, TuplePart.Key).ConfigureAwait(false);
             var resSchema = await _table.ReadSchemaAsync(resBuf).ConfigureAwait(false);
 
             return _ser.ReadValue(resBuf, resSchema, key);
@@ -247,13 +247,13 @@ namespace Apache.Ignite.Internal.Table
             var tx = transaction.ToInternal();
 
             using var writer = ProtoCommon.GetMessageWriter();
-            _ser.WriteMultiple(writer, tx, schema, iterator, keyOnly: true);
+            _ser.WriteMultiple(writer, tx, schema, iterator, TuplePart.Key);
 
             using var resBuf = await DoOutInOpAsync(ClientOp.TupleDeleteAll, tx, writer).ConfigureAwait(false);
             var resSchema = await _table.ReadSchemaAsync(resBuf).ConfigureAwait(false);
 
             // TODO: Read value parts only (IGNITE-16022).
-            return _ser.ReadMultiple(resBuf, resSchema, keyOnly: true);
+            return _ser.ReadMultiple(resBuf, resSchema, TuplePart.Key);
         }
 
         /// <inheritdoc/>
@@ -292,13 +292,13 @@ namespace Apache.Ignite.Internal.Table
             ClientOp op,
             ITransaction? transaction,
             T record,
-            bool keyOnly = false)
+            TuplePart part = TuplePart.KeyAndVal)
         {
             var schema = await _table.GetLatestSchemaAsync().ConfigureAwait(false);
             var tx = transaction.ToInternal();
 
             using var writer = ProtoCommon.GetMessageWriter();
-            _ser.Write(writer, tx, schema, record, keyOnly);
+            _ser.Write(writer, tx, schema, record, part);
 
             return await DoOutInOpAsync(op, tx, writer).ConfigureAwait(false);
         }

@@ -69,7 +69,7 @@ namespace Apache.Ignite.Tests.Table.Serialization
         public void TestReadKeyOnly()
         {
             var reader = WriteAndGetReader(true);
-            var resPoco = new ObjectSerializerHandler<Poco>().Read(ref reader, Schema, keyOnly: true);
+            var resPoco = new ObjectSerializerHandler<Poco>().Read(ref reader, Schema, TuplePart.Key);
 
             Assert.AreEqual(1234, resPoco.Key);
             Assert.IsNull(resPoco.Val);
@@ -124,7 +124,7 @@ namespace Apache.Ignite.Tests.Table.Serialization
             using var pooledWriter = new PooledArrayBufferWriter();
             var writer = pooledWriter.GetMessageWriter();
 
-            handler.Write(ref writer, Schema, obj, keyOnly);
+            handler.Write(ref writer, Schema, obj, keyOnly ? TuplePart.Key : TuplePart.KeyAndVal);
             writer.Flush();
 
             // Slice NoValueSet.

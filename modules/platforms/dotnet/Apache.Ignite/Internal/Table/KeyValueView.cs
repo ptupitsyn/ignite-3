@@ -66,7 +66,7 @@ internal sealed class KeyValueView<TK, TV> : IKeyValueView<TK, TV>
         var resSchema = await _table.ReadSchemaAsync(resBuf).ConfigureAwait(false);
 
         // TODO: Read only value, without key. Use TuplePart instead of booleans.
-        return _valSer.ReadValue(resBuf, resSchema, key);
+        return _valSer.ReadValue(resBuf, resSchema, (TV)(object)key);
     }
 
     /// <inheritdoc/>
@@ -84,7 +84,7 @@ internal sealed class KeyValueView<TK, TV> : IKeyValueView<TK, TV>
         var tx = transaction.ToInternal();
 
         using var writer = ProtoCommon.GetMessageWriter();
-        _keySer.Write(writer, tx, schema, key, true);
+        _keySer.Write(writer, tx, schema, key, TuplePart.Key);
 
         return await DoOutInOpAsync(op, tx, writer).ConfigureAwait(false);
     }

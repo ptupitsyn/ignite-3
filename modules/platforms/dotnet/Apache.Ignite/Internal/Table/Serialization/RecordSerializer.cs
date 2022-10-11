@@ -81,9 +81,9 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// </summary>
         /// <param name="buf">Buffer.</param>
         /// <param name="schema">Schema or null when there is no value.</param>
-        /// <param name="keyOnly">Key only mode.</param>
+        /// <param name="part">Part.</param>
         /// <returns>List of records.</returns>
-        public IList<T> ReadMultiple(PooledBuffer buf, Schema? schema, bool keyOnly = false)
+        public IList<T> ReadMultiple(PooledBuffer buf, Schema? schema, TuplePart part = TuplePart.KeyAndVal)
         {
             if (schema == null)
             {
@@ -100,7 +100,7 @@ namespace Apache.Ignite.Internal.Table.Serialization
 
             for (var i = 0; i < count; i++)
             {
-                res.Add(_handler.Read(ref r, schema, keyOnly));
+                res.Add(_handler.Read(ref r, schema, part));
             }
 
             return res;
@@ -111,9 +111,9 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// </summary>
         /// <param name="buf">Buffer.</param>
         /// <param name="schema">Schema or null when there is no value.</param>
-        /// <param name="keyOnly">Key only mode.</param>
+        /// <param name="part">Part.</param>
         /// <returns>List of records.</returns>
-        public IList<T?> ReadMultipleNullable(PooledBuffer buf, Schema? schema, bool keyOnly = false)
+        public IList<T?> ReadMultipleNullable(PooledBuffer buf, Schema? schema, TuplePart part = TuplePart.KeyAndVal)
         {
             if (schema == null)
             {
@@ -132,7 +132,7 @@ namespace Apache.Ignite.Internal.Table.Serialization
             {
                 var hasValue = r.ReadBoolean();
 
-                res.Add(hasValue ? _handler.Read(ref r, schema, keyOnly) : null);
+                res.Add(hasValue ? _handler.Read(ref r, schema, part) : null);
             }
 
             return res;
@@ -145,17 +145,17 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// <param name="tx">Transaction.</param>
         /// <param name="schema">Schema.</param>
         /// <param name="rec">Record.</param>
-        /// <param name="keyOnly">Key only columns.</param>
+        /// <param name="part">Part.</param>
         public void Write(
             PooledArrayBufferWriter buf,
             Transactions.Transaction? tx,
             Schema schema,
             T rec,
-            bool keyOnly = false)
+            TuplePart part = TuplePart.KeyAndVal)
         {
             var w = buf.GetMessageWriter();
 
-            WriteWithHeader(ref w, tx, schema, rec, keyOnly);
+            WriteWithHeader(ref w, tx, schema, rec, part);
 
             w.Flush();
         }
@@ -168,19 +168,19 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// <param name="schema">Schema.</param>
         /// <param name="t">Record 1.</param>
         /// <param name="t2">Record 2.</param>
-        /// <param name="keyOnly">Key only columns.</param>
+        /// <param name="part">Part.</param>
         public void WriteTwo(
             PooledArrayBufferWriter buf,
             Transactions.Transaction? tx,
             Schema schema,
             T t,
             T t2,
-            bool keyOnly = false)
+            TuplePart part = TuplePart.KeyAndVal)
         {
             var w = buf.GetMessageWriter();
 
-            WriteWithHeader(ref w, tx, schema, t, keyOnly);
-            _handler.Write(ref w, schema, t2, keyOnly);
+            WriteWithHeader(ref w, tx, schema, t, part);
+            _handler.Write(ref w, schema, t2, part);
 
             w.Flush();
         }
@@ -192,13 +192,13 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// <param name="tx">Transaction.</param>
         /// <param name="schema">Schema.</param>
         /// <param name="recs">Records.</param>
-        /// <param name="keyOnly">Key only columns.</param>
+        /// <param name="part">Part.</param>
         public void WriteMultiple(
             PooledArrayBufferWriter buf,
             Transactions.Transaction? tx,
             Schema schema,
             IEnumerator<T> recs,
-            bool keyOnly = false)
+            TuplePart part = TuplePart.KeyAndVal)
         {
             var w = buf.GetMessageWriter();
 
@@ -219,7 +219,7 @@ namespace Apache.Ignite.Internal.Table.Serialization
                     throw new ArgumentException("Record collection can't contain null elements.");
                 }
 
-                _handler.Write(ref w, schema, rec, keyOnly);
+                _handler.Write(ref w, schema, rec, part);
                 count++;
             }
             while (recs.MoveNext()); // First MoveNext is called outside to check for empty IEnumerable.
@@ -237,18 +237,18 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// <param name="tx">Transaction.</param>
         /// <param name="schema">Schema.</param>
         /// <param name="rec">Record.</param>
-        /// <param name="keyOnly">Key only columns.</param>
+        /// <param name="part">Part.</param>
         private void WriteWithHeader(
             ref MessagePackWriter w,
             Transactions.Transaction? tx,
             Schema schema,
             T rec,
-            bool keyOnly = false)
+            TuplePart part = TuplePart.KeyAndVal)
         {
             WriteIdAndTx(ref w, tx);
             w.Write(schema.Version);
 
-            _handler.Write(ref w, schema, rec, keyOnly);
+            _handler.Write(ref w, schema, rec, part);
         }
 
         /// <summary>
