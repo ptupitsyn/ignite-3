@@ -77,6 +77,27 @@ namespace Apache.Ignite.Internal.Table.Serialization
         }
 
         /// <summary>
+        /// Reads the value part.
+        /// </summary>
+        /// <param name="buf">Buffer.</param>
+        /// <param name="schema">Schema or null when there is no value.</param>
+        /// <returns>Resulting record.</returns>
+        public T? ReadValue(PooledBuffer buf, Schema? schema)
+        {
+            if (schema == null)
+            {
+                // Null schema means null record.
+                return null;
+            }
+
+            // Skip schema version.
+            var r = buf.GetReader();
+            r.Skip();
+
+            return _handler.Read(ref r, schema, TuplePart.Val);
+        }
+
+        /// <summary>
         /// Read multiple records.
         /// </summary>
         /// <param name="buf">Buffer.</param>

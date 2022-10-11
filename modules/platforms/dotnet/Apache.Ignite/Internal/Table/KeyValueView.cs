@@ -65,14 +65,24 @@ internal sealed class KeyValueView<TK, TV> : IKeyValueView<TK, TV>
         using var resBuf = await DoKeyOutOpAsync(ClientOp.TupleGet, transaction, key).ConfigureAwait(false);
         var resSchema = await _table.ReadSchemaAsync(resBuf).ConfigureAwait(false);
 
-        // TODO: Read only value, without key. Use TuplePart instead of booleans.
-        return _valSer.ReadValue(resBuf, resSchema, (TV)(object)key);
+        return _valSer.ReadValue(resBuf, resSchema);
     }
 
     /// <inheritdoc/>
-    public Task PutAsync(ITransaction? transaction, TK key, TV? val)
+    public async Task PutAsync(ITransaction? transaction, TK key, TV? val)
     {
-        throw new System.NotImplementedException();
+        var schema = await _table.GetLatestSchemaAsync().ConfigureAwait(false);
+        var tx = transaction.ToInternal();
+
+        using var writer = ProtoCommon.GetMessageWriter();
+
+        // TODO: We should write key and val into the same BinaryTuple.
+        _keySer.Write(writer, tx, schema, key, TuplePart.Key);
+
+        // TODO IGNITE-16226 What if val is null?
+        _valSer.Write(writer, tx, schema, val!, TuplePart.Val);
+
+        await DoOutInOpAsync(ClientOp.TupleUpsert, tx, writer).ConfigureAwait(false);
     }
 
     private async Task<PooledBuffer> DoKeyOutOpAsync(
