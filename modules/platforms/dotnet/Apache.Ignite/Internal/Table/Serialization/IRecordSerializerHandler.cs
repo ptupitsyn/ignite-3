@@ -31,9 +31,9 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// </summary>
         /// <param name="reader">Reader.</param>
         /// <param name="schema">Schema.</param>
-        /// <param name="keyOnly">Key only mode.</param>
+        /// <param name="part">Record part to read.</param>
         /// <returns>Record.</returns>
-        T Read(ref MessagePackReader reader, Schema schema, bool keyOnly = false);
+        T Read(ref MessagePackReader reader, Schema schema, TuplePart part = TuplePart.KeyAndVal);
 
         /// <summary>
         /// Reads the value part and combines with the specified key part into a new object.
@@ -50,7 +50,7 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// <param name="writer">Writer.</param>
         /// <param name="schema">Schema.</param>
         /// <param name="record">Record.</param>
-        /// <param name="keyOnly">Key only mode.</param>
-        void Write(ref MessagePackWriter writer, Schema schema, T record, bool keyOnly = false);
+        /// <param name="part">Record part to write.</param>
+        void Write(ref MessagePackWriter writer, Schema schema, T record, TuplePart part = TuplePart.KeyAndVal);
     }
 }

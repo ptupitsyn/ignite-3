@@ -41,16 +41,17 @@ namespace Apache.Ignite.Internal.Table.Serialization
         }
 
         /// <inheritdoc/>
-        public IIgniteTuple Read(ref MessagePackReader reader, Schema schema, bool keyOnly = false)
+        public IIgniteTuple Read(ref MessagePackReader reader, Schema schema, TuplePart part)
         {
             var columns = schema.Columns;
-            var count = keyOnly ? schema.KeyColumnCount : columns.Count;
+
+            var (start, count) = schema.GetRange(part);
             var tuple = new IgniteTuple(count);
             var tupleReader = new BinaryTupleReader(reader.ReadBytesAsMemory(), count);
 
             for (var index = 0; index < count; index++)
             {
-                var column = columns[index];
+                var column = columns[index + start];
                 tuple[column.Name] = tupleReader.GetObject(index, column.Type, column.Scale);
             }
 
@@ -82,10 +83,10 @@ namespace Apache.Ignite.Internal.Table.Serialization
         }
 
         /// <inheritdoc/>
-        public void Write(ref MessagePackWriter writer, Schema schema, IIgniteTuple record, bool keyOnly = false)
+        public void Write(ref MessagePackWriter writer, Schema schema, IIgniteTuple record, TuplePart part)
         {
             var columns = schema.Columns;
-            var count = keyOnly ? schema.KeyColumnCount : columns.Count;
+            var (start, count) = schema.GetRange(part);
             var noValueSet = writer.WriteBitSet(count);
 
             var tupleBuilder = new BinaryTupleBuilder(count);
@@ -94,7 +95,7 @@ namespace Apache.Ignite.Internal.Table.Serialization
             {
                 for (var index = 0; index < count; index++)
                 {
-                    var col = columns[index];
+                    var col = columns[index + start];
                     var colIdx = record.GetOrdinal(col.Name);
 
                     if (colIdx >= 0)

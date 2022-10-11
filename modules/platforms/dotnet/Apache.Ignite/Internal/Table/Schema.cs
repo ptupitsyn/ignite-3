@@ -18,6 +18,7 @@
 namespace Apache.Ignite.Internal.Table
 {
     using System.Collections.Generic;
+    using Serialization;
 
     /// <summary>
     /// Schema.
@@ -28,5 +29,24 @@ namespace Apache.Ignite.Internal.Table
     internal record Schema(
         int Version,
         int KeyColumnCount,
-        IReadOnlyList<Column> Columns);
+        IReadOnlyList<Column> Columns)
+    {
+        /// <summary>
+        /// Gets the value column count.
+        /// </summary>
+        public int ValueColumnCount => Columns.Count - KeyColumnCount;
+
+        /// <summary>
+        /// Gets the index range for the specified part.
+        /// </summary>
+        /// <param name="part">Part.</param>
+        /// <returns>Index range.</returns>
+        public (int Start, int Count) GetRange(TuplePart part) =>
+            part switch
+            {
+                TuplePart.Key => (0, KeyColumnCount),
+                TuplePart.Val => (KeyColumnCount, ValueColumnCount),
+                _ => (0, Columns.Count)
+            };
+    }
 }
