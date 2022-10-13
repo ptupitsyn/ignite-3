@@ -83,19 +83,17 @@ namespace Apache.Ignite.Internal.Table.Serialization
         }
 
         /// <inheritdoc/>
-        public void Write(ref MessagePackWriter writer, Schema schema, IIgniteTuple record, TuplePart part = TuplePart.KeyAndVal)
+        public void Write(ref MessagePackWriter writer, IIgniteTuple record, SchemaSlice schema)
         {
-            var columns = schema.Columns;
-            var (start, count) = schema.GetRange(part);
+            var (start, count) = schema.Range;
             var noValueSet = writer.WriteBitSet(count);
-
             var tupleBuilder = new BinaryTupleBuilder(count);
 
             try
             {
                 for (var index = 0; index < count; index++)
                 {
-                    var col = columns[index + start];
+                    var col = schema.Schema.Columns[index + start];
                     var colIdx = record.GetOrdinal(col.Name);
 
                     if (colIdx >= 0)

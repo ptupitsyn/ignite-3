@@ -74,15 +74,15 @@ namespace Apache.Ignite.Internal.Table.Serialization
         }
 
         /// <inheritdoc/>
-        public void Write(ref MessagePackWriter writer, Schema schema, T record, TuplePart part = TuplePart.KeyAndVal)
+        public void Write(ref MessagePackWriter writer, T record, SchemaSlice schema)
         {
-            var cacheKey = (schema.Version, part);
+            var cacheKey = (schema.Schema.Version, schema.Part);
 
             var writeDelegate = _writers.TryGetValue(cacheKey, out var w)
                 ? w
-                : _writers.GetOrAdd(cacheKey, EmitWriter(schema, part));
+                : _writers.GetOrAdd(cacheKey, EmitWriter(schema));
 
-            var count = schema.GetRange(part).Count;
+            var count = schema.Range.Count;
             var noValueSet = writer.WriteBitSet(count);
             var tupleBuilder = new BinaryTupleBuilder(count);
 
@@ -99,7 +99,7 @@ namespace Apache.Ignite.Internal.Table.Serialization
             }
         }
 
-        private static WriteDelegate<T> EmitWriter(Schema schema, TuplePart part)
+        private static WriteDelegate<T> EmitWriter(SchemaSlice schema)
         {
             var type = typeof(T);
 
@@ -112,8 +112,8 @@ namespace Apache.Ignite.Internal.Table.Serialization
 
             var il = method.GetILGenerator();
 
-            var columns = schema.Columns;
-            var (start, count) = schema.GetRange(part);
+            var columns = schema.Schema.Columns;
+            var (start, count) = schema.Range;
 
             if (BinaryTupleMethods.GetWriteMethodOrNull(type) is { } directWriteMethod)
             {

@@ -17,6 +17,7 @@
 
 namespace Apache.Ignite.Internal.Table.Serialization
 {
+    using System;
     using MessagePack;
 
     /// <summary>
@@ -47,9 +48,8 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// Writes a record.
         /// </summary>
         /// <param name="writer">Writer.</param>
-        /// <param name="schema">Schema.</param>
         /// <param name="record">Record.</param>
-        /// <param name="part">Record part to write.</param>
-        void Write(ref MessagePackWriter writer, Schema schema, T record, TuplePart part = TuplePart.KeyAndVal);
+        /// <param name="schema">Schema slice to write.</param>
+        void Write(ref MessagePackWriter writer, T record, SchemaSlice schema);
     }
 }
