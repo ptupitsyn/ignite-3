@@ -76,7 +76,7 @@ internal sealed class KeyValueView<TK, TV> : IKeyValueView<TK, TV>
 
         using var writer = ProtoCommon.GetMessageWriter();
 
-        // TODO: We should write key and val into the same BinaryTuple.
+        // TODO IGNITE-16226 We should write key and val into the same BinaryTuple.
         _keySer.Write(writer, tx, schema, key, TuplePart.Key);
 
         // TODO IGNITE-16226 What if val is null?
