@@ -86,7 +86,7 @@ namespace Apache.Ignite.Internal.Table.Serialization
             if (schema == null)
             {
                 // Null schema means null record.
-                return null;
+                return default;
             }
 
             // Skip schema version.
