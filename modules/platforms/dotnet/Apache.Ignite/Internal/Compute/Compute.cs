@@ -234,7 +234,7 @@ namespace Apache.Ignite.Internal.Compute
                 w.Write(schema.Version);
 
                 var serializerHandler = serializerHandlerFunc(table);
-                serializerHandler.Write(ref w, schema, key, TuplePart.Key);
+                serializerHandler.Write(ref w, schema.SliceKey(), key);
 
                 w.Write(jobClassName);
                 w.WriteObjectArrayAsBinaryTuple(args);

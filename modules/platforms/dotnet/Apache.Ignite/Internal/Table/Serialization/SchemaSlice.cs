@@ -31,6 +31,11 @@ internal readonly record struct SchemaSlice(Schema Schema, TuplePart Part = Tupl
     public (int Start, int Count) Range => Schema.GetRange(Part);
 
     /// <summary>
+    /// Gets the version.
+    /// </summary>
+    public int Version => Schema.Version;
+
+    /// <summary>
     /// Wraps a schema into a slice.
     /// </summary>
     /// <param name="schema">Schema.</param>

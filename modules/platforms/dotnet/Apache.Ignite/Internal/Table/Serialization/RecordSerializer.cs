@@ -167,17 +167,15 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// <param name="tx">Transaction.</param>
         /// <param name="schema">Schema.</param>
         /// <param name="rec">Record.</param>
-        /// <param name="part">Part.</param>
         public void Write(
             PooledArrayBufferWriter buf,
             Transactions.Transaction? tx,
-            Schema schema,
-            T rec,
-            TuplePart part = TuplePart.KeyAndVal)
+            SchemaSlice schema,
+            T rec)
         {
             var w = buf.GetMessageWriter();
 
-            WriteWithHeader(ref w, tx, schema, rec, part);
+            WriteWithHeader(ref w, tx, rec, schema);
 
             w.Flush();
         }
@@ -190,19 +188,17 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// <param name="schema">Schema.</param>
         /// <param name="t">Record 1.</param>
         /// <param name="t2">Record 2.</param>
-        /// <param name="part">Part.</param>
         public void WriteTwo(
             PooledArrayBufferWriter buf,
             Transactions.Transaction? tx,
-            Schema schema,
+            SchemaSlice schema,
             T t,
-            T t2,
-            TuplePart part = TuplePart.KeyAndVal)
+            T t2)
         {
             var w = buf.GetMessageWriter();
 
-            WriteWithHeader(ref w, tx, schema, t, part);
-            _handler.Write(ref w, schema, t2, part);
+            WriteWithHeader(ref w, tx, t, schema);
+            _handler.Write(ref w, schema, t2);
 
             w.Flush();
         }
@@ -214,13 +210,11 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// <param name="tx">Transaction.</param>
         /// <param name="schema">Schema.</param>
         /// <param name="recs">Records.</param>
-        /// <param name="part">Part.</param>
         public void WriteMultiple(
             PooledArrayBufferWriter buf,
             Transactions.Transaction? tx,
-            Schema schema,
-            IEnumerator<T> recs,
-            TuplePart part = TuplePart.KeyAndVal)
+            SchemaSlice schema,
+            IEnumerator<T> recs)
         {
             var w = buf.GetMessageWriter();
 
@@ -241,7 +235,7 @@ namespace Apache.Ignite.Internal.Table.Serialization
                     throw new ArgumentException("Record collection can't contain null elements.");
                 }
 
-                _handler.Write(ref w, schema, rec, part);
+                _handler.Write(ref w, schema, rec);
                 count++;
             }
             while (recs.MoveNext()); // First MoveNext is called outside to check for empty IEnumerable.
@@ -257,20 +251,18 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// </summary>
         /// <param name="w">Writer.</param>
         /// <param name="tx">Transaction.</param>
-        /// <param name="schema">Schema.</param>
         /// <param name="rec">Record.</param>
-        /// <param name="part">Part.</param>
+        /// <param name="schema">Schema.</param>
         private void WriteWithHeader(
             ref MessagePackWriter w,
             Transactions.Transaction? tx,
-            Schema schema,
             T rec,
-            TuplePart part = TuplePart.KeyAndVal)
+            SchemaSlice schema)
         {
             WriteIdAndTx(ref w, tx);
             w.Write(schema.Version);
 
-            _handler.Write(ref w, schema, rec, part);
+            _handler.Write(ref w, schema, rec);
         }
 
         /// <summary>

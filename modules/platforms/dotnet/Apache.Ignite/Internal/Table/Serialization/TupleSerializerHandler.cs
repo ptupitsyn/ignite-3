@@ -83,7 +83,7 @@ namespace Apache.Ignite.Internal.Table.Serialization
         }
 
         /// <inheritdoc/>
-        public void Write(ref MessagePackWriter writer, IIgniteTuple record, SchemaSlice schema)
+        public void Write(ref MessagePackWriter writer, SchemaSlice schema, IIgniteTuple record)
         {
             var (start, count) = schema.Range;
             var noValueSet = writer.WriteBitSet(count);

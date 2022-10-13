@@ -74,7 +74,7 @@ namespace Apache.Ignite.Internal.Table.Serialization
         }
 
         /// <inheritdoc/>
-        public void Write(ref MessagePackWriter writer, T record, SchemaSlice schema)
+        public void Write(ref MessagePackWriter writer, SchemaSlice schema, T record)
         {
             var cacheKey = (schema.Schema.Version, schema.Part);
 

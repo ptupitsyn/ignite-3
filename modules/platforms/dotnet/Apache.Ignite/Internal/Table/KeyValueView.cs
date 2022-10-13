@@ -77,10 +77,10 @@ internal sealed class KeyValueView<TK, TV> : IKeyValueView<TK, TV>
         using var writer = ProtoCommon.GetMessageWriter();
 
         // TODO IGNITE-16226 We should write key and val into the same BinaryTuple.
-        _keySer.Write(writer, tx, schema, key, TuplePart.Key);
+        _keySer.Write(writer, tx, schema.SliceKey(), key);
 
         // TODO IGNITE-16226 What if val is null?
-        _valSer.Write(writer, tx, schema, val!, TuplePart.Val);
+        _valSer.Write(writer, tx, schema.SliceVal(), val!);
 
         await DoOutInOpAsync(ClientOp.TupleUpsert, tx, writer).ConfigureAwait(false);
     }
@@ -94,7 +94,7 @@ internal sealed class KeyValueView<TK, TV> : IKeyValueView<TK, TV>
         var tx = transaction.ToInternal();
 
         using var writer = ProtoCommon.GetMessageWriter();
-        _keySer.Write(writer, tx, schema, key, TuplePart.Key);
+        _keySer.Write(writer, tx, schema.SliceKey(), key);
 
         return await DoOutInOpAsync(op, tx, writer).ConfigureAwait(false);
     }

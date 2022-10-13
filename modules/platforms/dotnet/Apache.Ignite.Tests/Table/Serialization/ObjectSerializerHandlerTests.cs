@@ -123,7 +123,7 @@ namespace Apache.Ignite.Tests.Table.Serialization
             using var pooledWriter = new PooledArrayBufferWriter();
             var writer = pooledWriter.GetMessageWriter();
 
-            handler.Write(ref writer, Schema, obj, keyOnly ? TuplePart.Key : TuplePart.KeyAndVal);
+            handler.Write(ref writer, Schema.Slice(keyOnly), obj);
             writer.Flush();
 
             // Slice NoValueSet.

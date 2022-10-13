@@ -83,7 +83,7 @@ namespace Apache.Ignite.Internal.Table
             var tx = transaction.ToInternal();
 
             using var writer = ProtoCommon.GetMessageWriter();
-            _ser.WriteMultiple(writer, tx, schema, iterator, TuplePart.Key);
+            _ser.WriteMultiple(writer, tx, schema.SliceKey(), iterator);
 
             using var resBuf = await DoOutInOpAsync(ClientOp.TupleGetAll, tx, writer).ConfigureAwait(false);
             var resSchema = await _table.ReadSchemaAsync(resBuf).ConfigureAwait(false);
@@ -246,7 +246,7 @@ namespace Apache.Ignite.Internal.Table
             var tx = transaction.ToInternal();
 
             using var writer = ProtoCommon.GetMessageWriter();
-            _ser.WriteMultiple(writer, tx, schema, iterator, TuplePart.Key);
+            _ser.WriteMultiple(writer, tx, schema.Slice(TuplePart.Key), iterator);
 
             using var resBuf = await DoOutInOpAsync(ClientOp.TupleDeleteAll, tx, writer).ConfigureAwait(false);
             var resSchema = await _table.ReadSchemaAsync(resBuf).ConfigureAwait(false);
@@ -297,7 +297,7 @@ namespace Apache.Ignite.Internal.Table
             var tx = transaction.ToInternal();
 
             using var writer = ProtoCommon.GetMessageWriter();
-            _ser.Write(writer, tx, schema, record, part);
+            _ser.Write(writer, tx, schema.Slice(part), record);
 
             return await DoOutInOpAsync(op, tx, writer).ConfigureAwait(false);
         }
