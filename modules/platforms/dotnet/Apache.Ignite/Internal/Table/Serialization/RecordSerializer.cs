@@ -30,7 +30,6 @@ namespace Apache.Ignite.Internal.Table.Serialization
     /// </summary>
     /// <typeparam name="T">Record type.</typeparam>
     internal class RecordSerializer<T>
-        where T : class
     {
         /** Table. */
         private readonly Table _table;
@@ -61,12 +60,12 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// <param name="schema">Schema or null when there is no value.</param>
         /// <param name="key">Key part.</param>
         /// <returns>Resulting record with key and value parts.</returns>
-        public T? ReadValue(PooledBuffer buf, Schema? schema, T key)
+        public Option<T> ReadValue(PooledBuffer buf, Schema? schema, T key)
         {
             if (schema == null)
             {
                 // Null schema means null record.
-                return null;
+                return default;
             }
 
             // Skip schema version.
@@ -134,12 +133,12 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// <param name="schema">Schema or null when there is no value.</param>
         /// <param name="part">Part.</param>
         /// <returns>List of records.</returns>
-        public IList<T?> ReadMultipleNullable(PooledBuffer buf, Schema? schema, TuplePart part = TuplePart.KeyAndVal)
+        public IList<Option<T>> ReadMultipleNullable(PooledBuffer buf, Schema? schema, TuplePart part = TuplePart.KeyAndVal)
         {
             if (schema == null)
             {
                 // Null schema means empty collection.
-                return Array.Empty<T?>();
+                return Array.Empty<Option<T>>();
             }
 
             // Skip schema version.
@@ -147,13 +146,15 @@ namespace Apache.Ignite.Internal.Table.Serialization
             r.Skip();
 
             var count = r.ReadInt32();
-            var res = new List<T?>(count);
+            var res = new List<Option<T>>(count);
 
             for (var i = 0; i < count; i++)
             {
-                var hasValue = r.ReadBoolean();
+                Option<T> option = r.ReadBoolean()
+                    ? _handler.Read(ref r, schema, part)
+                    : default(Option<T>);
 
-                res.Add(hasValue ? _handler.Read(ref r, schema, part) : null);
+                res.Add(option);
             }
 
             return res;

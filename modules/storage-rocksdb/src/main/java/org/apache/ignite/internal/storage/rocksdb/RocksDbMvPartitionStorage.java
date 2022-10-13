@@ -447,8 +447,17 @@ public class RocksDbMvPartitionStorage implements MvPartitionStorage {
         }
     }
 
-    /** {@inheritDoc} */
-    @Override
+    /**
+     * Reads either the committed value from the storage or the uncommitted value belonging to given transaction.
+     *
+     * @param rowId Row id.
+     * @param txId Transaction id.
+     * @return Read result that corresponds to the key or {@code null} if value is not found.
+     * @throws TxIdMismatchException If there's another pending update associated with different transaction id.
+     * @throws StorageException If failed to read data from the storage.
+     */
+    // TODO: IGNITE-17864 Optimize scan(HybridTimestamp.MAX_VALUE) and read(HybridTimestamp.MAX_VALUE)
+    @Deprecated
     public @Nullable BinaryRow read(RowId rowId, UUID txId) throws TxIdMismatchException, StorageException {
         return read(rowId, null, txId).binaryRow();
     }
@@ -696,9 +705,18 @@ public class RocksDbMvPartitionStorage implements MvPartitionStorage {
         };
     }
 
-    //TODO IGNITE-16914 Play with prefix settings and benchmark results.
-    /** {@inheritDoc} */
-    @Override
+    /**
+     * Scans the partition and returns a cursor of values. All filtered values must either be uncommitted in the current transaction
+     * or already committed in a different transaction.
+     *
+     * @param keyFilter Key filter. Binary rows passed to the filter may or may not have a value, filter should only check keys.
+     * @param txId Transaction id.
+     * @return Cursor.
+     * @throws StorageException If failed to read data from the storage.
+     */
+    // TODO: IGNITE-16914 Play with prefix settings and benchmark results.
+    // TODO: IGNITE-17864 Optimize scan(HybridTimestamp.MAX_VALUE) and read(HybridTimestamp.MAX_VALUE)
+    @Deprecated
     public Cursor<BinaryRow> scan(Predicate<BinaryRow> keyFilter, UUID txId) throws TxIdMismatchException, StorageException {
         assert txId != null;
 
@@ -918,7 +936,7 @@ public class RocksDbMvPartitionStorage implements MvPartitionStorage {
                         continue;
                     }
 
-                    if (!keyFilter.test(readResult.binaryRow())) {
+                    if (keyFilter != null && !keyFilter.test(readResult.binaryRow())) {
                         continue;
                     }
 
@@ -1228,14 +1246,14 @@ public class RocksDbMvPartitionStorage implements MvPartitionStorage {
     /**
      * Creates a prefix of all keys in the given partition.
      */
-    private byte[] partitionStartPrefix() {
+    public byte[] partitionStartPrefix() {
         return unsignedShortAsBytes(partitionId);
     }
 
     /**
      * Creates a prefix of all keys in the next partition, used as an exclusive bound.
      */
-    private byte[] partitionEndPrefix() {
+    public byte[] partitionEndPrefix() {
         return unsignedShortAsBytes(partitionId + 1);
     }
 

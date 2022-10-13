@@ -23,6 +23,7 @@ description = 'ignite-runner'
 
 dependencies {
     annotationProcessor project(':ignite-configuration-annotation-processor')
+    annotationProcessor libs.picocli.annotation.processor
     annotationProcessor libs.micronaut.inject.annotation.processor
 
     implementation project(':ignite-configuration')
@@ -48,6 +49,7 @@ dependencies {
     implementation project(':ignite-core')
     implementation project(':ignite-cluster-management')
     implementation project(':ignite-metrics')
+    implementation project(':ignite-replicator')
     implementation libs.jetbrains.annotations
     implementation libs.micronaut.inject
     implementation libs.micronaut.validation
@@ -55,6 +57,7 @@ dependencies {
     implementation libs.micronaut.picocli
     implementation libs.picocli.core
     implementation libs.slf4j.jdk14
+    implementation libs.typesafe.config
 
     testAnnotationProcessor project(':ignite-configuration-annotation-processor')
     testImplementation project(':ignite-cluster-management')
@@ -96,4 +99,12 @@ dependencies {
 
 checkstyleMain {
     enabled = false
+}
+
+jar {
+    manifest {
+        attributes(
+            'Main-Class': 'org.apache.ignite.app.IgniteCliRunner'
+        )
+    }
 }
