@@ -22,11 +22,18 @@ namespace Apache.Ignite.Internal.Table.Serialization;
 /// </summary>
 /// <param name="Schema">Schema.</param>
 /// <param name="Part">Part.</param>
-internal record struct SchemaSlice(Schema Schema, TuplePart Part)
+internal readonly record struct SchemaSlice(Schema Schema, TuplePart Part = TuplePart.KeyAndVal)
 {
     /// <summary>
     /// Gets the index range for the specified part.
     /// </summary>
     /// <returns>Index range.</returns>
     public (int Start, int Count) Range => Schema.GetRange(Part);
+
+    /// <summary>
+    /// Wraps a schema into a slice.
+    /// </summary>
+    /// <param name="schema">Schema.</param>
+    /// <returns>Wrapped schema.</returns>
+    public static implicit operator SchemaSlice(Schema schema) => new(schema);
 }
