@@ -58,7 +58,7 @@ internal sealed class KeyValueView<TK, TV> : IKeyValueView<TK, TV>
     }
 
     /// <inheritdoc/>
-    public async Task<TV?> GetAsync(ITransaction? transaction, TK key)
+    public async Task<Option<TV>> GetAsync(ITransaction? transaction, TK key)
     {
         IgniteArgumentCheck.NotNull(key, nameof(key));
 

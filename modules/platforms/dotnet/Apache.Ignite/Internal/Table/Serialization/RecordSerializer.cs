@@ -81,7 +81,7 @@ namespace Apache.Ignite.Internal.Table.Serialization
         /// <param name="buf">Buffer.</param>
         /// <param name="schema">Schema or null when there is no value.</param>
         /// <returns>Resulting record.</returns>
-        public T? ReadValue(PooledBuffer buf, Schema? schema)
+        public Option<T> ReadValue(PooledBuffer buf, Schema? schema)
         {
             if (schema == null)
             {
