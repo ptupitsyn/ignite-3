@@ -26,8 +26,6 @@ using Transactions;
 /// <typeparam name="TK">Key type.</typeparam>
 /// <typeparam name="TV">Value type.</typeparam>
 public interface IKeyValueView<TK, TV>
-    where TK : class
-    where TV : class // TODO: Remove class constraint (IGNITE-16355)
 {
     /// <summary>
     /// Gets a value associated with the given key.
@@ -38,7 +36,7 @@ public interface IKeyValueView<TK, TV>
     /// A <see cref="Task{TResult}"/> representing the asynchronous operation.
     /// The task result contains a record with all columns.
     /// </returns>
-    Task<TV?> GetAsync(ITransaction? transaction, TK key);
+    Task<Option<TV>> GetAsync(ITransaction? transaction, TK key);
 
     /// <summary>
     /// Puts a value with a given key.
@@ -47,5 +45,5 @@ public interface IKeyValueView<TK, TV>
     /// <param name="key">Key.</param>
     /// <param name="val">Value.</param>
     /// <returns>A <see cref="Task{TResult}"/> representing the asynchronous operation.</returns>
-    Task PutAsync(ITransaction? transaction, TK key, TV? val);
+    Task PutAsync(ITransaction? transaction, TK key, TV val);
 }
