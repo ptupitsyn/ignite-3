@@ -54,4 +54,15 @@ var table = (await client.Tables.GetTableAsync("TBL1"))!;
     Debug.Assert(value["name"] as string == "John Doe");
 }
 
+// 4. KV View
+{
+    IKeyValueView<long, Poco> kvView = table.GetKeyValueView<long, Poco>();
+
+    await kvView.PutAsync(transaction: null, 42, new Poco(Id: 0, Name: "John Doe"));
+    (Poco? value, bool hasValue) = await kvView.GetAsync(transaction: null, 42);
+
+    Debug.Assert(hasValue);
+    Debug.Assert(value.Name == "John Doe");
+}
+
 public record Poco(long Id, string? Name = null);
