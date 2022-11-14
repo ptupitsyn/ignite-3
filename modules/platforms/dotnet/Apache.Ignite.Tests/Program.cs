@@ -6,6 +6,7 @@ using System.Linq;
 using Apache.Ignite;
 using Apache.Ignite.Sql;
 using Apache.Ignite.Table;
+using Apache.Ignite.Transactions;
 
 var client = await IgniteClient.StartAsync(new IgniteClientConfiguration("127.0.0.1:10942"));
 var table = (await client.Tables.GetTableAsync("TBL1"))!;
@@ -76,4 +77,25 @@ var table = (await client.Tables.GetTableAsync("TBL1"))!;
     Debug.Assert(row["name"] as string == "John Doe");
 }
 
+// 6. Transactions
+{
+    var accounts = table.GetKeyValueView<long, Account>();
+    await accounts.PutAsync(transaction: null, 42, new Account(16_000));
+
+    await using ITransaction tx = await client.Transactions.BeginAsync();
+
+    (Account account, bool hasValue) = await accounts.GetAsync(tx, 42);
+    account = account with { Balance = account.Balance + 500 };
+
+    await accounts.PutAsync(tx, 42, account);
+
+    Debug.Assert((await accounts.GetAsync(tx, 42)).Value.Balance == 16_500);
+
+    await tx.RollbackAsync();
+
+    Debug.Assert((await accounts.GetAsync(null, 42)).Value.Balance == 16_000);
+}
+
 public record Poco(long Id, string? Name = null);
+
+public record Account(decimal Balance);
