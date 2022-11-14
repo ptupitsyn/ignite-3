@@ -5,9 +5,10 @@ using Apache.Ignite;
 using Apache.Ignite.Table;
 
 var client = await IgniteClient.StartAsync(new IgniteClientConfiguration("127.0.0.1:10942"));
-var table = await client.Tables.GetTableAsync("TBL1");
+var table = (await client.Tables.GetTableAsync("TBL1"))!;
 
-IRecordView<IIgniteTuple> view = table!.RecordBinaryView;
+// 1. Record binary view.
+IRecordView<IIgniteTuple> view = table.RecordBinaryView;
 
 IIgniteTuple fullRecord = new IgniteTuple
 {
@@ -24,3 +25,5 @@ Debug.Assert(hasValue);
 Debug.Assert(value.FieldCount == 2);
 Debug.Assert(value["id"] as int? == 42);
 Debug.Assert(value["name"] as string == "John Doe");
+
+// 2. Record view.
