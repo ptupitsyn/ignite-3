@@ -8,22 +8,35 @@ var client = await IgniteClient.StartAsync(new IgniteClientConfiguration("127.0.
 var table = (await client.Tables.GetTableAsync("TBL1"))!;
 
 // 1. Record binary view.
-IRecordView<IIgniteTuple> view = table.RecordBinaryView;
-
-IIgniteTuple fullRecord = new IgniteTuple
 {
-    ["id"] = 42,
-    ["name"] = "John Doe"
-};
+    IRecordView<IIgniteTuple> view = table.RecordBinaryView;
 
-await view.UpsertAsync(transaction: null, fullRecord);
+    IIgniteTuple fullRecord = new IgniteTuple
+    {
+        ["id"] = 42,
+        ["name"] = "John Doe"
+    };
 
-IIgniteTuple keyRecord = new IgniteTuple { ["id"] = 42 };
-(IIgniteTuple value, bool hasValue) = await view.GetAsync(transaction: null, keyRecord);
+    await view.UpsertAsync(transaction: null, fullRecord);
 
-Debug.Assert(hasValue);
-Debug.Assert(value.FieldCount == 2);
-Debug.Assert(value["id"] as int? == 42);
-Debug.Assert(value["name"] as string == "John Doe");
+    IIgniteTuple keyRecord = new IgniteTuple { ["id"] = 42 };
+    (IIgniteTuple value, bool hasValue) = await view.GetAsync(transaction: null, keyRecord);
+
+    Debug.Assert(hasValue);
+    Debug.Assert(value.FieldCount == 2);
+    Debug.Assert(value["id"] as int? == 42);
+    Debug.Assert(value["name"] as string == "John Doe");
+}
 
 // 2. Record view.
+{
+    var pocoView = table.GetRecordView<Poco>();
+
+    await pocoView.UpsertAsync(transaction: null, new Poco(42, "John Doe"));
+    var (value, hasValue) = await pocoView.GetAsync(transaction: null, new Poco(42));
+
+    Debug.Assert(hasValue);
+    Debug.Assert(value.Name == "John Doe");
+}
+
+public record Poco(long Id, string? Name = null);
