@@ -1,7 +1,10 @@
 #pragma warning disable SA1405
 
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using Apache.Ignite;
+using Apache.Ignite.Sql;
 using Apache.Ignite.Table;
 
 var client = await IgniteClient.StartAsync(new IgniteClientConfiguration("127.0.0.1:10942"));
@@ -63,6 +66,14 @@ var table = (await client.Tables.GetTableAsync("TBL1"))!;
 
     Debug.Assert(hasValue);
     Debug.Assert(value.Name == "John Doe");
+}
+
+// 5. SQL
+{
+    IResultSet<IIgniteTuple> resultSet = await client.Sql.ExecuteAsync(transaction: null, "select name from tbl where id = ?", 42);
+    List<IIgniteTuple> rows = await resultSet.ToListAsync();
+    IIgniteTuple row = rows.Single();
+    Debug.Assert(row["name"] as string == "John Doe");
 }
 
 public record Poco(long Id, string? Name = null);
