@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Apache.Ignite;
+using Apache.Ignite.Network;
 using Apache.Ignite.Sql;
 using Apache.Ignite.Table;
 using Apache.Ignite.Transactions;
@@ -94,6 +95,12 @@ var table = (await client.Tables.GetTableAsync("TBL1"))!;
     await tx.RollbackAsync();
 
     Debug.Assert((await accounts.GetAsync(null, 42)).Value.Balance == 16_000);
+}
+
+// 7. Compute
+{
+    IList<IClusterNode> nodes = await client.GetClusterNodesAsync();
+    string res = await client.Compute.ExecuteAsync<string>(nodes, "org.foo.bar.Job", 42)
 }
 
 public record Poco(long Id, string? Name = null);
