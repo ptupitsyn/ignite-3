@@ -33,10 +33,25 @@ var table = (await client.Tables.GetTableAsync("TBL1"))!;
     var pocoView = table.GetRecordView<Poco>();
 
     await pocoView.UpsertAsync(transaction: null, new Poco(42, "John Doe"));
-    var (value, hasValue) = await pocoView.GetAsync(transaction: null, new Poco(42));
+    (Poco? value, bool hasValue) = await pocoView.GetAsync(transaction: null, new Poco(42));
 
     Debug.Assert(hasValue);
     Debug.Assert(value.Name == "John Doe");
+}
+
+// 3. KV Binary View.
+{
+    IKeyValueView<IIgniteTuple, IIgniteTuple> kvView = table.KeyValueBinaryView;
+
+    IIgniteTuple key = new IgniteTuple { ["id"] = 42 };
+    IIgniteTuple val = new IgniteTuple { ["name"] = "John Doe" };
+
+    await kvView.PutAsync(transaction: null, key, val);
+    (IIgniteTuple? value, bool hasValue) = await kvView.GetAsync(transaction: null, key);
+
+    Debug.Assert(hasValue);
+    Debug.Assert(value.FieldCount == 1);
+    Debug.Assert(value["name"] as string == "John Doe");
 }
 
 public record Poco(long Id, string? Name = null);
