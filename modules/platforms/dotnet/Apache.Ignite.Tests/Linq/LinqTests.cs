@@ -19,9 +19,12 @@ namespace Apache.Ignite.Tests.Linq;
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading.Tasks;
 using Ignite.Sql;
+using Ignite.Table;
 using NUnit.Framework;
 using Table;
 
@@ -278,5 +281,30 @@ public class LinqTests : IgniteTestsBase
             ", Parameters=3, v-2]";
 
         Assert.AreEqual(expected, query.ToString());
+    }
+
+    [Test]
+    [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1405:Debug.Assert should provide message text", Justification = "Test")]
+    public async Task BinaryRecordView()
+    {
+        var table = Table;
+
+        IRecordView<IIgniteTuple> view = table.RecordBinaryView;
+
+        IIgniteTuple fullRecord = new IgniteTuple
+        {
+            ["id"] = 42,
+            ["name"] = "John Doe"
+        };
+
+        await view.UpsertAsync(transaction: null, fullRecord);
+
+        IIgniteTuple keyRecord = new IgniteTuple { ["id"] = 42 };
+        (IIgniteTuple value, bool hasValue) = await view.GetAsync(transaction: null, keyRecord);
+
+        Debug.Assert(hasValue);
+        Debug.Assert(value.FieldCount == 2);
+        Debug.Assert(value["id"] as int? == 42);
+        Debug.Assert(value["name"] as string == "John Doe");
     }
 }
