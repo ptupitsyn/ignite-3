@@ -30,9 +30,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
 import java.util.function.Function;
+import javax.net.ssl.SSLContext;
 import org.apache.ignite.Ignite;
 import org.apache.ignite.internal.client.IgniteClientConfigurationImpl;
 import org.apache.ignite.internal.client.TcpIgniteClient;
+import org.apache.ignite.internal.util.Factory;
 import org.apache.ignite.lang.LoggerFactory;
 import org.apache.ignite.network.ClusterNode;
 import org.jetbrains.annotations.Nullable;
@@ -96,6 +98,12 @@ public interface IgniteClient extends Ignite {
 
         /** Logger factory. */
         private @Nullable LoggerFactory loggerFactory;
+
+        /** SSL mode. */
+        private SslMode sslMode = SslMode.DISABLED;
+
+        /** SSLContext factory. */
+        private @Nullable Factory<SSLContext> sslContextFactory;
 
         /**
          * Sets the addresses of Ignite server nodes within a cluster. An address can be an IP address or a hostname, with or without port.
@@ -285,8 +293,9 @@ public interface IgniteClient extends Ignite {
                     heartbeatInterval,
                     heartbeatTimeout,
                     retryPolicy,
-                    loggerFactory
-            );
+                    loggerFactory,
+                    sslMode,
+                    sslContextFactory);
 
             return TcpIgniteClient.startAsync(cfg);
         }

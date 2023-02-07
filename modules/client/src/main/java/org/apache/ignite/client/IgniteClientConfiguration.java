@@ -152,9 +152,9 @@ public interface IgniteClientConfiguration {
     SslMode sslMode();
 
     /**
-     * Returns the SSL context factory.
+     * Returns the optional SSL context factory.
      *
-     * <p>When {@code null} (default), {@link SSLContext#getDefault()} is used (TODO does it work with default context?).
+     * <p>When {@code null} (default), and {@link #sslMode()} is {@link SslMode#REQUIRED}, default SSL context will be used.
      *
      * @return SSL context factory.
      */

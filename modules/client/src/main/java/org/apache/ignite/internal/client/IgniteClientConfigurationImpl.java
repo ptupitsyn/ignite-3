@@ -60,11 +60,15 @@ public final class IgniteClientConfigurationImpl implements IgniteClientConfigur
 
     private final LoggerFactory loggerFactory;
 
+    private final SslMode sslMode;
+
+    private final Factory<SSLContext> sslContextFactory;
+
     /**
      * Constructor.
      *
      * @param addressFinder Address finder.
-     * @param addresses  Addresses.
+     * @param addresses Addresses.
      * @param connectTimeout Socket connect timeout.
      * @param reconnectThrottlingPeriod Reconnect throttling period, in milliseconds.
      * @param reconnectThrottlingRetries Reconnect throttling retries.
@@ -73,19 +77,22 @@ public final class IgniteClientConfigurationImpl implements IgniteClientConfigur
      * @param heartbeatTimeout Heartbeat message timeout.
      * @param retryPolicy Retry policy.
      * @param loggerFactory Logger factory which will be used to create a logger instance for this this particular client when needed.
+     * @param sslMode SSL mode.
+     * @param sslContextFactory SSL context factory.
      */
     public IgniteClientConfigurationImpl(
-            IgniteClientAddressFinder addressFinder,
+            @Nullable IgniteClientAddressFinder addressFinder,
             String[] addresses,
             long connectTimeout,
             long reconnectThrottlingPeriod,
             int reconnectThrottlingRetries,
-            Executor asyncContinuationExecutor,
+            @Nullable Executor asyncContinuationExecutor,
             long heartbeatInterval,
             long heartbeatTimeout,
             @Nullable RetryPolicy retryPolicy,
-            @Nullable LoggerFactory loggerFactory
-    ) {
+            @Nullable LoggerFactory loggerFactory,
+            SslMode sslMode,
+            @Nullable Factory<SSLContext> sslContextFactory) {
         this.addressFinder = addressFinder;
 
         //noinspection AssignmentOrReturnOfFieldWithMutableType (cloned in Builder).
@@ -99,6 +106,8 @@ public final class IgniteClientConfigurationImpl implements IgniteClientConfigur
         this.heartbeatTimeout = heartbeatTimeout;
         this.retryPolicy = retryPolicy;
         this.loggerFactory = loggerFactory;
+        this.sslMode = sslMode;
+        this.sslContextFactory = sslContextFactory;
     }
 
     /** {@inheritDoc} */
@@ -164,14 +173,12 @@ public final class IgniteClientConfigurationImpl implements IgniteClientConfigur
     /** {@inheritDoc} */
     @Override
     public SslMode sslMode() {
-        // TODO
-        return null;
+        return sslMode;
     }
 
     /** {@inheritDoc} */
     @Override
     public @Nullable Factory<SSLContext> sslContextFactory() {
-        // TODO
-        return null;
+        return sslContextFactory;
     }
 }
