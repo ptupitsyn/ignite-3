@@ -20,6 +20,8 @@ package org.apache.ignite.client;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
 import java.util.function.Function;
+import javax.net.ssl.SSLContext;
+import org.apache.ignite.internal.util.Factory;
 import org.apache.ignite.lang.LoggerFactory;
 import org.jetbrains.annotations.Nullable;
 
@@ -141,4 +143,20 @@ public interface IgniteClientConfiguration {
      * @return Configured logger factory.
      */
     @Nullable LoggerFactory loggerFactory();
+
+    /**
+     * Returns the SSL mode.
+     *
+     * @return SSL mode.
+     */
+    SslMode sslMode();
+
+    /**
+     * Returns the SSL context factory.
+     *
+     * <p>When {@code null} (default), {@link SSLContext#getDefault()} is used (TODO does it work with default context?).
+     *
+     * @return SSL context factory.
+     */
+    @Nullable Factory<SSLContext> sslContextFactory();
 }
