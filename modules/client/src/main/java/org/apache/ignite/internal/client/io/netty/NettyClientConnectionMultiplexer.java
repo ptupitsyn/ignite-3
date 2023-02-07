@@ -29,8 +29,8 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SslHandler;
+import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import java.net.InetSocketAddress;
-import java.security.cert.CertificateException;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLException;
 import org.apache.ignite.client.IgniteClientConfiguration;
@@ -70,7 +70,7 @@ public class NettyClientConnectionMultiplexer implements ClientConnectionMultipl
                 @Override
                 public void initChannel(SocketChannel ch) {
                     SSLEngine engine = getSslContext().newEngine(ch.alloc());
-                    boolean startTls = true;
+                    boolean startTls = false;
                     ch.pipeline().addFirst("ssl", new SslHandler(engine, startTls));
 
                     ch.pipeline().addLast(
@@ -111,7 +111,9 @@ public class NettyClientConnectionMultiplexer implements ClientConnectionMultipl
     @NotNull
     private static SslContext getSslContext() {
         try {
-            return SslContextBuilder.forClient().build();
+            return SslContextBuilder.forClient()
+                    .trustManager(InsecureTrustManagerFactory.INSTANCE) // TODO
+                    .build();
         } catch (SSLException e) {
             throw new RuntimeException(e);
         }

@@ -206,7 +206,7 @@ public class ClientHandlerModule implements IgniteComponent {
                     @Override
                     protected void initChannel(Channel ch) {
                         SSLEngine engine = getSslContext().newEngine(ch.alloc());
-                        boolean startTls = false; // True on client side.
+                        boolean startTls = false;
                         ch.pipeline().addFirst("ssl", new SslHandler(engine, startTls));
 
                         if (configuration.idleTimeout() > 0) {
