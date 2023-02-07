@@ -24,15 +24,29 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
+import io.netty.handler.ssl.ApplicationProtocolConfig;
+import io.netty.handler.ssl.ApplicationProtocolConfig.Protocol;
+import io.netty.handler.ssl.ApplicationProtocolConfig.SelectedListenerFailureBehavior;
+import io.netty.handler.ssl.ApplicationProtocolConfig.SelectorFailureBehavior;
+import io.netty.handler.ssl.ApplicationProtocolNames;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.SslHandler;
+import io.netty.handler.ssl.SslProvider;
+import io.netty.handler.ssl.SupportedCipherSuiteFilter;
+import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import java.net.BindException;
 import java.net.InetSocketAddress;
+import java.security.cert.CertificateException;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLException;
 import org.apache.ignite.client.handler.configuration.ClientConnectorConfiguration;
 import org.apache.ignite.compute.IgniteCompute;
 import org.apache.ignite.internal.client.proto.ClientMessageDecoder;
@@ -48,6 +62,7 @@ import org.apache.ignite.network.ClusterService;
 import org.apache.ignite.network.NettyBootstrapFactory;
 import org.apache.ignite.sql.IgniteSql;
 import org.apache.ignite.tx.IgniteTransactions;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Client handler module maintains TCP endpoint for thin client connections.
@@ -190,6 +205,10 @@ public class ClientHandlerModule implements IgniteComponent {
         bootstrap.childHandler(new ChannelInitializer<>() {
                     @Override
                     protected void initChannel(Channel ch) {
+                        SSLEngine engine = getSslContext().newEngine(ch.alloc());
+                        boolean startTls = false; // True on client side.
+                        ch.pipeline().addFirst("ssl", new SslHandler(engine, startTls));
+
                         if (configuration.idleTimeout() > 0) {
                             IdleStateHandler idleStateHandler = new IdleStateHandler(
                                     configuration.idleTimeout(), 0, 0, TimeUnit.MILLISECONDS);
@@ -238,6 +257,16 @@ public class ClientHandlerModule implements IgniteComponent {
         LOG.info("Thin client protocol started successfully[port={}]", port);
 
         return ch.closeFuture();
+    }
+
+    @NotNull
+    private static SslContext getSslContext() {
+        try {
+            SelfSignedCertificate ssc = new SelfSignedCertificate();
+            return SslContextBuilder.forServer(ssc.certificate(), ssc.privateKey()).build();
+        } catch (CertificateException | SSLException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     /** Idle channel state handler. */

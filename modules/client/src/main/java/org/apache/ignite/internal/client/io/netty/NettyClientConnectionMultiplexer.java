@@ -26,7 +26,13 @@ import io.netty.channel.ChannelOption;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.SslHandler;
 import java.net.InetSocketAddress;
+import java.security.cert.CertificateException;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLException;
 import org.apache.ignite.client.IgniteClientConfiguration;
 import org.apache.ignite.client.IgniteClientConnectionException;
 import org.apache.ignite.internal.client.io.ClientConnection;
@@ -34,6 +40,7 @@ import org.apache.ignite.internal.client.io.ClientConnectionMultiplexer;
 import org.apache.ignite.internal.client.io.ClientConnectionStateHandler;
 import org.apache.ignite.internal.client.io.ClientMessageHandler;
 import org.apache.ignite.internal.client.proto.ClientMessageDecoder;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Netty-based multiplexer.
@@ -62,6 +69,10 @@ public class NettyClientConnectionMultiplexer implements ClientConnectionMultipl
             bootstrap.handler(new ChannelInitializer<SocketChannel>() {
                 @Override
                 public void initChannel(SocketChannel ch) {
+                    SSLEngine engine = getSslContext().newEngine(ch.alloc());
+                    boolean startTls = true;
+                    ch.pipeline().addFirst("ssl", new SslHandler(engine, startTls));
+
                     ch.pipeline().addLast(
                             new ClientMessageDecoder(),
                             new NettyClientMessageHandler());
@@ -94,6 +105,15 @@ public class NettyClientConnectionMultiplexer implements ClientConnectionMultipl
             return new NettyClientConnection(f.channel(), msgHnd, stateHnd);
         } catch (Throwable t) {
             throw new IgniteClientConnectionException(UNKNOWN_ERR, t.getMessage(), t);
+        }
+    }
+
+    @NotNull
+    private static SslContext getSslContext() {
+        try {
+            return SslContextBuilder.forClient().build();
+        } catch (SSLException e) {
+            throw new RuntimeException(e);
         }
     }
 }
