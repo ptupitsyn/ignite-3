@@ -18,9 +18,12 @@
 package org.apache.ignite.internal.client;
 
 import java.util.concurrent.Executor;
+import javax.net.ssl.SSLContext;
 import org.apache.ignite.client.IgniteClientAddressFinder;
 import org.apache.ignite.client.IgniteClientConfiguration;
 import org.apache.ignite.client.RetryPolicy;
+import org.apache.ignite.client.SslMode;
+import org.apache.ignite.internal.util.Factory;
 import org.apache.ignite.lang.LoggerFactory;
 import org.jetbrains.annotations.Nullable;
 
@@ -156,5 +159,19 @@ public final class IgniteClientConfigurationImpl implements IgniteClientConfigur
     @Override
     public @Nullable RetryPolicy retryPolicy() {
         return retryPolicy;
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public SslMode sslMode() {
+        // TODO
+        return null;
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public @Nullable Factory<SSLContext> sslContextFactory() {
+        // TODO
+        return null;
     }
 }
