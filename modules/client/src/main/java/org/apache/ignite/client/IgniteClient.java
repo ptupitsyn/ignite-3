@@ -269,6 +269,32 @@ public interface IgniteClient extends Ignite {
         }
 
         /**
+         * Sets the SSL mode. Default is {@link SslMode#DISABLED}.
+         *
+         * @param sslMode SSL mode.
+         * @return This instance.
+         */
+        public Builder sslMode(SslMode sslMode) {
+            this.sslMode = sslMode;
+
+            return this;
+        }
+
+        /**
+         * Sets the optional SSL context factory.
+         *
+         * <p>When {@code null} (default), and {@link #sslMode} is {@link SslMode#REQUIRED}, default SSL context will be used.
+         *
+         * @param sslContextFactory SSL context factory.
+         * @return This instance.
+         */
+        public Builder sslContextFactory(Factory<SSLContext> sslContextFactory) {
+            this.sslContextFactory = sslContextFactory;
+
+            return this;
+        }
+
+        /**
          * Builds the client.
          *
          * @return Ignite client.

@@ -154,7 +154,7 @@ public interface IgniteClientConfiguration {
     /**
      * Returns the optional SSL context factory.
      *
-     * <p>When {@code null} (default), and {@link #sslMode()} is {@link SslMode#REQUIRED}, default SSL context will be used.
+     * <p>When {@code null} (default), and {@link #sslMode} is {@link SslMode#REQUIRED}, default SSL context will be used.
      *
      * @return SSL context factory.
      */
