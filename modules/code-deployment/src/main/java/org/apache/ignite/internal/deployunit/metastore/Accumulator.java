@@ -15,27 +15,28 @@
  * limitations under the License.
  */
 
-package org.apache.ignite.internal.compute.configuration;
+package org.apache.ignite.internal.deployunit.metastore;
 
-import com.google.auto.service.AutoService;
-import java.util.Collection;
-import java.util.Collections;
-import org.apache.ignite.configuration.ConfigurationModule;
-import org.apache.ignite.configuration.RootKey;
-import org.apache.ignite.configuration.annotation.ConfigurationType;
+import org.apache.ignite.internal.metastorage.Entry;
 
 /**
- * {@link ConfigurationModule} for node-local configuration provided by compute.
+ * Values accumulator. Implementation should NOT be thead-safe.
+ *
+ * @param <R> Result value type.
  */
-@AutoService(ConfigurationModule.class)
-public class ComputeConfigurationModule implements ConfigurationModule {
-    @Override
-    public ConfigurationType type() {
-        return ConfigurationType.LOCAL;
-    }
+public interface Accumulator<R> {
+    /**
+     * Accumulate provided value.
+     *
+     * @param item Item from metastore.
+     */
+    void accumulate(Entry item);
 
-    @Override
-    public Collection<RootKey<?, ?>> rootKeys() {
-        return Collections.singleton(ComputeConfiguration.KEY);
-    }
+    /**
+     * Returns all accumulated values transformed to required type.
+     *
+     * @return All accumulated values transformed to required type.
+     * @throws AccumulateException in case when accumulation or transformation failed.
+     */
+    R get() throws AccumulateException;
 }

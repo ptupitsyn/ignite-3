@@ -15,27 +15,21 @@
  * limitations under the License.
  */
 
-package org.apache.ignite.internal.compute.configuration;
-
-import com.google.auto.service.AutoService;
-import java.util.Collection;
-import java.util.Collections;
-import org.apache.ignite.configuration.ConfigurationModule;
-import org.apache.ignite.configuration.RootKey;
-import org.apache.ignite.configuration.annotation.ConfigurationType;
+package org.apache.ignite.configuration;
 
 /**
- * {@link ConfigurationModule} for node-local configuration provided by compute.
+ * This exception is thrown when an operation attempts to access a node with a key that no longer exists.
  */
-@AutoService(ConfigurationModule.class)
-public class ComputeConfigurationModule implements ConfigurationModule {
-    @Override
-    public ConfigurationType type() {
-        return ConfigurationType.LOCAL;
-    }
+public class ConfigurationNodeDoesNotExistException extends ConfigurationNodeModificationException {
 
-    @Override
-    public Collection<RootKey<?, ?>> rootKeys() {
-        return Collections.singleton(ComputeConfiguration.KEY);
+    private static final long serialVersionUID = 4545533114006120896L;
+
+    /**
+     * The constructor.
+     *
+     * @param key   the key.
+     */
+    public ConfigurationNodeDoesNotExistException(String key) {
+        super(String.format("Named List element with key \"%s\" does not exist", key));
     }
 }
