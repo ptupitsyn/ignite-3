@@ -72,7 +72,12 @@ public class ClientPutGetBenchmark {
         recordView = table.recordView();
 
         key = Tuple.create().set("id", 1L);
-        recordView.upsert(null, Tuple.create().set("id", 1L).set("name", "John"));
+
+        Tuple rec = Tuple.create()
+                .set("id", 1L)
+                .set("name", "John".repeat(1000));
+
+        recordView.upsert(null, rec);
     }
 
     @TearDown
