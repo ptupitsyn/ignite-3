@@ -50,9 +50,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /** Buffer for tuple content. */
         private readonly PooledArrayBuffer _buffer;
 
-        /** Flag indicating if any NULL values were really put here. */
-        private bool _hasNullValues;
-
         /** Current element. */
         private int _elementIndex;
 
@@ -63,13 +60,11 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// Initializes a new instance of the <see cref="BinaryTupleBuilder"/> struct.
         /// </summary>
         /// <param name="numElements">Capacity.</param>
-        /// <param name="allowNulls">Whether nulls are allowed.</param>
         /// <param name="totalValueSize">Total value size, -1 when unknown.</param>
         /// <param name="hashedColumnsPredicate">A predicate that returns true for colocation column indexes.
         /// Pass null when colocation hash is not needed.</param>
         public BinaryTupleBuilder(
             int numElements,
-            bool allowNulls = true,
             int totalValueSize = -1,
             IHashedColumnIndexProvider? hashedColumnsPredicate = null)
         {
@@ -80,30 +75,18 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
             _hash = 0;
             _buffer = new();
             _elementIndex = 0;
-            _hasNullValues = false;
 
-            int baseOffset = BinaryTupleCommon.HeaderSize;
-            if (allowNulls)
-            {
-                baseOffset += BinaryTupleCommon.NullMapSize(numElements);
-            }
-
-            _entryBase = baseOffset;
+            _entryBase = BinaryTupleCommon.HeaderSize;
 
             _entrySize = totalValueSize < 0
                 ? 4
                 : BinaryTupleCommon.FlagsToEntrySize(BinaryTupleCommon.ValueSizeToFlags(totalValueSize));
 
-            _valueBase = baseOffset + _entrySize * numElements;
+            _valueBase = _entryBase + _entrySize * numElements;
 
             _buffer.GetSpan(size: _valueBase)[.._valueBase].Clear();
             _buffer.Advance(_valueBase);
         }
-
-        /// <summary>
-        /// Gets a value indicating whether null map is present.
-        /// </summary>
-        public bool HasNullMap => _entryBase > BinaryTupleCommon.HeaderSize;
 
         /// <summary>
         /// Gets the current element index.
@@ -120,30 +103,14 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// </summary>
         public void AppendNull()
         {
-            if (!HasNullMap)
-            {
-                throw new InvalidOperationException("Appending a NULL value in binary tuple builder with disabled NULLs");
-            }
-
-            if (ShouldHash())
-            {
-                _hash = HashUtils.Hash32((sbyte)0, _hash);
-            }
-
-            _hasNullValues = true;
-
-            int nullIndex = BinaryTupleCommon.NullOffset(_elementIndex);
-            byte nullMask = BinaryTupleCommon.NullMask(_elementIndex);
-
-            _buffer.GetSpan(nullIndex, 1)[0] |= nullMask;
-
-            OnWrite();
+            // TODO: Is it ok that there is no difference?
+            AppendDefault();
         }
 
         /// <summary>
         /// Appends a default value.
         /// </summary>
-        public void AppendDefault()
+        public void AppendDefault() // TODO Remove?
         {
             if (ShouldHash())
             {
@@ -1094,27 +1061,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
                 }
 
                 offset = (_entrySize - desiredEntrySize) * _numElements;
-            }
-
-            // Drop or move null map if needed.
-            if (HasNullMap)
-            {
-                if (!_hasNullValues)
-                {
-                    offset += BinaryTupleCommon.NullMapSize(_numElements);
-                }
-                else
-                {
-                    flags |= BinaryTupleCommon.NullmapFlag;
-                    if (offset != 0)
-                    {
-                        int n = BinaryTupleCommon.NullMapSize(_numElements);
-                        for (int i = BinaryTupleCommon.HeaderSize + n - 1; i >= BinaryTupleCommon.HeaderSize; i--)
-                        {
-                            _buffer.WriteByte(_buffer.ReadByte(i), i + offset);
-                        }
-                    }
-                }
             }
 
             _buffer.WriteByte(flags, offset);

@@ -39,11 +39,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         public const int VarsizeMask = 0b011;
 
         /// <summary>
-        /// Flag that indicates null map presence.
-        /// </summary>
-        public const int NullmapFlag = 0b100;
-
-        /// <summary>
         /// Default value for Date elements (Jan 1st 1 BC).
         /// </summary>
         public static readonly LocalDate DefaultDate = new(year: 0, month: 1, day: 1);

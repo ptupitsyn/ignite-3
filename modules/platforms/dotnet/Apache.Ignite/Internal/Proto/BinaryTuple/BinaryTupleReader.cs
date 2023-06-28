@@ -57,16 +57,9 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
 
             var flags = buffer[0];
 
-            int @base = BinaryTupleCommon.HeaderSize;
-
-            if ((flags & BinaryTupleCommon.NullmapFlag) != 0)
-            {
-                @base += BinaryTupleCommon.NullMapSize(numElements);
-            }
-
-            _entryBase = @base;
+            _entryBase = BinaryTupleCommon.HeaderSize;
             _entrySize = 1 << (flags & BinaryTupleCommon.VarsizeMask);
-            _valueBase = @base + _entrySize * numElements;
+            _valueBase = _entryBase + _entrySize * numElements;
         }
 
         /// <summary>

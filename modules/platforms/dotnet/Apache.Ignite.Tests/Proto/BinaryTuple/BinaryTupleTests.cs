@@ -37,10 +37,10 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
         [Test]
         public void TestNullValue()
         {
-            // Header: 1 byte with null map flag.
+            // Header: 1 byte without flags.
             // NullMap: 1 byte with first bit set.
             // Offset table: 1 zero byte
-            byte[] bytes = { BinaryTupleCommon.NullmapFlag, 1, 0 };
+            byte[] bytes = { 0, 1, 0 };
             var reader = new BinaryTupleReader(bytes, 1);
 
             Assert.IsTrue(reader.HasNullMap);
@@ -85,10 +85,10 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
             // Offset table: 1 zero byte.
             byte[] bytes1 = { 0, 0 };
 
-            // Header: 1 byte with null map flag.
+            // Header: 1 byte without flags.
             // NullMap: 1 byte with no bit set.
             // Offset table: 1 zero byte
-            byte[] bytes2 = { BinaryTupleCommon.NullmapFlag, 0, 0 };
+            byte[] bytes2 = { 0, 0, 0 };
 
             byte[][] bytesArray = { bytes1, bytes2 };
 
