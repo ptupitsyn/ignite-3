@@ -67,7 +67,7 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// </summary>
         /// <param name="index">Element index.</param>
         /// <returns>True when the element is null; false otherwise.</returns>
-        public bool IsNull(int index) => Seek(index).IsEmpty;
+        public bool IsNull(int index) => Seek(index, allowNull: true).IsEmpty;
 
         /// <summary>
         /// Gets a byte value.
@@ -598,7 +598,7 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
             }
         }
 
-        private ReadOnlySpan<byte> Seek(int index)
+        private ReadOnlySpan<byte> Seek(int index, bool allowNull = false)
         {
             Debug.Assert(index >= 0, "index >= 0");
             Debug.Assert(index < _numElements, "index < numElements");
@@ -618,7 +618,7 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
                 throw new InvalidOperationException("Corrupted offset table");
             }
 
-            if (offset == nextOffset)
+            if (offset == nextOffset && !allowNull)
             {
                 throw GetNullElementException(index);
             }
