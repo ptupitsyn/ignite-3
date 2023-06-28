@@ -43,7 +43,6 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
             byte[] bytes = { 0, 1, 0 };
             var reader = new BinaryTupleReader(bytes, 1);
 
-            Assert.IsTrue(reader.HasNullMap);
             Assert.IsTrue(reader.IsNull(0));
         }
 
@@ -74,7 +73,6 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
         {
             var reader = BuildAndRead((ref BinaryTupleBuilder b) => b.AppendNull());
 
-            Assert.IsTrue(reader.HasNullMap);
             Assert.IsTrue(reader.IsNull(0));
         }
 
@@ -95,15 +93,6 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
             foreach (var bytes in bytesArray)
             {
                 var reader = new BinaryTupleReader(bytes, 1);
-
-                if (bytes.Length == bytes1.Length)
-                {
-                    Assert.IsFalse(reader.HasNullMap);
-                }
-                else
-                {
-                    Assert.IsTrue(reader.HasNullMap);
-                }
 
                 Assert.IsFalse(reader.IsNull(0));
                 Assert.AreEqual(string.Empty, reader.GetString(0));

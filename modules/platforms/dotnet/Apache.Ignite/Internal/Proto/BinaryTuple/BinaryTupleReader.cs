@@ -63,27 +63,11 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         }
 
         /// <summary>
-        /// Gets a value indicating whether this reader has a null map.
-        /// </summary>
-        public bool HasNullMap => _entryBase > BinaryTupleCommon.HeaderSize;
-
-        /// <summary>
         /// Gets a value indicating whether the element at specified index is null.
         /// </summary>
         /// <param name="index">Element index.</param>
         /// <returns>True when the element is null; false otherwise.</returns>
-        public bool IsNull(int index)
-        {
-            if (!HasNullMap)
-            {
-                return false;
-            }
-
-            int nullIndex = BinaryTupleCommon.NullOffset(index);
-            byte nullMask = BinaryTupleCommon.NullMask(index);
-
-            return (_buffer[nullIndex] & nullMask) != 0;
-        }
+        public bool IsNull(int index) => Seek(index).IsEmpty;
 
         /// <summary>
         /// Gets a byte value.
@@ -255,7 +239,7 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public double? GetDoubleNullable(int index) => IsNull(index) ? null : GetDouble(index);
+        public double? GetDoubleNullable(int index) => IsNull(index) ? null : GetDouble(index); // TODO: Double seek in all nullable methods.
 
         /// <summary>
         /// Gets a bit mask value.
@@ -264,7 +248,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public BitArray GetBitmask(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => new BitArray(0),
             var s => new BitArray(s.ToArray())
         };
 
@@ -283,7 +266,7 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public decimal GetDecimal(int index, int scale) => Seek(index) switch
         {
-            { IsEmpty: true } => default,
+            { IsEmpty: true } => default, // TODO: Remove all IsEmpty checks - they will never succeed.
             var s => ReadDecimal(s, scale)
         };
 
@@ -635,7 +618,7 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
                 throw new InvalidOperationException("Corrupted offset table");
             }
 
-            if (offset == nextOffset && IsNull(index))
+            if (offset == nextOffset)
             {
                 throw GetNullElementException(index);
             }
