@@ -103,15 +103,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// </summary>
         public void AppendNull()
         {
-            // TODO: Is it ok that there is no difference?
-            AppendDefault();
-        }
-
-        /// <summary>
-        /// Appends a default value.
-        /// </summary>
-        public void AppendDefault() // TODO Remove?
-        {
             if (ShouldHash())
             {
                 _hash = HashUtils.Hash32((sbyte)0, _hash);
