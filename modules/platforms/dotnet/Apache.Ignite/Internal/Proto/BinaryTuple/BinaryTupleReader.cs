@@ -463,37 +463,30 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <param name="columnType">Column type.</param>
         /// <param name="scale">Column decimal scale.</param>
         /// <returns>Value.</returns>
-        public object? GetObject(int index, ColumnType columnType, int scale = 0)
-        {
-            if (IsNull(index))
+        public object? GetObject(int index, ColumnType columnType, int scale = 0) =>
+            columnType switch
             {
-                return null;
-            }
-
-            return columnType switch
-            {
-                ColumnType.Int8 => GetByte(index),
-                ColumnType.Int16 => GetShort(index),
-                ColumnType.Int32 => GetInt(index),
-                ColumnType.Int64 => GetLong(index),
-                ColumnType.Float => GetFloat(index),
-                ColumnType.Double => GetDouble(index),
-                ColumnType.Uuid => GetGuid(index),
-                ColumnType.String => GetString(index),
-                ColumnType.Decimal => GetDecimal(index, scale),
-                ColumnType.ByteArray => GetBytes(index),
-                ColumnType.Bitmask => GetBitmask(index),
-                ColumnType.Date => GetDate(index),
-                ColumnType.Time => GetTime(index),
-                ColumnType.Datetime => GetDateTime(index),
-                ColumnType.Timestamp => GetTimestamp(index),
-                ColumnType.Number => GetNumber(index),
-                ColumnType.Boolean => GetByteAsBool(index),
-                ColumnType.Period => GetPeriod(index),
-                ColumnType.Duration => GetDuration(index),
+                ColumnType.Int8 => GetByteNullable(index),
+                ColumnType.Int16 => GetShortNullable(index),
+                ColumnType.Int32 => GetIntNullable(index),
+                ColumnType.Int64 => GetLongNullable(index),
+                ColumnType.Float => GetFloatNullable(index),
+                ColumnType.Double => GetDoubleNullable(index),
+                ColumnType.Uuid => GetGuidNullable(index),
+                ColumnType.String => GetStringNullable(index),
+                ColumnType.Decimal => GetDecimalNullable(index, scale),
+                ColumnType.ByteArray => GetBytesNullable(index),
+                ColumnType.Bitmask => GetBitmaskNullable(index),
+                ColumnType.Date => GetDateNullable(index),
+                ColumnType.Time => GetTimeNullable(index),
+                ColumnType.Datetime => GetDateTimeNullable(index),
+                ColumnType.Timestamp => GetTimestampNullable(index),
+                ColumnType.Number => GetNumberNullable(index),
+                ColumnType.Boolean => GetByteAsBoolNullable(index),
+                ColumnType.Period => GetPeriodNullable(index),
+                ColumnType.Duration => GetDurationNullable(index),
                 _ => throw new IgniteClientException(ErrorGroups.Client.Protocol, "Unsupported type: " + columnType)
             };
-        }
 
         /// <summary>
         /// Gets an object value according to the type code at the specified index.
