@@ -191,7 +191,7 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public string GetString(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => string.Empty,
+            { Length: 1 } s when s[0] == BinaryTupleCommon.VarlenEmptyByte => string.Empty,
             var s => ProtoCommon.StringEncoding.GetString(s)
         };
 

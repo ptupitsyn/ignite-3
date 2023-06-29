@@ -38,6 +38,11 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         public const int VarsizeMask = 0b011;
 
         /// <summary>
+        /// Empty varlen token.
+        /// </summary>
+        public const byte VarlenEmptyByte = 0x80;
+
+        /// <summary>
         /// Calculates flags for a given size of variable-length area.
         /// </summary>
         /// <param name="size">Variable-length area size.</param>

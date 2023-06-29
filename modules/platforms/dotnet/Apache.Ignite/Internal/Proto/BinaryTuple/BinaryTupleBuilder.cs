@@ -1046,7 +1046,8 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
                     _hash = HashUtils.Hash32(Span<byte>.Empty, _hash);
                 }
 
-                return;
+                _buffer.GetSpan(1)[0] = BinaryTupleCommon.VarlenEmptyByte;
+                _buffer.Advance(1);
             }
 
             var maxByteCount = ProtoCommon.StringEncoding.GetMaxByteCount(value.Length);
@@ -1060,6 +1061,13 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
             }
 
             _buffer.Advance(actualBytes);
+
+            // UTF-8 encoded strings should not start with 0xF0. We trust this but verify.
+            if (span[0] == BinaryTupleCommon.VarlenEmptyByte)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to encode a string element: resulting payload starts with invalid {BinaryTupleCommon.VarlenEmptyByte} byte");
+            }
         }
 
         private (long Seconds, int Nanos) PutTimestamp(Instant value, int precision)
