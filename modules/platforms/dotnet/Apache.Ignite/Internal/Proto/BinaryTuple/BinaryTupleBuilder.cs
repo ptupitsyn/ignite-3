@@ -1055,6 +1055,7 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
 
                 _buffer.GetSpan(1)[0] = BinaryTupleCommon.VarlenEmptyByte;
                 _buffer.Advance(1);
+                return;
             }
 
             var maxByteCount = ProtoCommon.StringEncoding.GetMaxByteCount(value.Length);
