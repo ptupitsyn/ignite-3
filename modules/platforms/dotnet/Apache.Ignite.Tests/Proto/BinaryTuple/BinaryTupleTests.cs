@@ -362,6 +362,16 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
         }
 
         [Test]
+        public void TestVarlenEmptyByte()
+        {
+            var bytes = new[] { BinaryTupleCommon.VarlenEmptyByte };
+            var reader = BuildAndRead((ref BinaryTupleBuilder b) => b.AppendBytes(bytes));
+            var res = reader.GetBytes(0);
+
+            CollectionAssert.AreEqual(bytes, res);
+        }
+
+        [Test]
         public void TestBytesSpan([Values(0, 1, 123)] int count)
         {
             var bytes = Enumerable.Range(1, count).Select(x => (byte)x).ToArray();
