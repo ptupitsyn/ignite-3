@@ -286,76 +286,91 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public BigInteger GetNumber(int index) => new(Seek(index), isBigEndian: true);
+        public BigInteger GetNumber(int index) => GetNumberNullable(index) ?? ThrowNullElementException<BigInteger>(index);
 
         /// <summary>
         /// Gets a number (big integer) value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public BigInteger? GetNumberNullable(int index) => IsNull(index) ? null : GetNumber(index);
+        public BigInteger? GetNumberNullable(int index) => Seek(index) switch
+        {
+            { IsEmpty: true } => null,
+            var s => new BigInteger(s, isBigEndian: true)
+        };
 
         /// <summary>
         /// Gets a local date value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public LocalDate GetDate(int index) => Seek(index) switch
+        public LocalDate GetDate(int index) => GetDateNullable(index) ?? ThrowNullElementException<LocalDate>(index);
+
+        /// <summary>
+        /// Gets a local date value.
+        /// </summary>
+        /// <param name="index">Index.</param>
+        /// <returns>Value.</returns>
+        public LocalDate? GetDateNullable(int index) => Seek(index) switch
         {
+            { IsEmpty: true } => null,
             { Length: 3 } s => ReadDate(s),
             var s => throw GetInvalidLengthException(index, 3, s.Length)
         };
 
         /// <summary>
-        /// Gets a local date value.
+        /// Gets a local time value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public LocalDate? GetDateNullable(int index) => IsNull(index) ? null : GetDate(index);
+        public LocalTime GetTime(int index) => GetTimeNullable(index) ?? ThrowNullElementException<LocalTime>(index);
 
         /// <summary>
         /// Gets a local time value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public LocalTime GetTime(int index) => Seek(index) switch
+        public LocalTime? GetTimeNullable(int index) => Seek(index) switch
         {
+            { IsEmpty: true } => null,
             { Length: >= 4 and <= 6 } s => ReadTime(s),
             var s => throw GetInvalidLengthException(index, 6, s.Length)
         };
 
         /// <summary>
-        /// Gets a local time value.
+        /// Gets a local date and time value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public LocalTime? GetTimeNullable(int index) => IsNull(index) ? null : GetTime(index);
+        public LocalDateTime GetDateTime(int index) => GetDateTimeNullable(index) ?? ThrowNullElementException<LocalDateTime>(index);
 
         /// <summary>
         /// Gets a local date and time value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public LocalDateTime GetDateTime(int index) => Seek(index) switch
+        public LocalDateTime? GetDateTimeNullable(int index) => Seek(index) switch
         {
+            { IsEmpty: true } => null,
             { Length: >= 7 and <= 9 } s => ReadDate(s) + ReadTime(s[3..]),
             var s => throw GetInvalidLengthException(index, 9, s.Length)
         };
-
-        /// <summary>
-        /// Gets a local date and time value.
-        /// </summary>
-        /// <param name="index">Index.</param>
-        /// <returns>Value.</returns>
-        public LocalDateTime? GetDateTimeNullable(int index) => IsNull(index) ? null : GetDateTime(index);
 
         /// <summary>
         /// Gets a timestamp (instant) value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public Instant GetTimestamp(int index) => Seek(index) switch
+        public Instant GetTimestamp(int index) => GetTimestampNullable(index) ?? ThrowNullElementException<Instant>(index);
+
+        /// <summary>
+        /// Gets a timestamp (instant) value.
+        /// </summary>
+        /// <param name="index">Index.</param>
+        /// <returns>Value.</returns>
+        public Instant? GetTimestampNullable(int index) => Seek(index) switch
         {
+            { IsEmpty: true } => null,
             { Length: 8 } s => Instant.FromUnixTimeSeconds(BinaryPrimitives.ReadInt64LittleEndian(s)),
             { Length: 12 } s => Instant.FromUnixTimeSeconds(BinaryPrimitives.ReadInt64LittleEndian(s))
                 .PlusNanoseconds(BinaryPrimitives.ReadInt32LittleEndian(s[8..])),
@@ -363,19 +378,20 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         };
 
         /// <summary>
-        /// Gets a timestamp (instant) value.
+        /// Gets a duration value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public Instant? GetTimestampNullable(int index) => IsNull(index) ? null : GetTimestamp(index);
+        public Duration GetDuration(int index) => GetDurationNullable(index) ?? ThrowNullElementException<Duration>(index);
 
         /// <summary>
         /// Gets a duration value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public Duration GetDuration(int index) => Seek(index) switch
+        public Duration? GetDurationNullable(int index) => Seek(index) switch
         {
+            { IsEmpty: true } => null,
             { Length: 8 } s => Duration.FromSeconds(BinaryPrimitives.ReadInt64LittleEndian(s)),
             { Length: 12 } s => Duration.FromSeconds(BinaryPrimitives.ReadInt64LittleEndian(s))
                 .Plus(Duration.FromNanoseconds(BinaryPrimitives.ReadInt32LittleEndian(s[8..]))),
@@ -383,19 +399,20 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         };
 
         /// <summary>
-        /// Gets a duration value.
+        /// Gets a period value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public Duration? GetDurationNullable(int index) => IsNull(index) ? null : GetDuration(index);
+        public Period GetPeriod(int index) => GetPeriodNullable(index) ?? ThrowNullElementException<Period>(index);
 
         /// <summary>
         /// Gets a period value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public Period GetPeriod(int index) => Seek(index) switch
+        public Period? GetPeriodNullable(int index) => Seek(index) switch
         {
+            { IsEmpty: true } => null,
             { Length: 3 } s => Period.FromYears(unchecked((sbyte)s[0])) +
                                Period.FromMonths(unchecked((sbyte)s[1])) +
                                Period.FromDays(unchecked((sbyte)s[2])),
@@ -407,13 +424,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
                                 Period.FromDays(BinaryPrimitives.ReadInt32LittleEndian(s[8..])),
             var s => throw GetInvalidLengthException(index, 12, s.Length)
         };
-
-        /// <summary>
-        /// Gets a period value.
-        /// </summary>
-        /// <param name="index">Index.</param>
-        /// <returns>Value.</returns>
-        public Period? GetPeriodNullable(int index) => IsNull(index) ? null : GetPeriod(index);
 
         /// <summary>
         /// Gets bytes.
@@ -439,7 +449,12 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public ReadOnlySpan<byte> GetBytesSpan(int index) => Seek(index);
+        public ReadOnlySpan<byte> GetBytesSpan(int index) => Seek(index) switch
+        {
+            { IsEmpty: true } => throw GetNullElementException(index),
+            var s when s[0] == BinaryTupleCommon.VarlenEmptyByte => s[1..],
+            var s => s
+        };
 
         /// <summary>
         /// Gets an object value according to the specified type.
