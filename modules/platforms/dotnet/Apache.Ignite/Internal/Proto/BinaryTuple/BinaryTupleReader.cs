@@ -76,7 +76,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public sbyte GetByte(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => default,
             { Length: 1 } s => unchecked((sbyte)s[0]),
             var s => throw GetInvalidLengthException(index, 1, s.Length)
         };
@@ -109,7 +108,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public short GetShort(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => default,
             { Length: 1 } s => unchecked((sbyte)s[0]),
             { Length: 2 } s => BinaryPrimitives.ReadInt16LittleEndian(s),
             var s => throw GetInvalidLengthException(index, 2, s.Length)
@@ -129,7 +127,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public int GetInt(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => default,
             { Length: 1 } s => unchecked((sbyte)s[0]),
             { Length: 2 } s => BinaryPrimitives.ReadInt16LittleEndian(s),
             { Length: 4 } s => BinaryPrimitives.ReadInt32LittleEndian(s),
@@ -150,7 +147,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public long GetLong(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => default,
             { Length: 1 } s => unchecked((sbyte)s[0]),
             { Length: 2 } s => BinaryPrimitives.ReadInt16LittleEndian(s),
             { Length: 4 } s => BinaryPrimitives.ReadInt32LittleEndian(s),
@@ -172,7 +168,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public Guid GetGuid(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => default,
             { Length: 16 } s => UuidSerializer.Read(s),
             var s => throw GetInvalidLengthException(index, 16, s.Length)
         };
@@ -209,7 +204,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public float GetFloat(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => default,
             { Length: 4 } s => BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(s)),
             var s => throw GetInvalidLengthException(index, 4, s.Length)
         };
@@ -228,7 +222,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public double GetDouble(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => default,
             { Length: 4 } s => BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(s)),
             { Length: 8 } s => BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(s)),
             var s => throw GetInvalidLengthException(index, 8, s.Length)
@@ -261,11 +254,7 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <param name="index">Index.</param>
         /// <param name="scale">Decimal scale.</param>
         /// <returns>Value.</returns>
-        public decimal GetDecimal(int index, int scale) => Seek(index) switch
-        {
-            { IsEmpty: true } => default, // TODO: Remove all IsEmpty checks - they will never succeed.
-            var s => ReadDecimal(s, scale)
-        };
+        public decimal GetDecimal(int index, int scale) => ReadDecimal(Seek(index), scale);
 
         /// <summary>
         /// Gets a decimal value.
@@ -280,11 +269,7 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public BigInteger GetNumber(int index) => Seek(index) switch
-        {
-            { IsEmpty: true } => default,
-            var s => new BigInteger(s, isBigEndian: true)
-        };
+        public BigInteger GetNumber(int index) => new(Seek(index), isBigEndian: true);
 
         /// <summary>
         /// Gets a number (big integer) value.
@@ -300,9 +285,8 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public LocalDate GetDate(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => default,
             { Length: 3 } s => ReadDate(s),
-            var s => throw GetInvalidLengthException(index, 7, s.Length)
+            var s => throw GetInvalidLengthException(index, 3, s.Length)
         };
 
         /// <summary>
@@ -319,7 +303,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public LocalTime GetTime(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => default,
             { Length: >= 4 and <= 6 } s => ReadTime(s),
             var s => throw GetInvalidLengthException(index, 6, s.Length)
         };
@@ -338,7 +321,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public LocalDateTime GetDateTime(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => default,
             { Length: >= 7 and <= 9 } s => ReadDate(s) + ReadTime(s[3..]),
             var s => throw GetInvalidLengthException(index, 9, s.Length)
         };
@@ -357,7 +339,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public Instant GetTimestamp(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => default,
             { Length: 8 } s => Instant.FromUnixTimeSeconds(BinaryPrimitives.ReadInt64LittleEndian(s)),
             { Length: 12 } s => Instant.FromUnixTimeSeconds(BinaryPrimitives.ReadInt64LittleEndian(s))
                 .PlusNanoseconds(BinaryPrimitives.ReadInt32LittleEndian(s[8..])),
@@ -378,7 +359,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public Duration GetDuration(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => default,
             { Length: 8 } s => Duration.FromSeconds(BinaryPrimitives.ReadInt64LittleEndian(s)),
             { Length: 12 } s => Duration.FromSeconds(BinaryPrimitives.ReadInt64LittleEndian(s))
                 .Plus(Duration.FromNanoseconds(BinaryPrimitives.ReadInt32LittleEndian(s[8..]))),
@@ -399,7 +379,6 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public Period GetPeriod(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => Period.Zero,
             { Length: 3 } s => Period.FromYears(unchecked((sbyte)s[0])) +
                                Period.FromMonths(unchecked((sbyte)s[1])) +
                                Period.FromDays(unchecked((sbyte)s[2])),
