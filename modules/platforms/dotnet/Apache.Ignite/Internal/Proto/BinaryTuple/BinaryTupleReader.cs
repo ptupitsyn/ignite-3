@@ -74,32 +74,38 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public sbyte GetByte(int index) => Seek(index) switch
-        {
-            { Length: 1 } s => unchecked((sbyte)s[0]),
-            var s => throw GetInvalidLengthException(index, 1, s.Length)
-        };
+        public sbyte GetByte(int index) => GetByteNullable(index) ?? ThrowNullElementException<sbyte>(index);
 
         /// <summary>
         /// Gets a byte value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public sbyte? GetByteNullable(int index) => IsNull(index) ? null : GetByte(index);
+        public sbyte? GetByteNullable(int index) => Seek(index) switch
+        {
+            { IsEmpty: true } => null,
+            { Length: 1 } s => unchecked((sbyte)s[0]),
+            var s => throw GetInvalidLengthException(index, 1, s.Length)
+        };
 
         /// <summary>
         /// Gets a byte value as bool.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public bool GetByteAsBool(int index) => GetByte(index) != 0;
+        public bool GetByteAsBool(int index) => GetByteAsBoolNullable(index) ?? ThrowNullElementException<bool>(index);
 
         /// <summary>
         /// Gets a byte value as bool.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public bool? GetByteAsBoolNullable(int index) => IsNull(index) ? null : GetByte(index) != 0;
+        public bool? GetByteAsBoolNullable(int index) => GetByteNullable(index) switch
+        {
+            null => null,
+            1 => true,
+            _ => false
+        };
 
         /// <summary>
         /// Gets a short value.
@@ -538,6 +544,8 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
 
             return res;
         }
+
+        private static T ThrowNullElementException<T>(int index) => throw GetNullElementException(index);
 
         private static InvalidOperationException GetNullElementException(int index) =>
             new($"Binary tuple element with index {index} is null.");
