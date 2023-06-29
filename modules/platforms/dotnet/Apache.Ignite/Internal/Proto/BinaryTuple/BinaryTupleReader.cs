@@ -112,27 +112,36 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public short GetShort(int index) => Seek(index) switch
-        {
-            { Length: 1 } s => unchecked((sbyte)s[0]),
-            { Length: 2 } s => BinaryPrimitives.ReadInt16LittleEndian(s),
-            var s => throw GetInvalidLengthException(index, 2, s.Length)
-        };
+        public short GetShort(int index) => GetShortNullable(index) ?? ThrowNullElementException<short>(index);
 
         /// <summary>
         /// Gets a short value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public short? GetShortNullable(int index) => IsNull(index) ? null : GetShort(index);
+        public short? GetShortNullable(int index) => Seek(index) switch
+        {
+            { IsEmpty: true } => null,
+            { Length: 1 } s => unchecked((sbyte)s[0]),
+            { Length: 2 } s => BinaryPrimitives.ReadInt16LittleEndian(s),
+            var s => throw GetInvalidLengthException(index, 2, s.Length)
+        };
 
         /// <summary>
         /// Gets an int value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public int GetInt(int index) => Seek(index) switch
+        public int GetInt(int index) => GetIntNullable(index) ?? ThrowNullElementException<int>(index);
+
+        /// <summary>
+        /// Gets an int value.
+        /// </summary>
+        /// <param name="index">Index.</param>
+        /// <returns>Value.</returns>
+        public int? GetIntNullable(int index) => Seek(index) switch
         {
+            { IsEmpty: true } => null,
             { Length: 1 } s => unchecked((sbyte)s[0]),
             { Length: 2 } s => BinaryPrimitives.ReadInt16LittleEndian(s),
             { Length: 4 } s => BinaryPrimitives.ReadInt32LittleEndian(s),
@@ -140,19 +149,20 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         };
 
         /// <summary>
-        /// Gets an int value.
+        /// Gets a long value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public int? GetIntNullable(int index) => IsNull(index) ? null : GetInt(index);
+        public long GetLong(int index) => GetLongNullable(index) ?? ThrowNullElementException<long>(index);
 
         /// <summary>
         /// Gets a long value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public long GetLong(int index) => Seek(index) switch
+        public long? GetLongNullable(int index) => Seek(index) switch
         {
+            { IsEmpty: true } => null,
             { Length: 1 } s => unchecked((sbyte)s[0]),
             { Length: 2 } s => BinaryPrimitives.ReadInt16LittleEndian(s),
             { Length: 4 } s => BinaryPrimitives.ReadInt32LittleEndian(s),
@@ -161,84 +171,81 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         };
 
         /// <summary>
-        /// Gets a long value.
+        /// Gets a Guid value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public long? GetLongNullable(int index) => IsNull(index) ? null : GetLong(index);
+        public Guid GetGuid(int index) => GetGuidNullable(index) ?? ThrowNullElementException<Guid>(index);
 
         /// <summary>
         /// Gets a Guid value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public Guid GetGuid(int index) => Seek(index) switch
+        public Guid? GetGuidNullable(int index) => Seek(index) switch
         {
+            { IsEmpty: true } => null,
             { Length: 16 } s => UuidSerializer.Read(s),
             var s => throw GetInvalidLengthException(index, 16, s.Length)
         };
 
         /// <summary>
-        /// Gets a Guid value.
+        /// Gets a string value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public Guid? GetGuidNullable(int index) => IsNull(index) ? null : GetGuid(index);
+        public string GetString(int index) => GetStringNullable(index) ?? ThrowNullElementException<string>(index);
 
         /// <summary>
         /// Gets a string value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public string GetString(int index) => Seek(index) switch
+        public string? GetStringNullable(int index) => Seek(index) switch
         {
+            { IsEmpty: true } => null,
             { Length: 1 } s when s[0] == BinaryTupleCommon.VarlenEmptyByte => string.Empty,
             var s => ProtoCommon.StringEncoding.GetString(s)
         };
 
         /// <summary>
-        /// Gets a string value.
+        /// Gets a float value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public string? GetStringNullable(int index) => IsNull(index) ? null : GetString(index);
+        public float GetFloat(int index) => GetFloatNullable(index) ?? ThrowNullElementException<float>(index);
 
         /// <summary>
         /// Gets a float value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public float GetFloat(int index) => Seek(index) switch
+        public float? GetFloatNullable(int index) => Seek(index) switch
         {
+            { IsEmpty: true } => null,
             { Length: 4 } s => BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(s)),
             var s => throw GetInvalidLengthException(index, 4, s.Length)
         };
 
         /// <summary>
-        /// Gets a float value.
+        /// Gets a double value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public float? GetFloatNullable(int index) => IsNull(index) ? null : GetFloat(index);
+        public double GetDouble(int index) => GetDoubleNullable(index) ?? ThrowNullElementException<double>(index);
 
         /// <summary>
         /// Gets a double value.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public double GetDouble(int index) => Seek(index) switch
+        public double? GetDoubleNullable(int index) => Seek(index) switch
         {
+            { IsEmpty: true } => null,
             { Length: 4 } s => BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(s)),
             { Length: 8 } s => BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(s)),
             var s => throw GetInvalidLengthException(index, 8, s.Length)
         };
-
-        /// <summary>
-        /// Gets a double value.
-        /// </summary>
-        /// <param name="index">Index.</param>
-        /// <returns>Value.</returns>
-        public double? GetDoubleNullable(int index) => IsNull(index) ? null : GetDouble(index); // TODO: Double seek in all nullable methods.
 
         /// <summary>
         /// Gets a bit mask value.
@@ -252,7 +259,11 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public BitArray? GetBitmaskNullable(int index) => IsNull(index) ? null : GetBitmask(index);
+        public BitArray? GetBitmaskNullable(int index) => GetBytesNullable(index) switch
+        {
+            null => null,
+            var bytes => new BitArray(bytes)
+        };
 
         /// <summary>
         /// Gets a decimal value.
@@ -260,7 +271,7 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <param name="index">Index.</param>
         /// <param name="scale">Decimal scale.</param>
         /// <returns>Value.</returns>
-        public decimal GetDecimal(int index, int scale) => ReadDecimal(Seek(index), scale);
+        public decimal GetDecimal(int index, int scale) => GetDecimalNullable(index, scale) ?? ThrowNullElementException<decimal>(index);
 
         /// <summary>
         /// Gets a decimal value.
@@ -268,7 +279,7 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <param name="index">Index.</param>
         /// <param name="scale">Decimal scale.</param>
         /// <returns>Value.</returns>
-        public decimal? GetDecimalNullable(int index, int scale) => IsNull(index) ? null : GetDecimal(index, scale);
+        public decimal? GetDecimalNullable(int index, int scale) => ReadDecimal(Seek(index), scale);
 
         /// <summary>
         /// Gets a number (big integer) value.
@@ -409,18 +420,19 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public byte[] GetBytes(int index) => Seek(index) switch
-        {
-            var s when s[0] == BinaryTupleCommon.VarlenEmptyByte => s[1..].ToArray(),
-            var s => s.ToArray()
-        };
+        public byte[] GetBytes(int index) => GetBytesNullable(index) ?? throw GetNullElementException(index);
 
         /// <summary>
         /// Gets bytes.
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public byte[]? GetBytesNullable(int index) => IsNull(index) ? null : GetBytes(index);
+        public byte[]? GetBytesNullable(int index) => Seek(index) switch
+        {
+            { IsEmpty: true } => null,
+            var s when s[0] == BinaryTupleCommon.VarlenEmptyByte => s[1..].ToArray(),
+            var s => s.ToArray()
+        };
 
         /// <summary>
         /// Gets bytes.
@@ -532,8 +544,13 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
             return LocalTime.FromHourMinuteSecondNanosecond(hour, minute, second, nanos);
         }
 
-        private static decimal ReadDecimal(ReadOnlySpan<byte> span, int scale)
+        private static decimal? ReadDecimal(ReadOnlySpan<byte> span, int scale)
         {
+            if (span.IsEmpty)
+            {
+                return null;
+            }
+
             var unscaled = new BigInteger(span, isBigEndian: true);
             var res = (decimal)unscaled;
 
