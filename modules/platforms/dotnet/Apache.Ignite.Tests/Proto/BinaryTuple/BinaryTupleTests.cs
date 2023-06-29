@@ -295,7 +295,14 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
         [Test]
         public void TestString()
         {
-            var values = new[] {"ascii", "我愛Java", string.Empty, "a string with a bit more characters"};
+            var values = new[]
+            {
+                "ascii",
+                "我愛Java",
+                string.Empty,
+                "a string with a bit more characters",
+                ((char)BinaryTupleCommon.VarlenEmptyByte).ToString()
+            };
 
             var reader = BuildAndRead(
                 (ref BinaryTupleBuilder b) =>

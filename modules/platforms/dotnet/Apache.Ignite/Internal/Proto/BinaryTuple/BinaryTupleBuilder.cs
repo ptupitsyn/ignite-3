@@ -1070,7 +1070,8 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
 
             _buffer.Advance(actualBytes);
 
-            // UTF-8 encoded strings should not start with 0xF0. We trust this but verify.
+            // UTF-8 encoded strings should not start with 0x80 (character codes larger than 127 have a multi-byte encoding).
+            // We trust this but verify.
             if (span[0] == BinaryTupleCommon.VarlenEmptyByte)
             {
                 throw new InvalidOperationException(
