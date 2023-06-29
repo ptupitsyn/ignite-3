@@ -246,10 +246,7 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// </summary>
         /// <param name="index">Index.</param>
         /// <returns>Value.</returns>
-        public BitArray GetBitmask(int index) => Seek(index) switch
-        {
-            var s => new BitArray(s.ToArray())
-        };
+        public BitArray GetBitmask(int index) => new(GetBytes(index));
 
         /// <summary>
         /// Gets a bit mask value.
@@ -429,7 +426,7 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
         /// <returns>Value.</returns>
         public byte[] GetBytes(int index) => Seek(index) switch
         {
-            { IsEmpty: true } => Array.Empty<byte>(),
+            var s when s[0] == BinaryTupleCommon.VarlenEmptyByte => s[1..].ToArray(),
             var s => s.ToArray()
         };
 

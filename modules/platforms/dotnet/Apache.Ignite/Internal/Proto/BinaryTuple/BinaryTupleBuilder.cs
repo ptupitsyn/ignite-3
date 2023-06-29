@@ -1035,7 +1035,23 @@ namespace Apache.Ignite.Internal.Proto.BinaryTuple
 
         private void PutDouble(double value) => PutLong(BitConverter.DoubleToInt64Bits(value));
 
-        private void PutBytes(Span<byte> bytes) => bytes.CopyTo(GetSpan(bytes.Length));
+        private void PutBytes(Span<byte> bytes)
+        {
+            if (bytes.Length == 0)
+            {
+                GetSpan(1)[0] = BinaryTupleCommon.VarlenEmptyByte;
+            }
+            else if (bytes[0] == BinaryTupleCommon.VarlenEmptyByte)
+            {
+                var span = GetSpan(bytes.Length + 1);
+                span[0] = BinaryTupleCommon.VarlenEmptyByte;
+                bytes.CopyTo(span[1..]);
+            }
+            else
+            {
+                bytes.CopyTo(GetSpan(bytes.Length));
+            }
+        }
 
         private void PutString(string value)
         {
