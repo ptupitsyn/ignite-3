@@ -109,8 +109,8 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
         {
             var res = Build((ref BinaryTupleBuilder b) => b.AppendByte(value));
 
-            Assert.AreEqual(value != 0 ? 1 : 0, res[1]);
-            Assert.AreEqual(value != 0 ? 3 : 2, res.Length);
+            Assert.AreEqual(1, res[1]);
+            Assert.AreEqual(3, res.Length);
 
             var reader = new BinaryTupleReader(res, 1);
             Assert.AreEqual(value, reader.GetByte(0));
@@ -397,7 +397,11 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
             var reader = BuildAndRead((ref BinaryTupleBuilder b) => b.AppendBytes(bytes));
             var res = reader.GetBytesSpan(0).ToArray();
 
-            CollectionAssert.AreEqual(bytes, res);
+            CollectionAssert.AreEqual(
+                count == 0
+                    ? new[] { BinaryTupleCommon.VarlenEmptyByte }
+                    : bytes,
+                res);
         }
 
         [Test]
