@@ -37,10 +37,9 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
         [Test]
         public void TestNullValue()
         {
-            // Header: 1 byte without flags.
-            // NullMap: 1 byte with first bit set.
-            // Offset table: 1 zero byte
-            byte[] bytes = { 0, 1, 0 };
+            // Header: 1 zero byte.
+            // Offset table: 1 zero byte.
+            byte[] bytes = { 0, 0 };
             var reader = new BinaryTupleReader(bytes, 1);
 
             Assert.IsTrue(reader.IsNull(0));
@@ -77,34 +76,6 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
         }
 
         [Test]
-        public void TestDefaultValue()
-        {
-            // Header: 1 zero byte.
-            // Offset table: 1 zero byte.
-            byte[] bytes1 = { 0, 0 };
-
-            // Header: 1 byte without flags.
-            // NullMap: 1 byte with no bit set.
-            // Offset table: 1 zero byte
-            byte[] bytes2 = { 0, 0, 0 };
-
-            byte[][] bytesArray = { bytes1, bytes2 };
-
-            foreach (var bytes in bytesArray)
-            {
-                var reader = new BinaryTupleReader(bytes, 1);
-
-                Assert.IsFalse(reader.IsNull(0));
-                Assert.AreEqual(string.Empty, reader.GetString(0));
-                Assert.AreEqual(Guid.Empty, reader.GetGuid(0));
-                Assert.AreEqual(0, reader.GetByte(0));
-                Assert.AreEqual(0, reader.GetShort(0));
-                Assert.AreEqual(0, reader.GetInt(0));
-                Assert.AreEqual(0L, reader.GetLong(0));
-            }
-        }
-
-        [Test]
         public void TestByte([Values(0, 1, sbyte.MaxValue, sbyte.MinValue)] sbyte value)
         {
             var res = Build((ref BinaryTupleBuilder b) => b.AppendByte(value));
@@ -128,8 +99,8 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
             {
                 var bytes = Build((ref BinaryTupleBuilder b) => b.AppendShort(value));
 
-                Assert.AreEqual(value != 0 ? 1 : 0, bytes[1]);
-                Assert.AreEqual(value != 0 ? 3 : 2, bytes.Length);
+                Assert.AreEqual(1, bytes[1]);
+                Assert.AreEqual(3, bytes.Length);
 
                 var reader = new BinaryTupleReader(bytes, 1);
                 Assert.AreEqual(value, reader.GetByte(0));
@@ -162,8 +133,8 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
             {
                 var bytes = Build((ref BinaryTupleBuilder b) => b.AppendInt(value));
 
-                Assert.AreEqual(value != 0 ? 1 : 0, bytes[1]);
-                Assert.AreEqual(value != 0 ? 3 : 2, bytes.Length);
+                Assert.AreEqual(1, bytes[1]);
+                Assert.AreEqual(3, bytes.Length);
 
                 var reader = new BinaryTupleReader(bytes, 1);
                 Assert.AreEqual(value, reader.GetByte(0));
@@ -208,8 +179,8 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
             {
                 var bytes = Build((ref BinaryTupleBuilder b) => b.AppendLong(value));
 
-                Assert.AreEqual(value != 0 ? 1 : 0, bytes[1]);
-                Assert.AreEqual(value != 0 ? 3 : 2, bytes.Length);
+                Assert.AreEqual(1, bytes[1]);
+                Assert.AreEqual(3, bytes.Length);
 
                 BinaryTupleReader reader = new BinaryTupleReader(bytes, 1);
                 Assert.AreEqual(value, reader.GetByte(0));
@@ -265,8 +236,8 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
                 float value = 0.0F;
                 var bytes = Build((ref BinaryTupleBuilder b) => b.AppendFloat(value));
 
-                Assert.AreEqual(0, bytes[1]);
-                Assert.AreEqual(2, bytes.Length);
+                Assert.AreEqual(4, bytes[1]);
+                Assert.AreEqual(6, bytes.Length);
 
                 var reader = new BinaryTupleReader(bytes, 1);
                 Assert.AreEqual(value, reader.GetFloat(0));
@@ -291,8 +262,8 @@ namespace Apache.Ignite.Tests.Proto.BinaryTuple
                 double value = 0.0;
                 var bytes = Build((ref BinaryTupleBuilder b) => b.AppendDouble(value));
 
-                Assert.AreEqual(0, bytes[1]);
-                Assert.AreEqual(2, bytes.Length);
+                Assert.AreEqual(4, bytes[1]);
+                Assert.AreEqual(6, bytes.Length);
 
                 var reader = new BinaryTupleReader(bytes, 1);
                 Assert.AreEqual(value, reader.GetDouble(0));
