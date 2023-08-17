@@ -59,7 +59,12 @@ public class ItThinClientConnectionTest extends ItAbstractThinClientTest {
 
                 RecordView<Tuple> recView = table.recordView();
 
+                System.out.println("BEFORE");
                 recView.upsert(null, tuple);
+                System.out.println("AFTER");
+                recView.upsert(null, Tuple.create().set(COLUMN_KEY, 2).set(COLUMN_VAL, "Hello 2"));
+                System.out.println("AFTER2");
+
                 assertEquals("Hello", recView.get(null, keyTuple).stringValue(COLUMN_VAL));
 
                 var kvView = table.keyValueView();

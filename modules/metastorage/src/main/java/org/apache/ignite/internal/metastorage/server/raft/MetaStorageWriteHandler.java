@@ -82,6 +82,7 @@ public class MetaStorageWriteHandler {
         try {
             if (command instanceof MetaStorageWriteCommand) {
                 var cmdWithTime = (MetaStorageWriteCommand) command;
+                System.out.println("+++++ MetaStorageWriteCommand: " + cmdWithTime);
 
                 HybridTimestamp safeTime = cmdWithTime.safeTime();
 
