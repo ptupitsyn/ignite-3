@@ -244,6 +244,7 @@ public class InternalTableImpl implements InternalTable {
         boolean implicit = tx == null;
 
         InternalTransaction tx0 = implicit ? txManager.begin() : tx;
+        System.out.println("===== tx0: " + tx0);
 
         int partId = partitionId(row);
 
@@ -269,6 +270,7 @@ public class InternalTableImpl implements InternalTable {
             fut = enlistWithRetry(tx0, partId, term -> fac.apply(tx0, partGroupId, term), ATTEMPTS_TO_ENLIST_PARTITION);
         }
 
+        System.out.println("===== Before postEnlist tx0: " + tx0);
         return postEnlist(fut, false, tx0, implicit);
     }
 
@@ -447,10 +449,11 @@ public class InternalTableImpl implements InternalTable {
         enlist(partId, tx).<R>thenCompose(
                         primaryReplicaAndTerm -> {
                             try {
-                                return replicaSvc.invoke(
-                                        primaryReplicaAndTerm.get1(),
-                                        mapFunc.apply(primaryReplicaAndTerm.get2())
-                                );
+                                System.out.println("===== primaryReplicaAndTerm: " + primaryReplicaAndTerm);
+
+                                ReplicaRequest req = mapFunc.apply(primaryReplicaAndTerm.get2());
+
+                                return replicaSvc.invoke(primaryReplicaAndTerm.get1(), req);
                             } catch (PrimaryReplicaMissException e) {
                                 throw new TransactionException(e);
                             } catch (Throwable e) {
