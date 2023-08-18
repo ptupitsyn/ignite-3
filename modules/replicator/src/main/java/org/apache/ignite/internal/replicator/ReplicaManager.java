@@ -176,6 +176,8 @@ public class ReplicaManager implements IgniteComponent {
             throw new IgniteException(new NodeStoppingException());
         }
 
+        System.out.println("+++++ ReplicaManager.onReplicaMessageReceived (" + this.hashCode() + "):" + request);
+
         try {
             // Notify the sender that the Replica is created and ready to process requests.
             if (request instanceof AwaitReplicaRequest) {

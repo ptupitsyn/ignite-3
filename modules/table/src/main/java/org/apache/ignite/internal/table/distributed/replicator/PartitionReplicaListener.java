@@ -1855,7 +1855,9 @@ public class PartitionReplicaListener implements ReplicaListener {
                     }
 
                     return takeLocksForGet(rowId, txId)
-                            .thenApply(ignored -> row);
+                            .thenApply(ignored -> {
+                                return row;
+                            });
                 });
             }
             case RW_DELETE: {
