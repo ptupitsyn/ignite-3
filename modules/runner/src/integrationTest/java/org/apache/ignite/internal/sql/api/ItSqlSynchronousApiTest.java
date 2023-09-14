@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
 import org.apache.ignite.internal.app.IgniteImpl;
 import org.apache.ignite.internal.sql.engine.ClusterPerClassIntegrationTest;
@@ -53,6 +54,7 @@ import org.apache.ignite.sql.SqlBatchException;
 import org.apache.ignite.sql.SqlException;
 import org.apache.ignite.sql.SqlRow;
 import org.apache.ignite.table.Table;
+import org.apache.ignite.table.Tuple;
 import org.apache.ignite.tx.Transaction;
 import org.hamcrest.MatcherAssert;
 import org.junit.jupiter.api.AfterEach;
@@ -71,6 +73,26 @@ public class ItSqlSynchronousApiTest extends ClusterPerClassIntegrationTest {
         for (Table t : CLUSTER_NODES.get(0).tables().tables()) {
             sql("DROP TABLE " + t.name());
         }
+    }
+
+    @Test
+    public void schemaMigration() {
+        IgniteSql sql = igniteSql();
+        Session ses = sql.createSession();
+        checkDdl(true, ses, "CREATE TABLE TEST(ID INT PRIMARY KEY, VAL0 INT)");
+        var view = CLUSTER_NODES.get(0).tables().table("TEST").recordView();
+
+        var upsertFut = CompletableFuture.runAsync(() -> {
+            for (int i = 0; i < 1000; i++) {
+                // https://issues.apache.org/jira/browse/IGNITE-20399
+                // checkDml(1, ses, "INSERT INTO TEST VALUES (?, ?)", i, i);
+                view.upsert(null, Tuple.create().set("ID", i).set("VAL0", i));
+            }
+        });
+
+        checkDdl(true, ses, "ALTER TABLE TEST ADD COLUMN VAL1 INT DEFAULT -1");
+
+        upsertFut.join();
     }
 
     @Test
