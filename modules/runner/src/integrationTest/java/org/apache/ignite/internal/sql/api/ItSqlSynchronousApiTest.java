@@ -77,6 +77,7 @@ public class ItSqlSynchronousApiTest extends ClusterPerClassIntegrationTest {
 
     @Test
     public void schemaMigration() {
+        // Demonstrates https://issues.apache.org/jira/browse/IGNITE-20399
         IgniteSql sql = igniteSql();
         Session ses = sql.createSession();
 
