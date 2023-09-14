@@ -93,6 +93,17 @@ public class ItSqlSynchronousApiTest extends ClusterPerClassIntegrationTest {
         checkDdl(true, ses, "ALTER TABLE TEST ADD COLUMN VAL1 INT DEFAULT -1");
 
         upsertFut.join();
+
+        // RESULT:
+        // Caused by: org.apache.ignite.internal.table.distributed.replicator.IncompatibleSchemaException:
+        //            IGN-TX-12 Table schema was updated after the transaction was started [table=1, startSchema=1, operationSchema=2]
+        // at org.apache.ignite.internal.table.distributed.replicator.SchemaCompatValidator.failIfSchemaChangedAfterTxStart(SchemaCompatValidator.java:183)
+        // at org.apache.ignite.internal.table.distributed.replicator.PartitionReplicaListener.failIfSchemaChangedSinceTxStart(PartitionReplicaListener.java:2682)
+
+        // PROPOSAL:
+        // * Retry transaction if schema changed, as if it happened after the schema change.
+        // * At least for single operation with implicit tx?
+        // * Must be done on server, so that embedded mode and all clients behave the same
     }
 
     @Test
