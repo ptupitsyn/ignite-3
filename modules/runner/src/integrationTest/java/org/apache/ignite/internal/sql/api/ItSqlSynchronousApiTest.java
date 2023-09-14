@@ -75,6 +75,11 @@ public class ItSqlSynchronousApiTest extends ClusterPerClassIntegrationTest {
         }
     }
 
+
+
+
+
+
     @Test
     public void schemaMigration() {
         // Demonstrates https://issues.apache.org/jira/browse/IGNITE-20399
@@ -100,11 +105,27 @@ public class ItSqlSynchronousApiTest extends ClusterPerClassIntegrationTest {
         // at org.apache.ignite.internal.table.distributed.replicator.SchemaCompatValidator.failIfSchemaChangedAfterTxStart(SchemaCompatValidator.java:183)
         // at org.apache.ignite.internal.table.distributed.replicator.PartitionReplicaListener.failIfSchemaChangedSinceTxStart(PartitionReplicaListener.java:2682)
 
+        // PROBLEM:
+        // * What is user supposed to do?
+        // * How to apply migrations safely to a live cluster?
+        // * "Classic" DBs like don't have this problem (e.g. Postgres takes table lock for DDL) - there are no exceptions,only a delay
+
         // PROPOSAL:
         // * Retry transaction if schema changed, as if it happened after the schema change.
         // * At least for single operation with implicit tx?
         // * Must be done on server, so that embedded mode and all clients behave the same
     }
+
+
+
+
+
+
+
+
+
+
+
 
     @Test
     public void ddl() throws Exception {
