@@ -114,6 +114,14 @@ public class ItSqlSynchronousApiTest extends ClusterPerClassIntegrationTest {
         // * Retry transaction if schema changed, as if it happened after the schema change.
         // * At least for single operation with implicit tx?
         // * Must be done on server, so that embedded mode and all clients behave the same
+
+        // Discussion:
+        // Andrey: compatible schema changes must not cause exceptions
+        // Overall no objections - this use case should be supported
+        // TBD: Create ticket, link to broken test. Send to Roman Puchkovskiy
+        // Schema compat validation: see IGNITE-19229
+        // Another problem: IncompatibleSchemaException is internal, put raises from a public API
+        // TBD: Ticket  ^
     }
 
 
