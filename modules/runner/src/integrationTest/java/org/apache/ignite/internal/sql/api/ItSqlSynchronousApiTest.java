@@ -79,13 +79,12 @@ public class ItSqlSynchronousApiTest extends ClusterPerClassIntegrationTest {
     public void schemaMigration() {
         IgniteSql sql = igniteSql();
         Session ses = sql.createSession();
+
         checkDdl(true, ses, "CREATE TABLE TEST(ID INT PRIMARY KEY, VAL0 INT)");
         var view = CLUSTER_NODES.get(0).tables().table("TEST").recordView();
 
         var upsertFut = CompletableFuture.runAsync(() -> {
             for (int i = 0; i < 1000; i++) {
-                // https://issues.apache.org/jira/browse/IGNITE-20399
-                // checkDml(1, ses, "INSERT INTO TEST VALUES (?, ?)", i, i);
                 view.upsert(null, Tuple.create().set("ID", i).set("VAL0", i));
             }
         });
