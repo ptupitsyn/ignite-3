@@ -108,7 +108,7 @@ public class ItSqlSynchronousApiTest extends ClusterPerClassIntegrationTest {
         // PROBLEM:
         // * What is user supposed to do?
         // * How to apply migrations safely to a live cluster?
-        // * "Classic" DBs like don't have this problem (e.g. Postgres takes table lock for DDL) - there are no exceptions,only a delay
+        // * "Classic" DBs don't have this problem (e.g. Postgres takes table lock for DDL) - there are no exceptions,only a delay
 
         // PROPOSAL:
         // * Retry transaction if schema changed, as if it happened after the schema change.
