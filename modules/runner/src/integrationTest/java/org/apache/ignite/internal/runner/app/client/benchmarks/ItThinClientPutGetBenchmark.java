@@ -126,11 +126,11 @@ public class ItThinClientPutGetBenchmark {
     public static void main(String[] args) throws RunnerException {
         Options opt = new OptionsBuilder()
                 .include(ItThinClientPutGetBenchmark.class.getSimpleName())
-                .addProfiler(JavaFlightRecorderProfiler.class)
-                .warmupIterations(3)
+                // .addProfiler(JavaFlightRecorderProfiler.class)
+                .warmupIterations(5)
                 .warmupTime(TimeValue.seconds(5))
-                .measurementIterations(3)
-                .measurementTime(TimeValue.seconds(5))
+                .measurementIterations(5)
+                .measurementTime(TimeValue.seconds(10))
                 .forks(1)
                 .build();
 
