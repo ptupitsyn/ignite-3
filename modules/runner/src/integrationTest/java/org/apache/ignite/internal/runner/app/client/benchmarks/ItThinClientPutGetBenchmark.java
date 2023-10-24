@@ -35,6 +35,8 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
+import org.openjdk.jmh.profile.JavaFlightRecorderProfiler;
+import org.openjdk.jmh.profile.StackProfiler;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
@@ -122,9 +124,9 @@ public class ItThinClientPutGetBenchmark {
      * @throws RunnerException Exception.
      */
     public static void main(String[] args) throws RunnerException {
-        // TODO: addProfiler
         Options opt = new OptionsBuilder()
                 .include(ItThinClientPutGetBenchmark.class.getSimpleName())
+                .addProfiler(JavaFlightRecorderProfiler.class)
                 .warmupIterations(3)
                 .warmupTime(TimeValue.seconds(5))
                 .measurementIterations(3)
