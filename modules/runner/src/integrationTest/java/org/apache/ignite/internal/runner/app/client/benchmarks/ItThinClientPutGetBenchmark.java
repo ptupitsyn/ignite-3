@@ -23,8 +23,11 @@ import java.util.concurrent.CompletableFuture;
 import org.apache.ignite.Ignite;
 import org.apache.ignite.InitParameters;
 import org.apache.ignite.client.IgniteClient;
+import org.apache.ignite.internal.testframework.IgniteTestUtils;
 import org.apache.ignite.internal.testframework.TestIgnitionManager;
 import org.apache.ignite.internal.testframework.WorkDirectory;
+import org.apache.ignite.internal.testframework.WorkDirectoryExtension;
+import org.apache.ignite.internal.util.IgniteUtils;
 import org.apache.ignite.table.RecordView;
 import org.apache.ignite.table.Tuple;
 import org.openjdk.jmh.annotations.Benchmark;
@@ -50,8 +53,10 @@ public class ItThinClientPutGetBenchmark {
 
     private final Tuple key = Tuple.create().set("id", 1);
 
+    private static final Path WORK_DIR = WorkDirectoryExtension.BASE_PATH.resolve("ItThinClientPutGetBenchmark");
+
     @Setup
-    public void init(@WorkDirectory Path workDir) {
+    public void init() {
         String node0Name = "ItThinClientPutGetBenchmark";
 
         String cfg = "{\n"
@@ -61,7 +66,7 @@ public class ItThinClientPutGetBenchmark {
                 + "  rest.port: 10300\n"
                 + "}";
 
-        CompletableFuture<Ignite> fut = TestIgnitionManager.start(node0Name, cfg, workDir.resolve(node0Name));
+        CompletableFuture<Ignite> fut = TestIgnitionManager.start(node0Name, cfg, WORK_DIR.resolve(node0Name));
 
         String metaStorageNode = node0Name;
 
@@ -89,6 +94,7 @@ public class ItThinClientPutGetBenchmark {
     public void tearDown() throws Exception {
         client.close();
         server.close();
+        IgniteUtils.deleteIfExists(WORK_DIR);
     }
 
     @Benchmark
