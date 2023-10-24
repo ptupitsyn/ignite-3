@@ -17,5 +17,39 @@
 
 package org.apache.ignite.internal.runner.app.client.benchmarks;
 
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import org.apache.ignite.Ignite;
+import org.apache.ignite.InitParameters;
+import org.apache.ignite.client.IgniteClient;
+import org.apache.ignite.internal.testframework.TestIgnitionManager;
+
 public class ItThinClientPutGetBenchmark {
+    private Ignite server;
+
+    private IgniteClient client;
+
+    private void init() {
+        String node0Name = "ItThinClientPutGetBenchmark";
+
+        String cfg = "{\n"
+                + "  network.port: 3344,\n"
+                + "  network.nodeFinder.netClusterNodes: [ \"localhost:3344\" ]\n"
+                + "  clientConnector.port: 10800,\n"
+                + "  rest.port: 10300\n"
+                + "}";
+
+        CompletableFuture<Ignite> fut = TestIgnitionManager.start(node0Name, cfg, workDir.resolve(node0Name));
+
+        String metaStorageNode = node0Name;
+
+        InitParameters initParameters = InitParameters.builder()
+                .destinationNodeName(metaStorageNode)
+                .metaStorageNodeNames(List.of(metaStorageNode))
+                .clusterName("cluster")
+                .build();
+        TestIgnitionManager.init(initParameters);
+
+        server = fut.join();
+    }
 }
