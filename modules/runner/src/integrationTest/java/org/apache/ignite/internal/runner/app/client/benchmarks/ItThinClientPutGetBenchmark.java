@@ -87,7 +87,7 @@ public class ItThinClientPutGetBenchmark {
 
         server = fut.join();
 
-        server.sql().createSession().execute(null, "CREATE TABLE test (id INT PRIMARY KEY, name VARCHAR)");
+        server.sql().createSession().execute(null, "CREATE TABLE IF NOT EXISTS test (id INT PRIMARY KEY, name VARCHAR)");
         embeddedTable = server.tables().table("test").recordView();
 
         client = IgniteClient.builder()
