@@ -41,6 +41,14 @@ import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 import org.openjdk.jmh.runner.options.TimeValue;
 
+/**
+ * Client vs embedded benchmark.
+ *
+ * <p>Results on i9-12900H, openjdk 11.0.18, Ubuntu 22.04:
+ * Benchmark                                 Mode  Cnt       Score       Error  Units
+ * ItThinClientPutGetBenchmark.clientGet    thrpt    3   21521.397 ± 15122.121  ops/s
+ * ItThinClientPutGetBenchmark.embeddedGet  thrpt    3  108435.632 ± 94284.946  ops/s
+ */
 @State(Scope.Benchmark)
 public class ItThinClientPutGetBenchmark {
     private Ignite server;
