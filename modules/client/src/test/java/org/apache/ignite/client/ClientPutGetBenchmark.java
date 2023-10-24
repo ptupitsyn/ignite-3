@@ -17,6 +17,8 @@
 
 package org.apache.ignite.client;
 
+import io.netty.util.ResourceLeakDetector;
+import io.netty.util.ResourceLeakDetector.Level;
 import org.apache.ignite.Ignite;
 import org.apache.ignite.client.fakes.FakeIgnite;
 import org.apache.ignite.client.fakes.FakeIgniteTables;
@@ -80,6 +82,7 @@ public class ClientPutGetBenchmark {
         ((FakeIgniteTables) ignite.tables()).createTable(DEFAULT_TABLE);
 
         testServer = new TestServer(1000, ignite);
+        ResourceLeakDetector.setLevel(Level.DISABLED);
 
         client = IgniteClient.builder()
                 .addresses("127.0.0.1:" + testServer.port())
