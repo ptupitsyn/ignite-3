@@ -17,19 +17,41 @@
 
 package org.apache.ignite.internal.runner.app.client.benchmarks;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import org.apache.ignite.Ignite;
 import org.apache.ignite.InitParameters;
 import org.apache.ignite.client.IgniteClient;
 import org.apache.ignite.internal.testframework.TestIgnitionManager;
+import org.apache.ignite.internal.testframework.WorkDirectory;
+import org.apache.ignite.table.RecordView;
+import org.apache.ignite.table.Tuple;
+import org.openjdk.jmh.annotations.Benchmark;
+import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.annotations.TearDown;
+import org.openjdk.jmh.runner.Runner;
+import org.openjdk.jmh.runner.RunnerException;
+import org.openjdk.jmh.runner.options.Options;
+import org.openjdk.jmh.runner.options.OptionsBuilder;
+import org.openjdk.jmh.runner.options.TimeValue;
 
+@State(Scope.Benchmark)
 public class ItThinClientPutGetBenchmark {
     private Ignite server;
 
     private IgniteClient client;
 
-    private void init() {
+    private RecordView<Tuple> embeddedTable;
+
+    private RecordView<Tuple> clientTable;
+
+    private final Tuple key = Tuple.create().set("id", 1);
+
+    @Setup
+    public void init(@WorkDirectory Path workDir) {
         String node0Name = "ItThinClientPutGetBenchmark";
 
         String cfg = "{\n"
@@ -51,5 +73,51 @@ public class ItThinClientPutGetBenchmark {
         TestIgnitionManager.init(initParameters);
 
         server = fut.join();
+
+        server.sql().createSession().execute(null, "CREATE TABLE test (id INT PRIMARY KEY, name VARCHAR)");
+        embeddedTable = server.tables().table("test").recordView();
+
+        client = IgniteClient.builder()
+                .addresses("localhost:10800")
+                .build();
+        clientTable = client.tables().table("test").recordView();
+
+        clientTable.upsert(null, Tuple.create().set("id", 1).set("name", "John Doe"));
+    }
+
+    @TearDown
+    public void tearDown() throws Exception {
+        client.close();
+        server.close();
+    }
+
+    @Benchmark
+    public void clientGet() {
+        clientTable.get(null, key);
+    }
+
+    @Benchmark
+    public void embeddedGet() {
+        embeddedTable.get(null, key);
+    }
+
+    /**
+     * Runner.
+     *
+     * @param args Arguments.
+     * @throws RunnerException Exception.
+     */
+    public static void main(String[] args) throws RunnerException {
+        // TODO: addProfiler
+        Options opt = new OptionsBuilder()
+                .include(ItThinClientPutGetBenchmark.class.getSimpleName())
+                .warmupIterations(3)
+                .warmupTime(TimeValue.seconds(5))
+                .measurementIterations(3)
+                .measurementTime(TimeValue.seconds(5))
+                .forks(1)
+                .build();
+
+        new Runner(opt).run();
     }
 }
