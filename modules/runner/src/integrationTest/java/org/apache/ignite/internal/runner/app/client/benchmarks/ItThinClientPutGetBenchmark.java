@@ -49,6 +49,10 @@ import org.openjdk.jmh.runner.options.TimeValue;
  * ItThinClientPutGetBenchmark.clientGet    thrpt    5   51791.441 ± 1943.680  ops/s    (network and ser/de only) (hardcoded null return)
  * ItThinClientPutGetBenchmark.embeddedGet  thrpt    3  114435.632 ± 9284.946  ops/s
  * TODO: Client-side optimizations? Disable everything, do a sync call?
+ *
+ * Things that did not affect results:
+ * - Server: Cache schema
+ * - Client: Remove partition awareness and retry logic
  */
 @State(Scope.Benchmark)
 public class ItThinClientPutGetBenchmark {
@@ -111,7 +115,7 @@ public class ItThinClientPutGetBenchmark {
         clientTable.get(null, key);
     }
 
-    @Benchmark
+    // @Benchmark
     public void embeddedGet() {
         embeddedTable.get(null, key);
     }
