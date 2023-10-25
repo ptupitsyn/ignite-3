@@ -44,10 +44,10 @@ import org.openjdk.jmh.runner.options.TimeValue;
  *
  * <p>Results on i9-12900H, openjdk 11.0.18, Ubuntu 22.04:
  * Benchmark                                 Mode  Cnt       Score       Error  Units
- * ItThinClientPutGetBenchmark.clientGet    thrpt    3   21521.397 ± 1710.121  ops/s   (as is)
+ * ItThinClientPutGetBenchmark.clientGet    thrpt    5   21521.397 ± 1710.121  ops/s   (as is)
  * ItThinClientPutGetBenchmark.clientGet    thrpt    5   31086.269 ± 5090.989  ops/s   (cached table)
  * ItThinClientPutGetBenchmark.clientGet    thrpt    5   51791.441 ± 1943.680  ops/s   (network and ser/de only) (hardcoded null return)
- * ItThinClientPutGetBenchmark.embeddedGet  thrpt    3  114435.632 ± 9284.946  ops/s   (one node, local get - only read from storage)
+ * ItThinClientPutGetBenchmark.embeddedGet  thrpt    5  114435.632 ± 9284.946  ops/s   (one node, local get - only read from storage)
  * ---
  * Things that did not affect results:
  * - Server: Cache schema
