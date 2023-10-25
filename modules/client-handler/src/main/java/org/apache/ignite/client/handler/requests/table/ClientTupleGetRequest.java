@@ -51,9 +51,11 @@ public class ClientTupleGetRequest {
             ClientResourceRegistry resources
     ) {
         // As is: 20K rps
-        // Cache tuple: 50K rps
+        // Return null: 51K rps (max we can get)
+        // Cached resulting tuple: 50K rps (ser/de included)
         // Cached table: 30K rps
-        // TODO: Try cached schema AND cached table
+        // Cached schema: 20K rps (already cached in SchemaRegistry)
+        // Cached table and schema: 30K rps
         return readTableAsync(in, tables).thenCompose(table -> {
             var tx = readTx(in, out, resources);
             return readTuple(in, table, true).thenCompose(keyTuple -> {
