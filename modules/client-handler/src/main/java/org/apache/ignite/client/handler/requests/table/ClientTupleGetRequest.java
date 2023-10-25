@@ -22,13 +22,10 @@ import static org.apache.ignite.client.handler.requests.table.ClientTableCommon.
 import static org.apache.ignite.client.handler.requests.table.ClientTableCommon.readTx;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
 import org.apache.ignite.client.handler.ClientResourceRegistry;
 import org.apache.ignite.internal.client.proto.ClientMessagePacker;
 import org.apache.ignite.internal.client.proto.ClientMessageUnpacker;
 import org.apache.ignite.internal.client.proto.TuplePart;
-import org.apache.ignite.internal.table.TableImpl;
-import org.apache.ignite.table.Tuple;
 import org.apache.ignite.table.manager.IgniteTables;
 
 /**
@@ -50,19 +47,11 @@ public class ClientTupleGetRequest {
             IgniteTables tables,
             ClientResourceRegistry resources
     ) {
-        // As is: 20K rps
-        // Return null: 51K rps (max we can get)
-        // Cached resulting tuple: 50K rps (ser/de included)
-        // Cached table: 30K rps
-        // Cached schema: 20K rps (already cached in SchemaRegistry)
-        // Cached table and schema: 30K rps
         return readTableAsync(in, tables).thenCompose(table -> {
             var tx = readTx(in, out, resources);
             return readTuple(in, table, true).thenCompose(keyTuple -> {
                 return table.recordView().getAsync(tx, keyTuple)
-                        .thenAccept(t -> {
-                            ClientTableCommon.writeTupleOrNil(out, t, TuplePart.KEY_AND_VAL, table.schemaView());
-                        });
+                        .thenAccept(t -> ClientTableCommon.writeTupleOrNil(out, t, TuplePart.KEY_AND_VAL, table.schemaView()));
             });
         });
     }

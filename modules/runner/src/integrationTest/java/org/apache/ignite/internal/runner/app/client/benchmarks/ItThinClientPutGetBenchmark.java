@@ -23,9 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import org.apache.ignite.Ignite;
 import org.apache.ignite.InitParameters;
 import org.apache.ignite.client.IgniteClient;
-import org.apache.ignite.internal.testframework.IgniteTestUtils;
 import org.apache.ignite.internal.testframework.TestIgnitionManager;
-import org.apache.ignite.internal.testframework.WorkDirectory;
 import org.apache.ignite.internal.testframework.WorkDirectoryExtension;
 import org.apache.ignite.internal.util.IgniteUtils;
 import org.apache.ignite.table.RecordView;
@@ -35,8 +33,6 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
-import org.openjdk.jmh.profile.JavaFlightRecorderProfiler;
-import org.openjdk.jmh.profile.StackProfiler;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
@@ -48,7 +44,8 @@ import org.openjdk.jmh.runner.options.TimeValue;
  *
  * <p>Results on i9-12900H, openjdk 11.0.18, Ubuntu 22.04:
  * Benchmark                                 Mode  Cnt       Score       Error  Units
- * ItThinClientPutGetBenchmark.clientGet    thrpt    3   21521.397 ± 15122.121  ops/s
+ * ItThinClientPutGetBenchmark.clientGet    thrpt    3   21521.397 ± 15122.121  ops/s   (as is)
+ * ItThinClientPutGetBenchmark.clientGet    thrpt    5   51791.441 ± 1943.680  ops/s    (network and ser/de only) (hardcoded null return)
  * ItThinClientPutGetBenchmark.embeddedGet  thrpt    3  108435.632 ± 94284.946  ops/s
  */
 @State(Scope.Benchmark)
