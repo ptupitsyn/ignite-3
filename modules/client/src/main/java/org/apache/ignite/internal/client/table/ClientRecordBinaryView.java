@@ -379,7 +379,7 @@ public class ClientRecordBinaryView extends AbstractClientView<Tuple> implements
                 ClientOp.TUPLE_UPSERT_ALL,
                 (s, w) -> ser.writeTuples(null, items, s, w, false),
                 r -> null,
-                PartitionAwarenessProvider.of(nodeId),
+                PartitionAwarenessProvider.ofNodeName(nodeId),
                 new RetryLimitPolicy().retryLimit(opts.retryLimit()));
 
         return ClientDataStreamer.streamData(publisher, opts, batchSender, provider, tbl);

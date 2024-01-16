@@ -456,7 +456,7 @@ public class ClientKeyValueBinaryView implements KeyValueView<Tuple, Tuple> {
                 ClientOp.TUPLE_UPSERT_ALL,
                 (s, w) -> ser.writeKvTuples(null, items, s, w),
                 r -> null,
-                PartitionAwarenessProvider.of(nodeName),
+                PartitionAwarenessProvider.ofNodeName(nodeName),
                 new RetryLimitPolicy().retryLimit(opts.retryLimit()));
 
         return ClientDataStreamer.streamData(publisher, opts, batchSender, provider, tbl);

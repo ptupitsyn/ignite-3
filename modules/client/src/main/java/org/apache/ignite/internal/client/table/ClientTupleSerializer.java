@@ -362,7 +362,7 @@ public class ClientTupleSerializer {
     public static PartitionAwarenessProvider getPartitionAwarenessProvider(@Nullable Transaction tx, Tuple rec) {
         if (tx != null) {
             //noinspection resource
-            return PartitionAwarenessProvider.of(ClientTransaction.get(tx).channel().protocolContext().clusterNode().name());
+            return PartitionAwarenessProvider.ofNodeName(ClientTransaction.get(tx).channel().protocolContext().clusterNode().name());
         }
 
         return PartitionAwarenessProvider.of(schema -> getColocationHash(schema, rec));
@@ -379,7 +379,7 @@ public class ClientTupleSerializer {
             @Nullable Transaction tx, Mapper<?> mapper, Object rec) {
         if (tx != null) {
             //noinspection resource
-            return PartitionAwarenessProvider.of(ClientTransaction.get(tx).channel().protocolContext().clusterNode().name());
+            return PartitionAwarenessProvider.ofNodeName(ClientTransaction.get(tx).channel().protocolContext().clusterNode().name());
         }
 
         return PartitionAwarenessProvider.of(schema -> getColocationHash(schema, mapper, rec));

@@ -28,27 +28,46 @@ import org.jetbrains.annotations.Nullable;
  * 3. Null instance = No partition awareness and no transaction. Use any channel.
  */
 public class PartitionAwarenessProvider {
+    /** Node name (same as consistentId). */
     private final @Nullable String nodeName;
+
+    /** Node id (not consistent - changes on restart). */
+    private final @Nullable String nodeId;
 
     private final @Nullable Function<ClientSchema, Integer> hashFunc;
 
-    private PartitionAwarenessProvider(@Nullable String nodeName, @Nullable Function<ClientSchema, Integer> hashFunc) {
-        assert (nodeName == null) ^ (hashFunc == null) : "One must be null, another not null: nodeId, hashFunc";
+    private PartitionAwarenessProvider(
+            @Nullable String nodeName,
+            @Nullable Function<ClientSchema, Integer> hashFunc,
+            @Nullable String nodeId) {
+        assert (nodeName != null && hashFunc == null && nodeId == null) ||
+                (nodeName == null && hashFunc != null && nodeId == null) ||
+                (nodeName == null && hashFunc == null && nodeId != null)
+                : "One and only one must be non-null, nodeName, hashFunc, nodeId";
 
         this.nodeName = nodeName;
         this.hashFunc = hashFunc;
+        this.nodeId = nodeId;
     }
 
-    public static PartitionAwarenessProvider of(String nodeName) {
-        return new PartitionAwarenessProvider(nodeName, null);
+    public static PartitionAwarenessProvider ofNodeName(String nodeName) {
+        return new PartitionAwarenessProvider(nodeName, null, null);
+    }
+
+    public static PartitionAwarenessProvider ofNodeId(String nodeId) {
+        return new PartitionAwarenessProvider(null, null, nodeId);
     }
 
     public static PartitionAwarenessProvider of(Function<ClientSchema, Integer> hashFunc) {
-        return new PartitionAwarenessProvider(null, hashFunc);
+        return new PartitionAwarenessProvider(null, hashFunc, null);
     }
 
     @Nullable String nodeName() {
         return nodeName;
+    }
+
+    @Nullable String nodeId() {
+        return nodeId;
     }
 
     Integer getObjectHashCode(ClientSchema schema) {

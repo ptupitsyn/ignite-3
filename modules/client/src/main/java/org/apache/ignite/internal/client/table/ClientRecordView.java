@@ -377,7 +377,7 @@ public class ClientRecordView<R> extends AbstractClientView<R> implements Record
                 ClientOp.TUPLE_UPSERT_ALL,
                 (s, w) -> ser.writeRecs(null, items, s, w, TuplePart.KEY_AND_VAL),
                 r -> null,
-                PartitionAwarenessProvider.of(nodeId),
+                PartitionAwarenessProvider.ofNodeName(nodeId),
                 new RetryLimitPolicy().retryLimit(opts.retryLimit()));
 
         return ClientDataStreamer.streamData(publisher, opts, batchSender, provider, tbl);

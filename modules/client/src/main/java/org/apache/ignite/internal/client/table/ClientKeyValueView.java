@@ -538,7 +538,7 @@ public class ClientKeyValueView<K, V> implements KeyValueView<K, V> {
                     }
                 },
                 r -> null,
-                PartitionAwarenessProvider.of(nodeId),
+                PartitionAwarenessProvider.ofNodeName(nodeId),
                 new RetryLimitPolicy().retryLimit(opts.retryLimit()));
 
         return ClientDataStreamer.streamData(publisher, opts, batchSender, provider, tbl);
