@@ -77,9 +77,9 @@ class ClientPrimaryReplicaTrackerTest extends BaseIgniteAbstractTest {
         tracker.start();
 
         PrimaryReplicasResult replicas = tracker.primaryReplicasAsync(TABLE_ID, null).join();
-        assertEquals(PARTITIONS, replicas.nodeNames().size());
-        assertEquals("s1", replicas.nodeNames().get(0));
-        assertEquals("s2", replicas.nodeNames().get(1));
+        assertEquals(PARTITIONS, replicas.nodeIds().size());
+        assertEquals("s1", replicas.nodeIds().get(0));
+        assertEquals("s2", replicas.nodeIds().get(1));
     }
 
     @Test
@@ -92,9 +92,9 @@ class ClientPrimaryReplicaTrackerTest extends BaseIgniteAbstractTest {
         assertEquals(2, tracker.maxStartTime());
 
         PrimaryReplicasResult replicas = tracker.primaryReplicasAsync(TABLE_ID, null).join();
-        assertEquals(PARTITIONS, replicas.nodeNames().size());
-        assertEquals("s3", replicas.nodeNames().get(0));
-        assertEquals("s2", replicas.nodeNames().get(1));
+        assertEquals(PARTITIONS, replicas.nodeIds().size());
+        assertEquals("s3", replicas.nodeIds().get(0));
+        assertEquals("s2", replicas.nodeIds().get(1));
     }
 
     @Test
@@ -108,9 +108,9 @@ class ClientPrimaryReplicaTrackerTest extends BaseIgniteAbstractTest {
         assertEquals(2, tracker.maxStartTime());
 
         PrimaryReplicasResult replicas = tracker.primaryReplicasAsync(TABLE_ID, null).join();
-        assertEquals(PARTITIONS, replicas.nodeNames().size());
-        assertNull(replicas.nodeNames().get(0));
-        assertNull(replicas.nodeNames().get(1));
+        assertEquals(PARTITIONS, replicas.nodeIds().size());
+        assertNull(replicas.nodeIds().get(0));
+        assertNull(replicas.nodeIds().get(1));
     }
 
     @Test
@@ -123,9 +123,9 @@ class ClientPrimaryReplicaTrackerTest extends BaseIgniteAbstractTest {
 
         driver.returnError(false);
         PrimaryReplicasResult replicas = tracker.primaryReplicasAsync(TABLE_ID, null).join();
-        assertEquals(PARTITIONS, replicas.nodeNames().size());
-        assertEquals("s1", replicas.nodeNames().get(0));
-        assertEquals("s2", replicas.nodeNames().get(1));
+        assertEquals(PARTITIONS, replicas.nodeIds().size());
+        assertEquals("s1", replicas.nodeIds().get(0));
+        assertEquals("s2", replicas.nodeIds().get(1));
     }
 
     @Test
@@ -141,8 +141,8 @@ class ClientPrimaryReplicaTrackerTest extends BaseIgniteAbstractTest {
         assertEquals(15, tracker.maxStartTime());
 
         PrimaryReplicasResult replicas = tracker.primaryReplicasAsync(TABLE_ID, null).join();
-        assertEquals(PARTITIONS, replicas.nodeNames().size());
-        assertEquals("update-3", replicas.nodeNames().get(0));
-        assertEquals("s2", replicas.nodeNames().get(1));
+        assertEquals(PARTITIONS, replicas.nodeIds().size());
+        assertEquals("update-3", replicas.nodeIds().get(0));
+        assertEquals("s2", replicas.nodeIds().get(1));
     }
 }

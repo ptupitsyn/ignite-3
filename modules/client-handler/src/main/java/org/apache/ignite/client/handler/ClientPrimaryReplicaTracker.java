@@ -155,8 +155,8 @@ public class ClientPrimaryReplicaTracker implements EventListener<EventParameter
                 TablePartitionId tablePartitionId = new TablePartitionId(tableId, partition);
 
                 futures[partition] = placementDriver.getPrimaryReplica(tablePartitionId, timestamp).thenAccept(replicaMeta -> {
-                    if (replicaMeta != null && replicaMeta.getLeaseholder() != null) {
-                        updatePrimaryReplica(tablePartitionId, replicaMeta.getStartTime(), replicaMeta.getLeaseholder());
+                    if (replicaMeta != null && replicaMeta.getLeaseholderId() != null) {
+                        updatePrimaryReplica(tablePartitionId, replicaMeta.getStartTime(), replicaMeta.getLeaseholderId());
                     }
                 });
             }
@@ -205,7 +205,7 @@ public class ClientPrimaryReplicaTracker implements EventListener<EventParameter
             TablePartitionId tablePartitionId = new TablePartitionId(tableId, partition);
             ReplicaHolder holder = primaryReplicas.get(tablePartitionId);
 
-            if (holder == null || holder.nodeName == null || holder.leaseStartTime == null) {
+            if (holder == null || holder.nodeId == null || holder.leaseStartTime == null) {
                 if (allowUnknownReplicas) {
                     res.add(null);
                     continue;
@@ -214,7 +214,7 @@ public class ClientPrimaryReplicaTracker implements EventListener<EventParameter
                 }
             }
 
-            res.add(holder.nodeName);
+            res.add(holder.nodeId);
         }
 
         return new PrimaryReplicasResult(res, currentMaxStartTime);
@@ -304,7 +304,7 @@ public class ClientPrimaryReplicaTracker implements EventListener<EventParameter
         TablePartitionId tablePartitionId = (TablePartitionId) primaryReplicaEvent.groupId();
 
         // TODO: IGNITE-21202 Use the leaseholder ID for thin clients as well.
-        updatePrimaryReplica(tablePartitionId, primaryReplicaEvent.startTime(), primaryReplicaEvent.leaseholder());
+        updatePrimaryReplica(tablePartitionId, primaryReplicaEvent.startTime(), primaryReplicaEvent.leaseholderId());
 
         return falseCompletedFuture(); // false: don't remove listener.
     }
@@ -325,7 +325,7 @@ public class ClientPrimaryReplicaTracker implements EventListener<EventParameter
         }
     }
 
-    private void updatePrimaryReplica(TablePartitionId tablePartitionId, HybridTimestamp startTime, String nodeName) {
+    private void updatePrimaryReplica(TablePartitionId tablePartitionId, HybridTimestamp startTime, String nodeId) {
         long startTimeLong = startTime.longValue();
 
         primaryReplicas.compute(tablePartitionId, (key, existingVal) -> {
@@ -335,19 +335,19 @@ public class ClientPrimaryReplicaTracker implements EventListener<EventParameter
                 return existingVal;
             }
 
-            return new ReplicaHolder(nodeName, startTime);
+            return new ReplicaHolder(nodeId, startTime);
         });
 
         maxStartTime.updateAndGet(value -> Math.max(value, startTimeLong));
     }
 
     private static class ReplicaHolder {
-        final String nodeName;
+        final String nodeId;
 
         final HybridTimestamp leaseStartTime;
 
-        ReplicaHolder(String nodeName, HybridTimestamp leaseStartTime) {
-            this.nodeName = nodeName;
+        ReplicaHolder(String nodeId, HybridTimestamp leaseStartTime) {
+            this.nodeId = nodeId;
             this.leaseStartTime = leaseStartTime;
         }
     }
@@ -356,17 +356,17 @@ public class ClientPrimaryReplicaTracker implements EventListener<EventParameter
      * Primary replicas per partition with timestamp.
      */
     public static class PrimaryReplicasResult {
-        private final List<String> nodeNames;
+        private final List<String> nodeIds;
 
         private final long timestamp;
 
-        PrimaryReplicasResult(List<String> nodeNames, long timestamp) {
-            this.nodeNames = nodeNames;
+        PrimaryReplicasResult(List<String> nodeIds, long timestamp) {
+            this.nodeIds = nodeIds;
             this.timestamp = timestamp;
         }
 
-        public List<String> nodeNames() {
-            return nodeNames;
+        public List<String> nodeIds() {
+            return nodeIds;
         }
 
         public long timestamp() {
