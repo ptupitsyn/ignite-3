@@ -607,7 +607,7 @@ public class ClientTable implements Table {
     @Nullable
     private static String getPreferredNodeName(
             @Nullable PartitionAwarenessProvider provider,
-            @Nullable List<String> partitions,
+            @Nullable List<String> nodeIdByPartition,
             ClientSchema schema) {
         if (provider == null) {
             return null;
@@ -619,7 +619,7 @@ public class ClientTable implements Table {
             return nodeName;
         }
 
-        if (partitions == null || partitions.isEmpty()) {
+        if (nodeIdByPartition == null || nodeIdByPartition.isEmpty()) {
             return null;
         }
 
@@ -629,7 +629,8 @@ public class ClientTable implements Table {
             return null;
         }
 
-        return partitions.get(Math.abs(hash % partitions.size()));
+        // TODO: IGNITE-21202
+        return nodeIdByPartition.get(Math.abs(hash % nodeIdByPartition.size()));
     }
 
     private static class PartitionAssignment {
