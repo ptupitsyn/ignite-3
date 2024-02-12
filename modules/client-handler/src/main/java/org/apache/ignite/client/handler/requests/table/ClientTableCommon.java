@@ -288,6 +288,7 @@ public class ClientTableCommon {
             boolean keyOnly,
             SchemaDescriptor schema
     ) {
+        // TODO IEP-54
         var cnt = keyOnly ? schema.keyColumns().size() : schema.length();
 
         // NOTE: noValueSet is only present for client -> server communication.

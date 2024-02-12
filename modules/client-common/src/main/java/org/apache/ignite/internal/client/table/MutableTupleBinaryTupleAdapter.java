@@ -22,7 +22,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.BitSet;
-import java.util.Objects;
 import java.util.UUID;
 import org.apache.ignite.internal.binarytuple.BinaryTupleContainer;
 import org.apache.ignite.internal.binarytuple.BinaryTupleReader;
@@ -41,11 +40,8 @@ public abstract class MutableTupleBinaryTupleAdapter implements Tuple, BinaryTup
     /** Tuple with overwritten data. */
     private @Nullable Tuple tuple;
 
-    /** Schema offset: value tuples skip the key part. */
-    private final int schemaOffset;
-
-    /** Schema size: key tuples skip the value part. */
-    private final int schemaSize;
+    private final int[] publicToInternalMap;
+    private final int[] internalToPublicMap;
 
     /** No-value set. */
     private final @Nullable BitSet noValueSet;
@@ -55,14 +51,20 @@ public abstract class MutableTupleBinaryTupleAdapter implements Tuple, BinaryTup
      *
      * @param binaryTuple Binary tuple.
      */
-    public MutableTupleBinaryTupleAdapter(BinaryTupleReader binaryTuple, int schemaOffset, int schemaSize, @Nullable BitSet noValueSet) {
+    public MutableTupleBinaryTupleAdapter(
+            BinaryTupleReader binaryTuple,
+            int[] publicToInternalMap,
+            int[] internalToPublicMap,
+            @Nullable BitSet noValueSet) {
         assert binaryTuple != null : "binaryTuple != null";
-        assert schemaOffset >= 0 : "schemaOffset >= 0";
-        assert schemaSize > 0 : "schemaSize > 0";
+        assert publicToInternalMap.length > 0 : "publicToInternalMap.length > 0";
+        assert internalToPublicMap.length > 0 : "internalToPublicMap.length > 0";
+        assert internalToPublicMap.length >= publicToInternalMap.length : "internalToPublicMap.length >= publicToInternalMap.length";
 
         this.binaryTuple = binaryTuple;
-        this.schemaOffset = schemaOffset;
-        this.schemaSize = schemaSize;
+        this.publicToInternalMap = publicToInternalMap;
+        this.internalToPublicMap = internalToPublicMap;
+
         this.noValueSet = noValueSet;
     }
 
@@ -73,13 +75,7 @@ public abstract class MutableTupleBinaryTupleAdapter implements Tuple, BinaryTup
             return tuple.columnCount();
         }
 
-        int cnt = schemaSize - schemaOffset;
-
-        if (noValueSet != null) {
-            cnt -= noValueSet.cardinality();
-        }
-
-        return cnt;
+        return publicToInternalMap.length;
     }
 
     /** {@inheritDoc} */
@@ -99,7 +95,8 @@ public abstract class MutableTupleBinaryTupleAdapter implements Tuple, BinaryTup
 
         int internalIndex = schemaColumnIndex(columnName, null);
 
-        return internalIndex < 0 || internalIndex >= schemaSize ? -1 : internalIndex - schemaOffset;
+        // return internalIndex < 0 || internalIndex >= schemaMap.length ? -1 : schemaMap[internalIndex];
+        throw new UnsupportedOperationException("TODO IEP-54");
     }
 
     /** {@inheritDoc} */
@@ -112,10 +109,10 @@ public abstract class MutableTupleBinaryTupleAdapter implements Tuple, BinaryTup
         int internalIndex = schemaColumnIndex(columnName, null);
 
         return internalIndex < 0
-                || internalIndex >= schemaSize
+                || internalToPublicMap[internalIndex] < 0
                 || (noValueSet != null && noValueSet.get(internalIndex))
                 ? defaultValue
-                : value(internalIndex);
+                : value(internalIndex); // TODO: IEP-54 value(internalIndex) is a bug!
     }
 
     /** {@inheritDoc} */
@@ -127,7 +124,7 @@ public abstract class MutableTupleBinaryTupleAdapter implements Tuple, BinaryTup
 
         int internalIndex = schemaColumnIndex(columnName, null);
 
-        if (internalIndex < 0 || internalIndex >= schemaSize) {
+        if (internalIndex < 0 || internalToPublicMap[internalIndex] < 0) {
             throw new IllegalArgumentException("Column doesn't exist [name=" + columnName + ']');
         }
 
@@ -141,9 +138,7 @@ public abstract class MutableTupleBinaryTupleAdapter implements Tuple, BinaryTup
             return tuple.value(columnIndex);
         }
 
-        Objects.checkIndex(columnIndex, schemaSize - schemaOffset);
-
-        int internalIndex = columnIndex + schemaOffset;
+        int internalIndex = publicToInternalMap[columnIndex];
         return (T) object(internalIndex);
     }
 
@@ -425,9 +420,9 @@ public abstract class MutableTupleBinaryTupleAdapter implements Tuple, BinaryTup
 
     protected abstract String schemaColumnName(int internalIndex);
 
-    protected abstract ColumnType schemaColumnType(int columnIndex);
+    protected abstract ColumnType schemaColumnType(int internalIndex);
 
-    protected abstract int schemaDecimalScale(int columnIndex);
+    protected abstract int schemaDecimalScale(int internalIndex);
 
     protected abstract int schemaColumnIndex(String columnName);
 
@@ -461,9 +456,7 @@ public abstract class MutableTupleBinaryTupleAdapter implements Tuple, BinaryTup
     }
 
     private int validateSchemaColumnType(int publicIndex, ColumnType type) {
-        Objects.checkIndex(publicIndex, schemaSize - schemaOffset);
-
-        int internalIndex = publicIndex + schemaOffset;
+        int internalIndex = publicToInternalMap[publicIndex];
         var actualType = schemaColumnType(internalIndex);
 
         if (type != actualType) {
@@ -475,9 +468,7 @@ public abstract class MutableTupleBinaryTupleAdapter implements Tuple, BinaryTup
     }
 
     private String schemaColumnName0(int publicIndex) {
-        Objects.checkIndex(publicIndex, schemaSize - schemaOffset);
-
-        return schemaColumnName(publicIndex + schemaOffset);
+        return schemaColumnName(publicToInternalMap[publicIndex]);
     }
 
     private @Nullable Object object(int internalIndex) {

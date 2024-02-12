@@ -37,7 +37,7 @@ public class ClientTuple extends MutableTupleBinaryTupleAdapter {
      * @param schemaOffset Schema offset.
      * @param schemaSize Schema size.
      */
-    public ClientTuple(ClientSchema schema, BinaryTupleReader tuple, int schemaOffset, int schemaSize) {
+    public ClientTuple(ClientSchema schema, BinaryTupleReader tuple, ClientColumn[] columns) {
         super(tuple, schemaOffset, schemaSize, null);
 
         this.schema = schema;
@@ -56,15 +56,15 @@ public class ClientTuple extends MutableTupleBinaryTupleAdapter {
     }
 
     @Override
-    protected ColumnType schemaColumnType(int columnIndex) {
-        ClientColumn column = schema.columns()[columnIndex];
+    protected ColumnType schemaColumnType(int internalIndex) {
+        ClientColumn column = schema.columns()[internalIndex];
 
         return column.type();
     }
 
     @Override
-    protected int schemaDecimalScale(int columnIndex) {
-        return schema.columns()[columnIndex].scale();
+    protected int schemaDecimalScale(int internalIndex) {
+        return schema.columns()[internalIndex].scale();
     }
 
     @Nullable
