@@ -130,16 +130,15 @@ public class ClientTupleSerializer {
      * @param keyOnly Key only.
      */
     public static void writeTupleRaw(Tuple tuple, ClientSchema schema, PayloadOutputChannel out, boolean keyOnly) {
-        var columns = schema.columns();
-        var count = keyOnly ? schema.keyColumnCount() : columns.length;
+        var columns = keyOnly ? schema.keyColumns() : schema.columns();
+        var count = columns.length;
 
         var builder = new BinaryTupleBuilder(count);
         var noValueSet = new BitSet(count);
 
         int usedCols = 0;
 
-        for (var i = 0; i < count; i++) {
-            var col = columns[i];
+        for (ClientColumn col : columns) {
             Object v = tuple.valueOrDefault(col.name(), NO_VALUE);
 
             if (v != NO_VALUE) {
