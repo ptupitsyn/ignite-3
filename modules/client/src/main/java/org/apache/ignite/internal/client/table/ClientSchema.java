@@ -35,16 +35,15 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Client schema.
  */
-@SuppressWarnings({"rawtypes", "AssignmentOrReturnOfFieldWithMutableType", "unchecked"})
+@SuppressWarnings({"rawtypes", "AssignmentOrReturnOfFieldWithMutableType"})
 public class ClientSchema {
     /** Schema version. Incremented on each schema modification. */
     private final int ver;
 
-    /** Key columns count. */
-    private final int keyColumnCount;
-
     /** Columns. */
     private final ClientColumn[] columns;
+
+    private final ClientColumn[] keyColumns;
 
     /** Colocation columns. */
     private final ClientColumn[] colocationColumns;
@@ -66,32 +65,25 @@ public class ClientSchema {
      * @param colocationColumns Colocation columns. When null, all key columns are used.
      * @param marshallers Marshallers provider.
      */
-    public ClientSchema(int ver, ClientColumn[] columns, ClientColumn @Nullable [] colocationColumns, MarshallersProvider marshallers) {
+    public ClientSchema(
+            int ver,
+            ClientColumn[] columns,
+            ClientColumn[] keyColumns,
+            ClientColumn @Nullable [] colocationColumns,
+            MarshallersProvider marshallers) {
         assert ver >= 0;
         assert columns != null;
 
         this.ver = ver;
         this.columns = columns;
+        this.keyColumns = keyColumns;
         this.marshallers = marshallers;
-        var keyCnt = 0;
 
         for (var col : columns) {
-            if (col.key()) {
-                keyCnt++;
-            }
-
             map.put(col.name(), col);
         }
 
-        keyColumnCount = keyCnt;
-
-        if (colocationColumns == null) {
-            this.colocationColumns = new ClientColumn[keyCnt];
-
-            System.arraycopy(columns, 0, this.colocationColumns, 0, keyCnt);
-        } else {
-            this.colocationColumns = colocationColumns;
-        }
+        this.colocationColumns = colocationColumns == null ? keyColumns : colocationColumns;
     }
 
     /**
@@ -110,6 +102,15 @@ public class ClientSchema {
      */
     public ClientColumn[] columns() {
         return columns;
+    }
+
+    /**
+     * Returns key columns.
+     *
+     * @return Key columns.
+     */
+    public ClientColumn[] keyColumns() {
+        return keyColumns;
     }
 
     /**
@@ -148,15 +149,6 @@ public class ClientSchema {
         return map.get(name);
     }
 
-    /**
-     * Returns key column count.
-     *
-     * @return Key column count.
-     */
-    public int keyColumnCount() {
-        return keyColumnCount;
-    }
-
     public <T> Marshaller getMarshaller(Mapper mapper, TuplePart part) {
         return getMarshaller(mapper, part, part == TuplePart.KEY);
     }
@@ -183,21 +175,26 @@ public class ClientSchema {
 
     private MarshallerColumn[] toMarshallerColumns(TuplePart part) {
         int colCount = columns.length;
-        int firstColIdx = 0;
 
         if (part == TuplePart.KEY) {
-            colCount = keyColumnCount;
+            colCount = keyColumns.length;
         } else if (part == TuplePart.VAL) {
-            colCount = columns.length - keyColumnCount;
-            firstColIdx = keyColumnCount;
+            colCount = columns.length - keyColumns.length;
         }
 
         MarshallerColumn[] cols = new MarshallerColumn[colCount];
+        int idx = 0;
 
-        for (int i = 0; i < colCount; i++) {
-            var col = columns[i  + firstColIdx];
+        for (ClientColumn col : columns) {
+            if (part == TuplePart.KEY && !col.key()) {
+                continue;
+            }
 
-            cols[i] = new MarshallerColumn(col.name(), mode(col.type()), null, col.scale());
+            if (part == TuplePart.VAL && col.key()) {
+                continue;
+            }
+
+            cols[idx++] = new MarshallerColumn(col.name(), mode(col.type()), null, col.scale());
         }
 
         return cols;
