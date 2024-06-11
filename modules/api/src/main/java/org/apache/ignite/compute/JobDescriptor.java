@@ -17,16 +17,17 @@
 
 package org.apache.ignite.compute;
 
+import java.util.Collection;
 import java.util.List;
 
 public class JobDescriptor {
     private final String jobClassName;
 
-    private final List<DeploymentUnit> units;
+    private final Collection<DeploymentUnit> units;
 
     private final JobExecutionOptions options;
 
-    private JobDescriptor(String jobClassName, List<DeploymentUnit> units, JobExecutionOptions options) {
+    private JobDescriptor(String jobClassName, Collection<DeploymentUnit> units, JobExecutionOptions options) {
         this.jobClassName = jobClassName;
         this.units = units;
         this.options = options;
@@ -36,7 +37,7 @@ public class JobDescriptor {
         return jobClassName;
     }
 
-    public List<DeploymentUnit> units() {
+    public Collection<DeploymentUnit> units() {
         return units;
     }
 
@@ -50,7 +51,7 @@ public class JobDescriptor {
 
     public static class Builder {
         private String jobClassName;
-        private List<DeploymentUnit> units;
+        private Collection<DeploymentUnit> units;
         private JobExecutionOptions options;
 
         public Builder jobClassName(String jobClassName) {
@@ -63,8 +64,13 @@ public class JobDescriptor {
             return this;
         }
 
-        public Builder units(List<DeploymentUnit> units) {
+        public Builder units(Collection<DeploymentUnit> units) {
             this.units = units;
+            return this;
+        }
+
+        public Builder units(DeploymentUnit... units) {
+            this.units = List.of(units);
             return this;
         }
 

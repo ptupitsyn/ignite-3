@@ -529,12 +529,9 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     void testExecuteColocatedPojoRunsComputeJobOnKeyNode(int key, int port) {
         var keyPojo = new TestPojo(key);
 
-        JobExecution<String> pojoExecution = client().compute().submitColocated(
-                TABLE_NAME,
-                keyPojo,
-                Mapper.of(TestPojo.class),
-                List.of(),
-                NodeNameJob.class.getName()
+        JobExecution<String> pojoExecution = client().compute().submit(
+                ExecutionTarget.colocated(TABLE_NAME, keyPojo, Mapper.of(TestPojo.class)),
+                jobDescriptor(NodeNameJob.class)
         );
 
         String expectedNode = "itcct_n_" + port;
@@ -549,11 +546,9 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         var keyTuple = Tuple.create().set(COLUMN_KEY, key);
         int sleepMs = 1_000_000;
 
-        JobExecution<String> tupleExecution = client().compute().submitColocated(
-                TABLE_NAME,
-                keyTuple,
-                List.of(),
-                SleepJob.class.getName(),
+        JobExecution<String> tupleExecution = client().compute().submit(
+                ExecutionTarget.colocated(TABLE_NAME, keyTuple),
+                jobDescriptor(SleepJob.class),
                 sleepMs
         );
 
@@ -570,12 +565,9 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         var keyPojo = new TestPojo(key);
         int sleepMs = 1_000_000;
 
-        JobExecution<String> pojoExecution = client().compute().submitColocated(
-                TABLE_NAME,
-                keyPojo,
-                Mapper.of(TestPojo.class),
-                List.of(),
-                SleepJob.class.getName(),
+        JobExecution<String> pojoExecution = client().compute().submit(
+                ExecutionTarget.colocated(TABLE_NAME, keyPojo, Mapper.of(TestPojo.class)),
+                jobDescriptor(SleepJob.class),
                 sleepMs
         );
 
@@ -591,9 +583,13 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         CompletionException ex = assertThrows(
                 CompletionException.class,
                 () -> client().compute().executeAsync(
-                        Set.of(node(0)),
-                        List.of(new DeploymentUnit("u", "latest")),
-                        NodeNameJob.class.getName()).join());
+                        ExecutionTarget.node(node(0)),
+                        JobDescriptor.builder()
+                                .jobClass(NodeNameJob.class)
+                                .units(new DeploymentUnit("u", "latest"))
+                                .build()
+                )
+        );
 
         var cause = (IgniteException) ex.getCause();
         assertThat(cause.getMessage(), containsString("Deployment unit u:latest doesn't exist"));
