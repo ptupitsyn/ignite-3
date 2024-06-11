@@ -17,6 +17,7 @@
 
 package org.apache.ignite.compute;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import org.apache.ignite.compute.task.MapReduceTask;
 
@@ -79,33 +80,36 @@ public interface IgniteCompute {
     /**
      * Submits a {@link MapReduceTask} of the given class for an execution.
      *
-     * @param task Task info.
+     * @param units Deployment units.
+     * @param taskClassName Map reduce task class name.
      * @param args Task arguments.
      * @param <R> Task result type.
      * @return Task execution interface.
      */
-    <R> TaskExecution<R> submitMapReduce(TaskDescriptor task, Object... args);
+    <R> TaskExecution<R> submitMapReduce(List<DeploymentUnit> units, String taskClassName, Object... args);
 
     /**
      * Submits a {@link MapReduceTask} of the given class for an execution. A shortcut for {@code submitMapReduce(...).resultAsync()}.
      *
-     * @param task Task info.
+     * @param units Deployment units.
+     * @param taskClassName Map reduce task class name.
      * @param args Task arguments.
      * @param <R> Task result type.
      * @return Task result future.
      */
-    default <R> CompletableFuture<R> executeMapReduceAsync(TaskDescriptor task, Object... args) {
-        return this.<R>submitMapReduce(task, args).resultAsync();
+    default <R> CompletableFuture<R> executeMapReduceAsync(List<DeploymentUnit> units, String taskClassName, Object... args) {
+        return this.<R>submitMapReduce(units, taskClassName, args).resultAsync();
     }
 
     /**
      * Executes a {@link MapReduceTask} of the given class.
      *
-     * @param task Task info.
+     * @param units Deployment units.
+     * @param taskClassName Map reduce task class name.
      * @param args Task arguments.
      * @param <R> Task result type.
      * @return Task result.
      * @throws ComputeException If there is any problem executing the task.
      */
-    <R> R executeMapReduce(TaskDescriptor task, Object... args);
+    <R> R executeMapReduce(List<DeploymentUnit> units, String taskClassName, Object... args);
 }
