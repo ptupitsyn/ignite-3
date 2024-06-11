@@ -661,8 +661,8 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         TestPojo pojoKey = new TestPojo(1);
         Tuple tupleKey = Tuple.create().set("key", pojoKey.key);
 
-        var tupleRes = client().compute().executeColocated(tableName, tupleKey, List.of(), jobDescriptor(NodeNameJob.class));
-        var pojoRes = client().compute().executeColocated(tableName, pojoKey, mapper, List.of(), jobDescriptor(NodeNameJob.class));
+        var tupleRes = client().compute().execute(ExecutionTarget.colocated(tableName, tupleKey), jobDescriptor(NodeNameJob.class));
+        var pojoRes = client().compute().execute(ExecutionTarget.colocated(tableName, pojoKey, mapper), jobDescriptor(NodeNameJob.class));
 
         assertEquals(tupleRes, pojoRes);
     }
