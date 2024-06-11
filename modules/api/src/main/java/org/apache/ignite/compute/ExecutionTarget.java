@@ -24,27 +24,31 @@ import org.apache.ignite.table.Tuple;
 import org.apache.ignite.table.mapper.Mapper;
 
 public interface ExecutionTarget {
-    ExecutionTarget ANY_NODE = new ExecutionTarget() { };
-
-    ExecutionTarget ALL_NODES = new ExecutionTarget() { };
-
-    static ExecutionTarget fromNode(ClusterNode node) {
-        return new NodesExecutionTarget(List.of(node));
+    static ExecutionTarget node(ClusterNode node) {
+        return new NodesExecutionTarget(List.of(node), false);
     }
 
-    static ExecutionTarget fromNodes(Collection<ClusterNode> nodes) {
-        return new NodesExecutionTarget(nodes);
+    static ExecutionTarget anyNode(Collection<ClusterNode> nodes) {
+        return new NodesExecutionTarget(nodes, false);
     }
 
-    static ExecutionTarget fromNodes(ClusterNode... nodes) {
-        return new NodesExecutionTarget(List.of(nodes));
+    static ExecutionTarget anyNode(ClusterNode... nodes) {
+        return new NodesExecutionTarget(List.of(nodes), false);
     }
 
-    static ExecutionTarget fromColocationKey(String tableName, Tuple key) {
+    static ExecutionTarget allNodes(Collection<ClusterNode> nodes) {
+        return new NodesExecutionTarget(nodes, true);
+    }
+
+    static ExecutionTarget allNodes(ClusterNode... nodes) {
+        return new NodesExecutionTarget(List.of(nodes), true);
+    }
+
+    static ExecutionTarget colocated(String tableName, Tuple key) {
         return new ColocationKeyExecutionTarget(tableName, key, null);
     }
 
-    static <K> ExecutionTarget fromColocationKey(String tableName, K key, Mapper<K> keyMapper) {
+    static <K> ExecutionTarget colocated(String tableName, K key, Mapper<K> keyMapper) {
         return new ColocationKeyExecutionTarget(tableName, key, keyMapper);
     }
 }

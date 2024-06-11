@@ -20,21 +20,23 @@ package org.apache.ignite.compute;
 import java.util.Collection;
 import java.util.Objects;
 import org.apache.ignite.network.ClusterNode;
+import org.jetbrains.annotations.Nullable;
 
 public class NodesExecutionTarget implements ExecutionTarget {
+    private final boolean broadcast;
+
     private final Collection<ClusterNode> nodes;
 
-    NodesExecutionTarget(Collection<ClusterNode> nodes) {
-        Objects.requireNonNull(nodes);
-
-        if (nodes.isEmpty()) {
-            throw new IllegalArgumentException("Nodes collection must not be empty");
-        }
-
+    NodesExecutionTarget(@Nullable Collection<ClusterNode> nodes, boolean broadcast) {
         this.nodes = nodes;
+        this.broadcast = broadcast;
     }
 
-    public Collection<ClusterNode> nodes() {
+    public @Nullable Collection<ClusterNode> nodes() {
         return nodes;
+    }
+
+    public boolean broadcast() {
+        return broadcast;
     }
 }

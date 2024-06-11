@@ -58,7 +58,7 @@ public class JobDescriptor {
             return this;
         }
 
-        public Builder jobClass(Class<?> jobClass) {
+        public Builder jobClass(Class<? extends ComputeJob<?>> jobClass) {
             this.jobClassName = jobClass.getName();
             return this;
         }

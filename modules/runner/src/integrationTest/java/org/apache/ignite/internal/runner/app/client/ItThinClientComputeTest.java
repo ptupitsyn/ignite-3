@@ -117,8 +117,8 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     @Test
     void testExecuteOnSpecificNode() {
         JobDescriptor job = JobDescriptor.builder().jobClass(NodeNameJob.class).build();
-        String res1 = client().compute().execute(ExecutionTarget.fromNode(node(0)), job);
-        String res2 = client().compute().execute(ExecutionTarget.fromNode(node(1)), job);
+        String res1 = client().compute().execute(ExecutionTarget.node(node(0)), job);
+        String res2 = client().compute().execute(ExecutionTarget.node(node(1)), job);
 
         assertEquals("itcct_n_3344", res1);
         assertEquals("itcct_n_3345", res2);
@@ -127,8 +127,8 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     @Test
     void testExecuteOnSpecificNodeAsync() {
         JobDescriptor job = JobDescriptor.builder().jobClass(NodeNameJob.class).build();
-        JobExecution<String> execution1 = client().compute().submit(ExecutionTarget.fromNode(node(0)), job);
-        JobExecution<String> execution2 = client().compute().submit(ExecutionTarget.fromNode(node(1)), job);
+        JobExecution<String> execution1 = client().compute().submit(ExecutionTarget.node(node(0)), job);
+        JobExecution<String> execution2 = client().compute().submit(ExecutionTarget.node(node(1)), job);
 
         assertThat(execution1.resultAsync(), willBe("itcct_n_3344"));
         assertThat(execution2.resultAsync(), willBe("itcct_n_3345"));
@@ -139,7 +139,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
 
     @Test
     void testCancellingCompletedJob() {
-        JobExecution<String> execution = client().compute().submit(Set.of(node(0)), List.of(), NodeNameJob.class.getName());
+        JobExecution<String> execution = client().compute().submit(nodeTarget(0), jobDescriptor(NodeNameJob.class));
 
         assertThat(execution.resultAsync(), willBe("itcct_n_3344"));
 
@@ -150,7 +150,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
 
     @Test
     void testChangingPriorityCompletedJob() {
-        JobExecution<String> execution = client().compute().submit(Set.of(node(0)), List.of(), NodeNameJob.class.getName());
+        JobExecution<String> execution = client().compute().submit(nodeTarget(0), jobDescriptor(NodeNameJob.class));
 
         assertThat(execution.resultAsync(), willBe("itcct_n_3344"));
 
@@ -162,8 +162,8 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     @Test
     void testCancelOnSpecificNodeAsync() {
         int sleepMs = 1_000_000;
-        JobExecution<String> execution1 = client().compute().submit(Set.of(node(0)), List.of(), SleepJob.class.getName(), sleepMs);
-        JobExecution<String> execution2 = client().compute().submit(Set.of(node(1)), List.of(), SleepJob.class.getName(), sleepMs);
+        JobExecution<String> execution1 = client().compute().submit(nodeTarget(0), jobDescriptor(SleepJob.class), sleepMs);
+        JobExecution<String> execution2 = client().compute().submit(nodeTarget(0), jobDescriptor(SleepJob.class), sleepMs);
 
         await().until(execution1::statusAsync, willBe(jobStatusWithState(EXECUTING)));
         await().until(execution2::statusAsync, willBe(jobStatusWithState(EXECUTING)));
@@ -179,15 +179,15 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     void changeJobPriority() {
         int sleepMs = 1_000_000;
         // Start 1 task in executor with 1 thread
-        JobExecution<String> execution1 = client().compute().submit(Set.of(node(0)), List.of(), SleepJob.class.getName(), sleepMs);
+        JobExecution<String> execution1 = client().compute().submit(nodeTarget(0), jobDescriptor(SleepJob.class), sleepMs);
         await().until(execution1::statusAsync, willBe(jobStatusWithState(EXECUTING)));
 
         // Start one more long lasting task
-        JobExecution<String> execution2 = client().compute().submit(Set.of(node(0)), List.of(), SleepJob.class.getName(), sleepMs);
+        JobExecution<String> execution2 = client().compute().submit(nodeTarget(0), jobDescriptor(SleepJob.class), sleepMs);
         await().until(execution2::statusAsync, willBe(jobStatusWithState(QUEUED)));
 
         // Start third task
-        JobExecution<String> execution3 = client().compute().submit(Set.of(node(0)), List.of(), SleepJob.class.getName(), sleepMs);
+        JobExecution<String> execution3 = client().compute().submit(nodeTarget(0), jobDescriptor(SleepJob.class), sleepMs);
         await().until(execution3::statusAsync, willBe(jobStatusWithState(QUEUED)));
 
         // Task 2 and 3 are not completed, in queue state
@@ -212,7 +212,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
 
     @Test
     void testExecuteOnRandomNode() {
-        String res = client().compute().execute(new HashSet<>(sortedNodes()), List.of(), NodeNameJob.class.getName());
+        String res = client().compute().execute(ExecutionTarget.anyNode(sortedNodes()), jobDescriptor(NodeNameJob.class));
 
         assertTrue(Set.of("itcct_n_3344", "itcct_n_3345").contains(res));
     }
@@ -220,7 +220,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     @Test
     void testExecuteOnRandomNodeAsync() {
         JobExecution<String> execution = client().compute()
-                .submit(new HashSet<>(sortedNodes()), List.of(), NodeNameJob.class.getName());
+                .submit(ExecutionTarget.anyNode(sortedNodes()), jobDescriptor(NodeNameJob.class));
 
         assertThat(
                 execution.resultAsync(),
@@ -231,10 +231,9 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
 
     @Test
     void testBroadcastOneNode() {
-        Map<ClusterNode, JobExecution<String>> executionsPerNode = client().compute().submitBroadcast(
-                Set.of(node(1)),
-                List.of(),
-                NodeNameJob.class.getName(),
+        Map<ClusterNode, JobExecution<String>> executionsPerNode = client().compute().execute(
+                ExecutionTarget.allNodes(node(1)),
+                jobDescriptor(NodeNameJob.class),
                 "_",
                 123);
 
@@ -248,10 +247,9 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
 
     @Test
     void testBroadcastAllNodes() {
-        Map<ClusterNode, JobExecution<String>> executionsPerNode = client().compute().submitBroadcast(
-                new HashSet<>(sortedNodes()),
-                List.of(),
-                NodeNameJob.class.getName(),
+        Map<ClusterNode, JobExecution<String>> executionsPerNode = client().compute().execute(
+                ExecutionTarget.allNodes(sortedNodes()),
+                jobDescriptor(NodeNameJob.class),
                 "_",
                 123);
 
@@ -270,10 +268,9 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     @Test
     void testCancelBroadcastAllNodes() {
         int sleepMs = 1_000_000;
-        Map<ClusterNode, JobExecution<String>> executionsPerNode = client().compute().submitBroadcast(
-                new HashSet<>(sortedNodes()),
-                List.of(),
-                SleepJob.class.getName(),
+        Map<ClusterNode, JobExecution<String>> executionsPerNode = client().compute().execute(
+                ExecutionTarget.allNodes(sortedNodes()),
+                jobDescriptor(SleepJob.class),
                 sleepMs
         );
 
@@ -304,7 +301,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     @Test
     void testIgniteExceptionInJobPropagatesToClientWithMessageAndCodeAndTraceIdAsync() {
         IgniteException cause = getExceptionInJobExecutionAsync(
-                client().compute().submit(Set.of(node(0)), List.of(), IgniteExceptionJob.class.getName())
+                client().compute().submit(nodeTarget(0), jobDescriptor(IgniteExceptionJob.class))
         );
 
         assertThat(cause.getMessage(), containsString("Custom job error"));
@@ -515,7 +512,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     void testExecuteColocatedTupleRunsComputeJobOnKeyNode(int key, int port) {
         Tuple keyTuple = Tuple.create().set(COLUMN_KEY, key);
         JobDescriptor job = JobDescriptor.builder().jobClass(NodeNameJob.class).build();
-        ExecutionTarget target = ExecutionTarget.fromColocationKey(TABLE_NAME, keyTuple);
+        ExecutionTarget target = ExecutionTarget.colocated(TABLE_NAME, keyTuple);
 
         JobExecution<String> tupleExecution = client().compute().submit(target, job);
 
@@ -730,6 +727,10 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         }
     }
 
+    private ExecutionTarget nodeTarget(int idx) {
+        return ExecutionTarget.node(node(idx));
+    }
+
     private ClusterNode node(int idx) {
         return sortedNodes().get(idx);
     }
@@ -738,6 +739,10 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         return client().clusterNodes().stream()
                 .sorted(Comparator.comparing(ClusterNode::name))
                 .collect(Collectors.toList());
+    }
+
+    private static JobDescriptor jobDescriptor(Class<? extends ComputeJob<?>> jobClass) {
+        return JobDescriptor.builder().jobClass(jobClass).build();
     }
 
     private static class NodeNameJob implements ComputeJob<String> {
