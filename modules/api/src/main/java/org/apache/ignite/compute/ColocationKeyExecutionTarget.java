@@ -26,9 +26,9 @@ public class ColocationKeyExecutionTarget implements ExecutionTarget {
 
     private final Object colocationKey;
 
-    private final @Nullable Mapper<?> keyMapper;
+    private final @Nullable Mapper<Object> keyMapper;
 
-    ColocationKeyExecutionTarget(String tableName, Object colocationKey, @Nullable Mapper<?> keyMapper) {
+    ColocationKeyExecutionTarget(String tableName, Object colocationKey, @Nullable Mapper<Object> keyMapper) {
         Objects.requireNonNull(tableName);
         Objects.requireNonNull(colocationKey);
 
@@ -45,7 +45,7 @@ public class ColocationKeyExecutionTarget implements ExecutionTarget {
         return colocationKey;
     }
 
-    public @Nullable Mapper<?> keyMapper() {
+    public @Nullable Mapper<Object> keyMapper() {
         return keyMapper;
     }
 }

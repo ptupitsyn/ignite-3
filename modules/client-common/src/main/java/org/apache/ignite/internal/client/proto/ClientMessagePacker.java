@@ -25,6 +25,7 @@ import io.netty.buffer.ByteBufUtil;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.BitSet;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import org.apache.ignite.compute.DeploymentUnit;
@@ -714,7 +715,7 @@ public class ClientMessagePacker implements AutoCloseable {
      *
      * @param units Units.
      */
-    public void packDeploymentUnits(List<DeploymentUnit> units) {
+    public void packDeploymentUnits(Collection<DeploymentUnit> units) {
         packInt(units.size());
         for (DeploymentUnit unit : units) {
             packString(unit.name());

@@ -21,6 +21,7 @@ import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.apache.ignite.lang.ErrorGroups.Client.TABLE_ID_NOT_FOUND_ERR;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -35,10 +36,14 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import org.apache.ignite.compute.ColocationKeyExecutionTarget;
 import org.apache.ignite.compute.DeploymentUnit;
+import org.apache.ignite.compute.ExecutionTarget;
 import org.apache.ignite.compute.IgniteCompute;
+import org.apache.ignite.compute.JobDescriptor;
 import org.apache.ignite.compute.JobExecution;
 import org.apache.ignite.compute.JobExecutionOptions;
+import org.apache.ignite.compute.NodesExecutionTarget;
 import org.apache.ignite.compute.TaskExecution;
 import org.apache.ignite.internal.client.ClientUtils;
 import org.apache.ignite.internal.client.PayloadInputChannel;
@@ -85,82 +90,63 @@ public class ClientCompute implements IgniteCompute {
         this.tables = tables;
     }
 
-    /** {@inheritDoc} */
-    @Override
-    public <R> JobExecution<R> submit(
-            Set<ClusterNode> nodes,
-            List<DeploymentUnit> units,
-            String jobClassName,
-            JobExecutionOptions options,
-            Object... args) {
-        Objects.requireNonNull(options);
-        Objects.requireNonNull(nodes);
-        Objects.requireNonNull(units);
-        Objects.requireNonNull(jobClassName);
 
-        if (nodes.isEmpty()) {
-            throw new IllegalArgumentException("nodes must not be empty.");
+    @Override
+    public <R> JobExecution<R> submit(ExecutionTarget target, JobDescriptor job, Object... args) {
+        if (target instanceof ColocationKeyExecutionTarget) {
+            ColocationKeyExecutionTarget colocationKeyExecutionTarget = (ColocationKeyExecutionTarget) target;
+
+            Mapper<Object> mapper = colocationKeyExecutionTarget.keyMapper();
+            if (mapper != null) {
+                return new ClientJobExecution<>(ch, doExecuteColocatedAsync(
+                        colocationKeyExecutionTarget.tableName(),
+                        colocationKeyExecutionTarget.colocationKey(),
+                        mapper,
+                        job.units(),
+                        job.jobClassName(),
+                        job.options(),
+                        args
+                ));
+            }
+
+            return new ClientJobExecution<>(ch, doExecuteColocatedAsync(
+                    colocationKeyExecutionTarget.tableName(),
+                    (Tuple) colocationKeyExecutionTarget.colocationKey(),
+                    job.units(),
+                    job.jobClassName(),
+                    job.options(),
+                    args
+            ));
         }
 
-        return new ClientJobExecution<>(ch, executeOnNodesAsync(nodes, units, jobClassName, options, args));
+        if (!(target instanceof NodesExecutionTarget)) {
+            throw new IllegalArgumentException("Unsupported execution target: " + target);
+        }
+
+        // TODO: Broadcast returns a map, it should be a separate method!
+        NodesExecutionTarget nodesTarget = (NodesExecutionTarget) target;
+        Collection<ClusterNode> nodes = nodesTarget.nodes();
+
+        return new ClientJobExecution<>(ch, executeOnNodesAsync(
+                nodes,
+                job.units(),
+                job.jobClassName(),
+                job.options(),
+                args
+        ));
     }
 
-    /** {@inheritDoc} */
     @Override
-    public <R> R execute(
-            Set<ClusterNode> nodes,
-            List<DeploymentUnit> units,
-            String jobClassName,
-            JobExecutionOptions options,
-            Object... args
-    ) {
-        return sync(executeAsync(nodes, units, jobClassName, options, args));
-    }
+    public <R> R execute(ExecutionTarget target, JobDescriptor job, Object... args) {
+        JobExecution<R> execution = submit(target, job, args);
 
-    /** {@inheritDoc} */
-    @Override
-    public <R> JobExecution<R> submitColocated(
-            String tableName,
-            Tuple key,
-            List<DeploymentUnit> units,
-            String jobClassName,
-            JobExecutionOptions options,
-            Object... args
-    ) {
-        Objects.requireNonNull(tableName);
-        Objects.requireNonNull(key);
-        Objects.requireNonNull(units);
-        Objects.requireNonNull(jobClassName);
-        Objects.requireNonNull(options);
-
-        return new ClientJobExecution<>(ch, doExecuteColocatedAsync(tableName, key, units, jobClassName, options, args));
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public <K, R> JobExecution<R> submitColocated(
-            String tableName,
-            K key,
-            Mapper<K> keyMapper,
-            List<DeploymentUnit> units,
-            String jobClassName,
-            JobExecutionOptions options,
-            Object... args
-    ) {
-        Objects.requireNonNull(tableName);
-        Objects.requireNonNull(key);
-        Objects.requireNonNull(keyMapper);
-        Objects.requireNonNull(options);
-        Objects.requireNonNull(units);
-        Objects.requireNonNull(jobClassName);
-
-        return new ClientJobExecution<>(ch, doExecuteColocatedAsync(tableName, key, keyMapper, units, jobClassName, options, args));
+        return execution.resultAsync().join();
     }
 
     private CompletableFuture<SubmitResult> doExecuteColocatedAsync(
             String tableName,
             Tuple key,
-            List<DeploymentUnit> units,
+            Collection<DeploymentUnit> units,
             String jobClassName,
             JobExecutionOptions options,
             Object... args
@@ -180,7 +166,7 @@ public class ClientCompute implements IgniteCompute {
             String tableName,
             K key,
             Mapper<K> keyMapper,
-            List<DeploymentUnit> units,
+            Collection<DeploymentUnit> units,
             String jobClassName,
             JobExecutionOptions options,
             Object... args
@@ -195,62 +181,6 @@ public class ClientCompute implements IgniteCompute {
                 ))
                 .thenCompose(Function.identity());
     }
-
-    /** {@inheritDoc} */
-    @Override
-    public <R> R executeColocated(
-            String tableName,
-            Tuple key,
-            List<DeploymentUnit> units,
-            String jobClassName,
-            JobExecutionOptions options,
-            Object... args
-    ) {
-        return sync(executeColocatedAsync(tableName, key, units, jobClassName, options, args));
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public <K, R> R executeColocated(
-            String tableName,
-            K key,
-            Mapper<K> keyMapper,
-            List<DeploymentUnit> units,
-            String jobClassName,
-            JobExecutionOptions options,
-            Object... args
-    ) {
-        return sync(executeColocatedAsync(tableName, key, keyMapper, units, jobClassName, options, args));
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public <R> Map<ClusterNode, JobExecution<R>> submitBroadcast(
-            Set<ClusterNode> nodes,
-            List<DeploymentUnit> units,
-            String jobClassName,
-            JobExecutionOptions options,
-            Object... args
-    ) {
-        Objects.requireNonNull(nodes);
-        Objects.requireNonNull(units);
-        Objects.requireNonNull(jobClassName);
-        Objects.requireNonNull(options);
-
-        Map<ClusterNode, JobExecution<R>> map = new HashMap<>(nodes.size());
-
-        for (ClusterNode node : nodes) {
-            JobExecution<R> execution = new ClientJobExecution<>(ch, executeOnNodesAsync(
-                    Set.of(node), units, jobClassName, options, args
-            ));
-            if (map.put(node, execution) != null) {
-                throw new IllegalStateException("Node can't be specified more than once: " + node);
-            }
-        }
-
-        return map;
-    }
-
     @Override
     public <R> TaskExecution<R> submitMapReduce(List<DeploymentUnit> units, String taskClassName, Object... args) {
         Objects.requireNonNull(units);
@@ -279,8 +209,8 @@ public class ClientCompute implements IgniteCompute {
     }
 
     private CompletableFuture<SubmitResult> executeOnNodesAsync(
-            Set<ClusterNode> nodes,
-            List<DeploymentUnit> units,
+            Collection<ClusterNode> nodes,
+            Collection<DeploymentUnit> units,
             String jobClassName,
             JobExecutionOptions options,
             Object[] args
@@ -300,7 +230,7 @@ public class ClientCompute implements IgniteCompute {
         );
     }
 
-    private static ClusterNode randomNode(Set<ClusterNode> nodes) {
+    private static ClusterNode randomNode(Collection<ClusterNode> nodes) {
         if (nodes.size() == 1) {
             return nodes.iterator().next();
         }
@@ -319,7 +249,7 @@ public class ClientCompute implements IgniteCompute {
             ClientTable t,
             K key,
             Mapper<K> keyMapper,
-            List<DeploymentUnit> units,
+            Collection<DeploymentUnit> units,
             String jobClassName,
             JobExecutionOptions options,
             Object[] args) {
@@ -336,7 +266,7 @@ public class ClientCompute implements IgniteCompute {
     private static CompletableFuture<SubmitResult> executeColocatedTupleKey(
             ClientTable t,
             Tuple key,
-            List<DeploymentUnit> units,
+            Collection<DeploymentUnit> units,
             String jobClassName,
             JobExecutionOptions options,
             Object[] args) {
@@ -354,7 +284,7 @@ public class ClientCompute implements IgniteCompute {
             ClientTable t,
             BiConsumer<PayloadOutputChannel, ClientSchema> keyWriter,
             PartitionAwarenessProvider partitionAwarenessProvider,
-            List<DeploymentUnit> units,
+            Collection<DeploymentUnit> units,
             String jobClassName,
             JobExecutionOptions options,
             Object[] args) {
@@ -424,7 +354,7 @@ public class ClientCompute implements IgniteCompute {
         return completedFuture(res);
     }
 
-    private static void packNodeNames(ClientMessagePacker w, Set<ClusterNode> nodes) {
+    private static void packNodeNames(ClientMessagePacker w, Collection<ClusterNode> nodes) {
         w.packInt(nodes.size());
         for (ClusterNode node : nodes) {
             w.packString(node.name());
@@ -432,7 +362,7 @@ public class ClientCompute implements IgniteCompute {
     }
 
     private static void packJob(ClientMessagePacker w,
-            List<DeploymentUnit> units,
+            Collection<DeploymentUnit> units,
             String jobClassName,
             JobExecutionOptions options,
             Object[] args) {
