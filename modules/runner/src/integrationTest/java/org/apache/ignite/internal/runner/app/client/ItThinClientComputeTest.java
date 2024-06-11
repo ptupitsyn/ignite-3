@@ -291,8 +291,10 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
 
     @Test
     void testExecuteWithArgs() {
-        var nodes = new HashSet<>(client().clusterNodes());
-        JobExecution<String> execution = client().compute().submit(nodes, List.of(), ConcatJob.class.getName(), 1, "2", 3.3);
+        JobExecution<String> execution = client().compute().submit(
+                ExecutionTarget.anyNode(client().clusterNodes()),
+                jobDescriptor(ConcatJob.class),
+                1, "2", 3.3);
 
         assertThat(execution.resultAsync(), willBe("1_2_3.3"));
         assertThat(execution.statusAsync(), willBe(jobStatusWithState(COMPLETED)));
@@ -314,7 +316,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     @Test
     void testIgniteExceptionInJobPropagatesToClientWithMessageAndCodeAndTraceIdSync() {
         IgniteException cause = getExceptionInJobExecutionSync(
-                () -> client().compute().execute(Set.of(node(0)), List.of(), IgniteExceptionJob.class.getName())
+                () -> client().compute().execute(nodeTarget(0), jobDescriptor(IgniteExceptionJob.class))
         );
 
         assertThat(cause.getMessage(), containsString("Custom job error"));
@@ -327,7 +329,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     @Test
     void testExceptionInJobPropagatesToClientWithClassAndMessageAsync() {
         IgniteException cause = getExceptionInJobExecutionAsync(
-                client().compute().submit(Set.of(node(0)), List.of(), ExceptionJob.class.getName())
+                client().compute().submit(nodeTarget(0), jobDescriptor(ExceptionJob.class))
         );
 
         assertComputeExceptionWithClassAndMessage(cause);
@@ -336,7 +338,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     @Test
     void testExceptionInJobPropagatesToClientWithClassAndMessageSync() {
         IgniteException cause = getExceptionInJobExecutionSync(
-                () -> client().compute().execute(Set.of(node(0)), List.of(), ExceptionJob.class.getName())
+                () -> client().compute().execute(nodeTarget(0), jobDescriptor(ExceptionJob.class))
         );
 
         assertComputeExceptionWithClassAndMessage(cause);
@@ -346,7 +348,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     void testExceptionInJobWithSendServerExceptionStackTraceToClientPropagatesToClientWithStackTraceAsync() {
         // Second node has sendServerExceptionStackTraceToClient enabled.
         IgniteException cause = getExceptionInJobExecutionAsync(
-                client().compute().submit(Set.of(node(1)), List.of(), ExceptionJob.class.getName())
+                client().compute().submit(nodeTarget(1), jobDescriptor(ExceptionJob.class))
         );
 
         assertComputeExceptionWithStackTrace(cause);
@@ -356,7 +358,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     void testExceptionInJobWithSendServerExceptionStackTraceToClientPropagatesToClientWithStackTraceSync() {
         // Second node has sendServerExceptionStackTraceToClient enabled.
         IgniteException cause = getExceptionInJobExecutionSync(
-                () -> client().compute().execute(Set.of(node(1)), List.of(), ExceptionJob.class.getName())
+                () -> client().compute().execute(nodeTarget(1), jobDescriptor(ExceptionJob.class))
         );
 
         assertComputeExceptionWithStackTrace(cause);
@@ -364,8 +366,8 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
 
     @Test
     void testExceptionInBroadcastJobPropagatesToClient() {
-        Map<ClusterNode, JobExecution<String>> executions = client().compute().submitBroadcast(
-                Set.of(node(0), node(1)), List.of(), ExceptionJob.class.getName()
+        Map<ClusterNode, JobExecution<String>> executions = client().compute().execute(
+                ExecutionTarget.allNodes(node(0), node(1)), jobDescriptor(ExceptionJob.class)
         );
 
         assertComputeExceptionWithClassAndMessage(getExceptionInJobExecutionAsync(executions.get(node(0))));
@@ -379,7 +381,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         var key = Tuple.create().set(COLUMN_KEY, 1);
 
         IgniteException cause = getExceptionInJobExecutionAsync(
-                client().compute().submitColocated(TABLE_NAME, key, List.of(), ExceptionJob.class.getName()
+                client().compute().submit(ExecutionTarget.colocated(TABLE_NAME, key), jobDescriptor(ExceptionJob.class)
         ));
 
         assertComputeExceptionWithClassAndMessage(cause);
@@ -390,7 +392,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         var key = Tuple.create().set(COLUMN_KEY, 1);
 
         IgniteException cause = getExceptionInJobExecutionSync(
-                () -> client().compute().executeColocated(TABLE_NAME, key, List.of(), ExceptionJob.class.getName())
+                () -> client().compute().execute(ExecutionTarget.colocated(TABLE_NAME, key), jobDescriptor(ExceptionJob.class))
         );
 
         assertComputeExceptionWithClassAndMessage(cause);
@@ -402,7 +404,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         var key = Tuple.create().set(COLUMN_KEY, 2);
 
         IgniteException cause = getExceptionInJobExecutionAsync(
-                client().compute().submitColocated(TABLE_NAME, key, List.of(), ExceptionJob.class.getName())
+                client().compute().submit(ExecutionTarget.colocated(TABLE_NAME, key),  jobDescriptor(ExceptionJob.class))
         );
 
         assertComputeExceptionWithStackTrace(cause);
@@ -414,7 +416,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         var key = Tuple.create().set(COLUMN_KEY, 2);
 
         IgniteException cause = getExceptionInJobExecutionSync(
-                () -> client().compute().executeColocated(TABLE_NAME, key, List.of(), ExceptionJob.class.getName())
+                () -> client().compute().execute(ExecutionTarget.colocated(TABLE_NAME, key), jobDescriptor(ExceptionJob.class))
         );
 
         assertComputeExceptionWithStackTrace(cause);
@@ -426,7 +428,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         Mapper<TestPojo> mapper = Mapper.of(TestPojo.class);
 
         IgniteException cause = getExceptionInJobExecutionAsync(
-                client().compute().submitColocated(TABLE_NAME, key, mapper, List.of(), ExceptionJob.class.getName())
+                client().compute().submit(ExecutionTarget.colocated(TABLE_NAME, key, mapper), jobDescriptor(ExceptionJob.class))
         );
 
         assertComputeExceptionWithClassAndMessage(cause);
@@ -438,7 +440,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         Mapper<TestPojo> mapper = Mapper.of(TestPojo.class);
 
         IgniteException cause = getExceptionInJobExecutionSync(
-                () -> client().compute().executeColocated(TABLE_NAME, key, mapper, List.of(), ExceptionJob.class.getName())
+                () -> client().compute().execute(ExecutionTarget.colocated(TABLE_NAME, key, mapper), jobDescriptor(ExceptionJob.class))
         );
 
         assertComputeExceptionWithClassAndMessage(cause);
@@ -451,7 +453,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         Mapper<TestPojo> mapper = Mapper.of(TestPojo.class);
 
         IgniteException cause = getExceptionInJobExecutionAsync(
-                client().compute().submitColocated(TABLE_NAME, key, mapper, List.of(), ExceptionJob.class.getName())
+                client().compute().submit(ExecutionTarget.colocated(TABLE_NAME, key, mapper), jobDescriptor(ExceptionJob.class))
         );
 
         assertComputeExceptionWithStackTrace(cause);
@@ -464,7 +466,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         Mapper<TestPojo> mapper = Mapper.of(TestPojo.class);
 
         IgniteException cause = getExceptionInJobExecutionSync(
-                () -> client().compute().executeColocated(TABLE_NAME, key, mapper, List.of(), ExceptionJob.class.getName())
+                () -> client().compute().execute(ExecutionTarget.colocated(TABLE_NAME, key, mapper), jobDescriptor(ExceptionJob.class))
         );
 
         assertComputeExceptionWithStackTrace(cause);
@@ -623,7 +625,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         try (IgniteClient client = builder.build()) {
             int delayMs = 3000;
             CompletableFuture<String> jobFut = client.compute().executeAsync(
-                    Set.of(node(0)), List.of(), SleepJob.class.getName(), delayMs);
+                    nodeTarget(0), jobDescriptor(SleepJob.class), delayMs);
 
             // Wait a bit and close the connection.
             Thread.sleep(10);
@@ -662,8 +664,8 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
         TestPojo pojoKey = new TestPojo(1);
         Tuple tupleKey = Tuple.create().set("key", pojoKey.key);
 
-        var tupleRes = client().compute().executeColocated(tableName, tupleKey, List.of(), NodeNameJob.class.getName());
-        var pojoRes = client().compute().executeColocated(tableName, pojoKey, mapper, List.of(), NodeNameJob.class.getName());
+        var tupleRes = client().compute().executeColocated(tableName, tupleKey, List.of(), jobDescriptor(NodeNameJob.class));
+        var pojoRes = client().compute().executeColocated(tableName, pojoKey, mapper, List.of(), jobDescriptor(NodeNameJob.class));
 
         assertEquals(tupleRes, pojoRes);
     }
@@ -671,7 +673,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     @ParameterizedTest
     @CsvSource({"1E3,-3", "1.12E5,-5", "1.12E5,0", "1.123456789,10", "1.123456789,5"})
     void testBigDecimalPropagation(String number, int scale) {
-        BigDecimal res = client().compute().execute(Set.of(node(0)), List.of(), DecimalJob.class.getName(), number, scale);
+        BigDecimal res = client().compute().execute(nodeTarget(0), jobDescriptor(DecimalJob.class), number, scale);
 
         var expected = new BigDecimal(number).setScale(scale, RoundingMode.HALF_UP);
         assertEquals(expected, res);
@@ -718,7 +720,7 @@ public class ItThinClientComputeTest extends ItAbstractThinClientTest {
     }
 
     private void testEchoArg(Object arg) {
-        Object res = client().compute().execute(Set.of(node(0)), List.of(), EchoJob.class.getName(), arg, arg.toString());
+        Object res = client().compute().execute(nodeTarget(0), jobDescriptor(EchoJob.class), arg, arg.toString());
 
         if (arg instanceof byte[]) {
             assertArrayEquals((byte[]) arg, (byte[]) res);
