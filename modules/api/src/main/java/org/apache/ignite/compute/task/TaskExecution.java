@@ -34,7 +34,7 @@ public interface TaskExecution<R> {
     /**
      * Returns task execution result.
      *
-     * @return Job's execution result future.
+     * @return Execution result future.
      */
     CompletableFuture<R> resultAsync();
 
