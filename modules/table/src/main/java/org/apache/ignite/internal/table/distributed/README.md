@@ -35,7 +35,7 @@ Thread prefix: `tx-state-storage-scheduled-pool
 
 **ioExecutor**
 
-It is used for asynchronous start Raft nodes and clients. Size is calculated as `Math.min(cpus * 3, 25)`.
+It is used for asynchronous start of Raft nodes and Raft clients. Size is calculated as `Math.max(cpus, 2)`.
 Thread prefix: `tableManager-io`
 
 ### Activities of TableManager are processed in following threads:

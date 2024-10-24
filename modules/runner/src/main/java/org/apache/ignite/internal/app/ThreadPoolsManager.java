@@ -65,14 +65,14 @@ public class ThreadPoolsManager implements IgniteComponent {
         int cpus = Runtime.getRuntime().availableProcessors();
 
         tableIoExecutor = new ThreadPoolExecutor(
-                Math.min(cpus * 3, 25),
+                Math.max(cpus, 2),
                 Integer.MAX_VALUE,
                 100,
                 MILLISECONDS,
                 new LinkedBlockingQueue<>(),
                 IgniteThreadFactory.create(nodeName, "tableManager-io", LOG, STORAGE_READ, STORAGE_WRITE));
 
-        int partitionsOperationsThreads = Math.min(cpus * 3, 25);
+        int partitionsOperationsThreads = Math.max(cpus, 2);
         partitionOperationsExecutor = Executors.newFixedThreadPool(
                 partitionsOperationsThreads,
                 IgniteThreadFactory.create(
