@@ -899,11 +899,11 @@ namespace Apache.Ignite.Tests.Compute
 
             if (status is JobStatus.Canceled or JobStatus.Completed or JobStatus.Failed)
             {
-                Assert.Greater(state.FinishTime, state.StartTime);
+                Assert.Greater(state.FinishTime, state.StartTime, status.ToString());
             }
             else
             {
-                Assert.IsNull(state.FinishTime);
+                Assert.IsNull(state.FinishTime, status.ToString());
             }
         }
 
