@@ -18,9 +18,16 @@ namespace Apache.Ignite.Benchmarks;
 using System.Linq;
 using BenchmarkDotNet.Attributes;
 
+/// <summary>
+/// MB Pro M3 (TODO compare with Intel)
+/// | Method      | Mean     | Error    | StdDev   |
+/// |------------ |---------:|---------:|---------:|
+/// | TestValType | 53.73 ms | 0.028 ms | 0.023 ms |
+/// | TestRefType | 56.27 ms | 0.047 ms | 0.044 ms |.
+/// </summary>
 public class ValueTypeBenchmark
 {
-    private const int Count = 100_000;
+    private const int Count = 100_000_000;
 
     private static readonly MyRefType[] RefItems = Enumerable
         .Range(0, Count)
