@@ -52,7 +52,7 @@ public class ValueTypeBenchmark
         return sum;
     }
 
-    [Benchmark]
+    [Benchmark(Baseline = true)]
     public int TestRefType()
     {
         int sum = 0;
