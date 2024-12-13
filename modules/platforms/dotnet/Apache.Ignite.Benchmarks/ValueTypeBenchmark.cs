@@ -65,7 +65,7 @@ public class ValueTypeBenchmark
         public int Field2;
     }
 
-    public class MyValType
+    public struct MyValType
     {
         public int Field1;
         public int Field2;
