@@ -31,11 +31,17 @@ using BenchmarkDotNet.Attributes;
 /// | TestValType |  65.59 ms | 0.766 ms | 0.679 ms |  0.43 |
 /// | TestRefType | 154.09 ms | 1.819 ms | 1.519 ms |  1.00 |.
 ///
+/// 1M, MB Pro M3
+/// | Method      | Mean     | Error   | StdDev  | Ratio |
+/// |------------ |---------:|--------:|--------:|------:|
+/// | TestValType | 530.2 us | 6.94 us | 6.49 us |  0.98 |
+/// | TestRefType | 541.1 us | 1.98 us | 1.54 us |  1.00 |.
+///
 /// 1M, Intel Core i9-12900H
-/// | Method      | Mean       | Error    | StdDev   | Median     | Ratio | RatioSD |
-/// |------------ |-----------:|---------:|---------:|-----------:|------:|--------:|
-/// | TestValType |   417.8 us |  5.77 us | 14.69 us |   412.3 us |  0.39 |    0.01 |
-/// | TestRefType | 1,074.9 us | 14.41 us | 12.04 us | 1,074.4 us |  1.00 |    0.02 |.
+/// | Method      | Mean       | Error    | StdDev   | Ratio |
+/// |------------ |-----------:|---------:|---------:|------:|
+/// | TestValType |   417.8 us |  5.77 us | 14.69 us |  0.39 |
+/// | TestRefType | 1,074.9 us | 14.41 us | 12.04 us |  1.00 |.
 /// </summary>
 public class ValueTypeBenchmark
 {
