@@ -19,21 +19,27 @@ using System.Linq;
 using BenchmarkDotNet.Attributes;
 
 /// <summary>
-/// MB Pro M3
+/// 100M, MB Pro M3
 /// | Method      | Mean     | Error    | StdDev   |
 /// |------------ |---------:|---------:|---------:|
 /// | TestValType | 53.73 ms | 0.028 ms | 0.023 ms |
 /// | TestRefType | 56.27 ms | 0.047 ms | 0.044 ms |.
 ///
-/// Intel Core i9-12900H
+/// 100M, Intel Core i9-12900H
 /// | Method      | Mean      | Error    | StdDev   | Ratio |
 /// |------------ |----------:|---------:|---------:|------:|
 /// | TestValType |  65.59 ms | 0.766 ms | 0.679 ms |  0.43 |
 /// | TestRefType | 154.09 ms | 1.819 ms | 1.519 ms |  1.00 |.
+///
+/// 1M, Intel Core i9-12900H
+/// | Method      | Mean       | Error    | StdDev   | Median     | Ratio | RatioSD |
+/// |------------ |-----------:|---------:|---------:|-----------:|------:|--------:|
+/// | TestValType |   417.8 us |  5.77 us | 14.69 us |   412.3 us |  0.39 |    0.01 |
+/// | TestRefType | 1,074.9 us | 14.41 us | 12.04 us | 1,074.4 us |  1.00 |    0.02 |.
 /// </summary>
 public class ValueTypeBenchmark
 {
-    private const int Count = 100_000_000;
+    private const int Count = 1_000_000;
 
     private static readonly MyRefType[] RefItems = Enumerable
         .Range(0, Count)
