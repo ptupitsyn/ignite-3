@@ -18,6 +18,8 @@
 namespace Apache.Ignite.Tests.Table;
 
 using System;
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 using NodaTime;
 using NUnit.Framework;
@@ -28,7 +30,9 @@ public class DateTimeTests : IgniteTestsBase
     public async Task TestDateTime()
     {
         await Client.Sql.ExecuteAsync(null, "DROP TABLE IF EXISTS test_date_time");
-        await Client.Sql.ExecuteAsync(null, "CREATE TABLE test_date_time (id INT PRIMARY KEY, dt TIMESTAMP WITH LOCAL TIME ZONE NOT NULL)");
+        await Client.Sql.ExecuteAsync(
+            null,
+            "CREATE TABLE test_date_time (id INT PRIMARY KEY, birthday TIMESTAMP WITH LOCAL TIME ZONE NOT NULL)");
 
         var table = await Client.Tables.GetTableAsync("test_date_time");
         var view = table!.GetRecordView<DtPoco>();
@@ -36,7 +40,7 @@ public class DateTimeTests : IgniteTestsBase
         var poco = new DtPoco
         {
             Id = 1,
-            DateTime = DateTime.UtcNow
+            Birthday = DateTime.UtcNow
         };
 
         await view.UpsertAsync(null, poco);
@@ -48,17 +52,18 @@ public class DateTimeTests : IgniteTestsBase
         }
     }
 
+    [SuppressMessage("Naming", "CA1708:Identifiers should differ by more than case", Justification = "Reviewed")]
     private record DtPoco
     {
-        public int Id { get; set; }
+        private Instant birthday;
 
-        public Instant Dt { get; set; }
-
-        public DateTime DateTime
+        public DateTime Birthday
         {
-            get => Dt.ToDateTimeUtc();
-            set => Dt =Instant.FromDateTimeUtc(value);
+            get => birthday.ToDateTimeUtc();
+            set => birthday = Instant.FromDateTimeUtc(value);
         }
+
+        public int Id { get; set; }
     }
 
     private record DtPoco2(int Id, DateTime Dt);

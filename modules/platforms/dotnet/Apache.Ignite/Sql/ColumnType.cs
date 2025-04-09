@@ -66,7 +66,7 @@ namespace Apache.Ignite.Sql
         Datetime = 11,
 
         /** Number of ticks since Jan 1, 1970 00:00:00.000 (with no timezone). Tick unit depends on precision. */
-        Timestamp = 12,
+        Timestamp = 12, // SQL TIMESTAMP WITH LOCAL TIME ZONE
 
         /** 128-bit UUID. */
         Uuid = 13,
