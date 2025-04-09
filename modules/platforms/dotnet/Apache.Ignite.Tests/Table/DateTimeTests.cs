@@ -19,6 +19,7 @@ namespace Apache.Ignite.Tests.Table;
 
 using System;
 using System.Threading.Tasks;
+using NodaTime;
 using NUnit.Framework;
 
 public class DateTimeTests : IgniteTestsBase
@@ -26,14 +27,15 @@ public class DateTimeTests : IgniteTestsBase
     [Test]
     public async Task TestDateTime()
     {
-        await Client.Sql.ExecuteAsync(null, "CREATE TABLE IF NOT EXISTS test_date_time (id INT PRIMARY KEY, dt TIMESTAMP)");
+        await Client.Sql.ExecuteAsync(null, "DROP TABLE IF EXISTS test_date_time");
+        await Client.Sql.ExecuteAsync(null, "CREATE TABLE test_date_time (id INT PRIMARY KEY, dt TIMESTAMP WITH LOCAL TIME ZONE)");
 
         var table = await Client.Tables.GetTableAsync("test_date_time");
         var view = table!.GetRecordView<DtPoco>();
 
-        var poco = new DtPoco(1, DateTime.UtcNow);
+        var poco = new DtPoco(1, Instant.FromDateTimeUtc(DateTime.UtcNow));
         await view.UpsertAsync(null, poco);
     }
 
-    private record DtPoco(int Id, DateTime DateTime);
+    private record DtPoco(int Id, Instant? Dt);
 }
