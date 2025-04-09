@@ -609,7 +609,11 @@ namespace Apache.Ignite.Tests.Table
         [Test]
         public async Task TestPocoAllColumnsSql()
         {
-            var pocoAllColumnsSql = new PocoAllColumnsSql(
+            DateTime utcNow = DateTime.UtcNow;
+            Instant instant = Instant.FromDateTimeUtc(utcNow);
+            DateTime dateTimeUtc = instant.ToDateTimeUtc();
+
+            var pocoAllColumnsSql = new PocoAllColumnsSqlNullable(
                 1L,
                 "str",
                 8,
@@ -618,18 +622,18 @@ namespace Apache.Ignite.Tests.Table
                 64,
                 32.32f,
                 64.64,
-                LocalDate.FromDateTime(DateTime.UtcNow),
+                LocalDate.FromDateTime(utcNow),
                 LocalTime.Noon,
-                LocalDateTime.FromDateTime(DateTime.UtcNow),
-                Instant.FromDateTimeUtc(DateTime.UtcNow),
-                [1, 2, 3],
+                LocalDateTime.FromDateTime(utcNow),
+                instant,
+                null,
                 123.456m,
                 Guid.NewGuid(),
                 true);
 
-            await PocoAllColumnsSqlView.UpsertAsync(null, pocoAllColumnsSql);
+            await PocoAllColumnsSqlNullableView.UpsertAsync(null, pocoAllColumnsSql);
 
-            var res = (await PocoAllColumnsSqlView.GetAsync(null, pocoAllColumnsSql)).Value;
+            var res = (await PocoAllColumnsSqlNullableView.GetAsync(null, pocoAllColumnsSql)).Value;
 
             Assert.AreEqual(pocoAllColumnsSql, res);
         }
