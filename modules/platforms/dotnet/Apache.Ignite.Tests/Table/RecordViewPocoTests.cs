@@ -613,7 +613,7 @@ namespace Apache.Ignite.Tests.Table
             Instant instant = Instant.FromDateTimeUtc(utcNow);
             DateTime dateTimeUtc = instant.ToDateTimeUtc();
 
-            var pocoAllColumnsSql = new PocoAllColumnsSqlNullable(
+            var pocoAllColumnsSql = new PocoAllColumnsSqlNullable2(
                 1L,
                 "str",
                 8,
@@ -625,15 +625,17 @@ namespace Apache.Ignite.Tests.Table
                 LocalDate.FromDateTime(utcNow),
                 LocalTime.Noon,
                 LocalDateTime.FromDateTime(utcNow),
-                instant,
+                utcNow,
                 null,
                 123.456m,
                 Guid.NewGuid(),
                 true);
 
-            await PocoAllColumnsSqlNullableView.UpsertAsync(null, pocoAllColumnsSql);
+            var tableAllColumnsSql = await Client.Tables.GetTableAsync(TableAllColumnsSqlName);
+            var view = tableAllColumnsSql!.GetRecordView<PocoAllColumnsSqlNullable2>();
+            await view.UpsertAsync(null, pocoAllColumnsSql);
 
-            var res = (await PocoAllColumnsSqlNullableView.GetAsync(null, pocoAllColumnsSql)).Value;
+            var res = (await view.GetAsync(null, pocoAllColumnsSql)).Value;
 
             Assert.AreEqual(pocoAllColumnsSql, res);
         }
