@@ -607,6 +607,34 @@ namespace Apache.Ignite.Tests.Table
         }
 
         [Test]
+        public async Task TestPocoAllColumnsSql()
+        {
+            var pocoAllColumnsSql = new PocoAllColumnsSql(
+                1L,
+                "str",
+                8,
+                16,
+                32,
+                64,
+                32.32f,
+                64.64,
+                LocalDate.FromDateTime(DateTime.UtcNow),
+                LocalTime.Noon,
+                LocalDateTime.FromDateTime(DateTime.UtcNow),
+                Instant.FromDateTimeUtc(DateTime.UtcNow),
+                [1, 2, 3],
+                123.456m,
+                Guid.NewGuid(),
+                true);
+
+            await PocoAllColumnsSqlView.UpsertAsync(null, pocoAllColumnsSql);
+
+            var res = (await PocoAllColumnsSqlView.GetAsync(null, pocoAllColumnsSql)).Value;
+
+            Assert.AreEqual(pocoAllColumnsSql, res);
+        }
+
+        [Test]
         public async Task TestAllColumnsPoco()
         {
             var pocoView = PocoAllColumnsView;
