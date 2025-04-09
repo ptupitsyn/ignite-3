@@ -35,5 +35,5 @@ public class DateTimeTests : IgniteTestsBase
         await view.UpsertAsync(null, poco);
     }
 
-    private record DtPoco(long Id, DateTime DateTime);
+    private record DtPoco(int Id, DateTime DateTime);
 }
