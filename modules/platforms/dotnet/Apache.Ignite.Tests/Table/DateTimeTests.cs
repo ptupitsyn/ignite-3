@@ -28,14 +28,38 @@ public class DateTimeTests : IgniteTestsBase
     public async Task TestDateTime()
     {
         await Client.Sql.ExecuteAsync(null, "DROP TABLE IF EXISTS test_date_time");
-        await Client.Sql.ExecuteAsync(null, "CREATE TABLE test_date_time (id INT PRIMARY KEY, dt TIMESTAMP WITH LOCAL TIME ZONE)");
+        await Client.Sql.ExecuteAsync(null, "CREATE TABLE test_date_time (id INT PRIMARY KEY, dt TIMESTAMP WITH LOCAL TIME ZONE NOT NULL)");
 
         var table = await Client.Tables.GetTableAsync("test_date_time");
         var view = table!.GetRecordView<DtPoco>();
 
-        var poco = new DtPoco(1, Instant.FromDateTimeUtc(DateTime.UtcNow));
+        var poco = new DtPoco
+        {
+            Id = 1,
+            DateTime = DateTime.UtcNow
+        };
+
         await view.UpsertAsync(null, poco);
+
+        using var resultSet = await Client.Sql.ExecuteAsync<DtPoco>(null, "select * from test_date_time");
+        await foreach (var row in resultSet)
+        {
+            Console.WriteLine(row);
+        }
     }
 
-    private record DtPoco(int Id, Instant? Dt);
+    private record DtPoco
+    {
+        public int Id { get; set; }
+
+        public Instant Dt { get; set; }
+
+        public DateTime DateTime
+        {
+            get => Dt.ToDateTimeUtc();
+            set => Dt =Instant.FromDateTimeUtc(value);
+        }
+    }
+
+    private record DtPoco2(int Id, DateTime Dt);
 }
