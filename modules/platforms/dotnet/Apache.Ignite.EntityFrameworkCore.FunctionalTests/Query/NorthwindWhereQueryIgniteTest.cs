@@ -25,4 +25,10 @@ public class NorthwindWhereQueryIgniteTest : NorthwindWhereQueryRelationalTestBa
         : base(fixture)
     {
     }
+
+    public override async Task Where_compare_constructed_multi_value_equal(bool async)
+    {
+        // Anonymous type to constant comparison - not supported in Ignite.
+        await AssertTranslationFailed(() => base.Where_compare_constructed_multi_value_equal(async));
+    }
 }
