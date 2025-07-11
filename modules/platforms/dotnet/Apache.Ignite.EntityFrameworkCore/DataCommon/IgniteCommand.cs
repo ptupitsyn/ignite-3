@@ -176,13 +176,14 @@ public class IgniteCommand : DbCommand
 
         for (var i = 0; i < _parameters.Count; i++)
         {
-            // TODO: Review conversion logic.
+            // TODO: Review conversion logic for DateTime.
+            // TODO: Support NodaTime types.
             arr[i] = _parameters[i].Value switch
             {
                 DBNull => null,
                 ushort u16 => (short)u16,
                 uint u32 => (int)u32,
-                DateTime dt => Instant.FromDateTimeUtc(dt.ToUniversalTime()),
+                DateTime dt => LocalDateTime.FromDateTime(dt),
                 var other => other
             };
         }

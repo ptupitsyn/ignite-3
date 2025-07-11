@@ -46,7 +46,7 @@ public class NorthwindIgniteContext : NorthwindRelationalContext
         modelBuilder.Entity<Order>(
             b =>
             {
-                b.Property(o => o.OrderDate).HasColumnType("TIMESTAMP WITH LOCAL TIME ZONE");
+                b.Property(o => o.OrderDate).HasColumnType("TIMESTAMP");
             });
 
         modelBuilder.Entity<OrderDetail>(
