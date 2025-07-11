@@ -38,12 +38,13 @@ public class NorthwindIgniteContext : NorthwindRelationalContext
     private static void AddId<T>(ModelBuilder modelBuilder)
         where T : class
     {
-        var entity = modelBuilder.Entity<T>();
+        modelBuilder.Entity<T>(b =>
+        {
+            b.Property<Guid>("id")
+                .HasColumnType("uuid")
+                .HasDefaultValueSql("rand_uuid");
 
-        entity.Property<Guid>("id")
-            .HasColumnType("uuid")
-            .HasDefaultValueSql("rand_uuid");
-
-        entity.HasKey("id");
+            b.HasKey("id");
+        });
     }
 }

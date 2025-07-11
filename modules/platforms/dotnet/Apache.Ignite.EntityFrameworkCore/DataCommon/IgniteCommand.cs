@@ -178,6 +178,8 @@ public class IgniteCommand : DbCommand
             arr[i] = _parameters[i].Value switch
             {
                 DBNull => null,
+                ushort u16 => (short)u16,
+                uint u32 => (int)u32,
                 var other => other
             };
         }
