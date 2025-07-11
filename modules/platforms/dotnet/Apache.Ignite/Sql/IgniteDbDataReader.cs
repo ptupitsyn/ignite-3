@@ -395,14 +395,29 @@ public sealed class IgniteDbDataReader : DbDataReader, IDbColumnSchemaGenerator
             return (T)(object)GetInt32(ordinal);
         }
 
+        if (typeof(T) == typeof(uint))
+        {
+            return (T)(object)(uint)GetInt64(ordinal);
+        }
+
         if (typeof(T) == typeof(long))
         {
             return (T)(object)GetInt64(ordinal);
         }
 
+        if (typeof(T) == typeof(ulong))
+        {
+            return (T)(object)(ulong)GetInt64(ordinal);
+        }
+
         if (typeof(T) == typeof(short))
         {
             return (T)(object)GetInt16(ordinal);
+        }
+
+        if (typeof(T) == typeof(ushort))
+        {
+            return (T)(object)(ushort)GetInt32(ordinal);
         }
 
         if (typeof(T) == typeof(float))
@@ -423,6 +438,11 @@ public sealed class IgniteDbDataReader : DbDataReader, IDbColumnSchemaGenerator
         if (typeof(T) == typeof(byte))
         {
             return (T)(object)GetByte(ordinal);
+        }
+
+        if (typeof(T) == typeof(sbyte))
+        {
+            return (T)(object)(sbyte)GetByte(ordinal);
         }
 
         if (typeof(T) == typeof(byte[]))
