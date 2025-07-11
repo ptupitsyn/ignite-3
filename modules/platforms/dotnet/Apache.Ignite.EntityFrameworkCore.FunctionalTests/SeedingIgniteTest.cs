@@ -25,8 +25,15 @@ public class SeedingIgniteTest : SeedingTestBase
     protected override TestStore TestStore
         => IgniteTestStoreFactory.Instance.Create("SeedingTest");
 
-    protected override SeedingContext CreateContextWithEmptyDatabase(string testId) =>
-        new SeedingIgniteContext(testId);
+    protected override SeedingContext CreateContextWithEmptyDatabase(string testId)
+    {
+        IgniteTestStore.DropAllTables();
+
+        var ctx = new SeedingIgniteContext(testId);
+        ctx.Database.EnsureCreated();
+
+        return ctx;
+    }
 
     protected class SeedingIgniteContext : SeedingContext
     {

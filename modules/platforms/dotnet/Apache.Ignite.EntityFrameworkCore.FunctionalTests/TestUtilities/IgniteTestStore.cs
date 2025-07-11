@@ -33,6 +33,8 @@ public class IgniteTestStore : RelationalTestStore
 
     public static string GetIgniteEndpoint() => "localhost:10942";
 
+    public static void DropAllTables() => DropAllTablesAsync().GetAwaiter().GetResult();
+
     public override DbContextOptionsBuilder AddProviderOptions(DbContextOptionsBuilder builder) =>
         builder.UseIgnite(GetIgniteEndpoint());
 
@@ -55,8 +57,6 @@ public class IgniteTestStore : RelationalTestStore
 
         return this;
     }
-
-    private static void DropAllTables() => DropAllTablesAsync().GetAwaiter().GetResult();
 
     private static async Task DropAllTablesAsync()
     {
