@@ -23,6 +23,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using NodaTime;
 using Sql;
 using Table;
 using Transactions;
@@ -175,11 +176,13 @@ public class IgniteCommand : DbCommand
 
         for (var i = 0; i < _parameters.Count; i++)
         {
+            // TODO: Review conversion logic.
             arr[i] = _parameters[i].Value switch
             {
                 DBNull => null,
                 ushort u16 => (short)u16,
                 uint u32 => (int)u32,
+                DateTime dt => Instant.FromDateTimeUtc(dt.ToUniversalTime()),
                 var other => other
             };
         }

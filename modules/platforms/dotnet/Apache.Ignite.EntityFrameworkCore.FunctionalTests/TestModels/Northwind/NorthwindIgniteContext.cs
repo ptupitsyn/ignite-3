@@ -33,6 +33,27 @@ public class NorthwindIgniteContext : NorthwindRelationalContext
         AddId<CustomerQuery>(modelBuilder);
         AddId<CustomerQueryWithQueryFilter>(modelBuilder);
         AddId<ProductQuery>(modelBuilder);
+
+        // Tweak types.
+        // TODO: Why are these not inferred from the base class? Review logic.
+        modelBuilder.Entity<Product>(
+            b =>
+            {
+                b.Property(p => p.UnitPrice).HasColumnType("decimal(19, 4)");
+                b.Property(e => e.Discontinued).HasColumnType("boolean");
+            });
+
+        modelBuilder.Entity<Order>(
+            b =>
+            {
+                b.Property(o => o.OrderDate).HasColumnType("TIMESTAMP WITH LOCAL TIME ZONE");
+            });
+
+        modelBuilder.Entity<OrderDetail>(
+            b =>
+            {
+                b.Property(p => p.UnitPrice).HasColumnType("decimal(19, 4)");
+            });
     }
 
     private static void AddId<T>(ModelBuilder modelBuilder)
