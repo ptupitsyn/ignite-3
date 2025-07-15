@@ -17,16 +17,8 @@
 
 namespace Apache.Ignite.Tests.Compatibility;
 
-using System;
 using System.IO;
-using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
-using NuGet.Common;
-using NuGet.Packaging;
-using NuGet.Protocol;
-using NuGet.Protocol.Core.Types;
-using NuGet.Versioning;
 using NUnit.Framework;
 using TestHelpers;
 
@@ -38,40 +30,25 @@ public class OldClientWithCurrentServerCompatibilityTest : IgniteTestsBase
 {
     private readonly string _clientVersion;
 
+    private TempDir _packageDir;
+
     public OldClientWithCurrentServerCompatibilityTest(string clientVersion) =>
         _clientVersion = clientVersion;
+
+    [OneTimeSetUp]
+    public async Task InitOldClient()
+    {
+        _packageDir = new TempDir();
+        await NuGetUtils.DownloadNuGetPackageAsync("Apache.Ignite", _clientVersion, _packageDir.Path);
+    }
+
+    [OneTimeTearDown]
+    public void CleanupOldClient() => _packageDir.Dispose();
 
     [Test]
     public async Task TestDownloadNuGetPackage()
     {
-        SourceCacheContext cache = new SourceCacheContext();
-        SourceRepository repository = Repository.Factory.GetCoreV3("https://api.nuget.org/v3/index.json");
-        FindPackageByIdResource resource = await repository.GetResourceAsync<FindPackageByIdResource>();
-
-        string packageId = "Apache.Ignite";
-        NuGetVersion packageVersion = new NuGetVersion(_clientVersion);
-        using MemoryStream packageStream = new MemoryStream();
-
-        await resource.CopyNupkgToStreamAsync(
-            packageId,
-            packageVersion,
-            packageStream,
-            cache,
-            NullLogger.Instance,
-            CancellationToken.None);
-
-        Console.WriteLine($"Downloaded package {packageId} {packageVersion}");
-
-        using PackageArchiveReader packageReader = new PackageArchiveReader(packageStream);
-
-        FrameworkSpecificGroup frameworkSpecificGroup = packageReader.GetLibItems().Single();
-        Assert.AreEqual("net8.0", frameworkSpecificGroup.TargetFramework.GetShortFolderName());
-
-        using var tempDir = new TempDir();
-
-        foreach (var item in frameworkSpecificGroup.Items)
-        {
-            packageReader.ExtractFile(item, Path.Combine(tempDir.Path, item), NullLogger.Instance);
-        }
+        await Task.Delay(1);
+        Assert.IsTrue(Directory.Exists(_packageDir.Path));
     }
 }
