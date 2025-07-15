@@ -19,6 +19,7 @@ namespace Apache.Ignite.Tests.Compatibility;
 
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NuGet.Common;
@@ -27,6 +28,7 @@ using NuGet.Protocol;
 using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
 using NUnit.Framework;
+using TestHelpers;
 
 /// <summary>
 /// Tests that an old client can connect to the current server.
@@ -61,9 +63,15 @@ public class OldClientWithCurrentServerCompatibilityTest : IgniteTestsBase
         Console.WriteLine($"Downloaded package {packageId} {packageVersion}");
 
         using PackageArchiveReader packageReader = new PackageArchiveReader(packageStream);
-        NuspecReader nuspecReader = await packageReader.GetNuspecReaderAsync(CancellationToken.None);
 
-        Console.WriteLine($"Tags: {nuspecReader.GetTags()}");
-        Console.WriteLine($"Description: {nuspecReader.GetDescription()}");
+        FrameworkSpecificGroup frameworkSpecificGroup = packageReader.GetLibItems().Single();
+        Assert.AreEqual("net8.0", frameworkSpecificGroup.TargetFramework.GetShortFolderName());
+
+        using var tempDir = new TempDir();
+
+        foreach (var item in frameworkSpecificGroup.Items)
+        {
+            packageReader.ExtractFile(item, Path.Combine(tempDir.Path, item), NullLogger.Instance);
+        }
     }
 }
