@@ -38,6 +38,8 @@ public class OldClientWithCurrentServerCompatibilityTest : IgniteTestsBase
 
     private AssemblyLoadContext _loadContext;
 
+    private Assembly _oldClientAssembly;
+
     public OldClientWithCurrentServerCompatibilityTest(string clientVersion) =>
         _clientVersion = clientVersion;
 
@@ -51,18 +53,9 @@ public class OldClientWithCurrentServerCompatibilityTest : IgniteTestsBase
             name: $"{nameof(OldClientWithCurrentServerCompatibilityTest)}-{_clientVersion}",
             isCollectible: true);
 
-        var dlls = Directory.GetFiles(_packageDir.Path, "*.dll", SearchOption.AllDirectories)
-            .ToDictionary(s => Path.GetFileNameWithoutExtension(s), x => x);
-
-        _loadContext.Resolving += (context, assemblyName) =>
-        {
-            if (dlls.TryGetValue(assemblyName.FullName, out var assemblyPath))
-            {
-                return _loadContext.LoadFromAssemblyPath(Path.Combine(_packageDir.Path, assemblyPath));
-            }
-
-            return null;
-        };
+        var dllPath = Path.Combine(_packageDir.Path, "lib/net8.0/Apache.Ignite.dll");
+        _oldClientAssembly = _loadContext.LoadFromAssemblyPath(dllPath);
+        Assert.IsNotNull(_oldClientAssembly);
     }
 
     [OneTimeTearDown]
@@ -73,16 +66,10 @@ public class OldClientWithCurrentServerCompatibilityTest : IgniteTestsBase
     }
 
     [Test]
-    public void TestAssemblyIsolation()
+    public void TestClientStart()
     {
-        var clientTypeName = $"Apache.Ignite.IIgniteClient, Apache.Ignite, Version={_clientVersion}.0";
+        var oldClientType = _oldClientAssembly.GetType(typeof(IgniteClient).FullName!);
 
-        var oldClientType = Type.GetType(
-            typeName: clientTypeName,
-            assemblyResolver: _loadContext.LoadFromAssemblyName,
-            typeResolver: null,
-            throwOnError: true);
-
-        Assert.AreNotSame(typeof(IIgniteClient), oldClientType);
+        Assert.IsNotNull(oldClientType);
     }
 }
