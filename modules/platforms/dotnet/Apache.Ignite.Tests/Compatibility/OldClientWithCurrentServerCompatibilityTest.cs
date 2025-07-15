@@ -19,6 +19,7 @@ namespace Apache.Ignite.Tests.Compatibility;
 
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.Loader;
 using System.Threading.Tasks;
 using NUnit.Framework;
@@ -50,7 +51,7 @@ public class OldClientWithCurrentServerCompatibilityTest : IgniteTestsBase
             isCollectible: true);
 
         var dlls = Directory.GetFiles(_packageDir.Path, "*.dll", SearchOption.AllDirectories)
-            .ToDictionary(Path.GetFileNameWithoutExtension, x => x);
+            .ToDictionary(s => Path.GetFileNameWithoutExtension(s), x => x);
 
         _loadContext.Resolving += (context, assemblyName) =>
         {
@@ -71,9 +72,10 @@ public class OldClientWithCurrentServerCompatibilityTest : IgniteTestsBase
     }
 
     [Test]
-    public async Task TestDownloadNuGetPackage()
+    public void TestAssemblyIsolation()
     {
-        await Task.Delay(1);
-        Assert.IsTrue(Directory.Exists(_packageDir.Path));
+        var assembly = _loadContext.LoadFromAssemblyName(new AssemblyName("Apache.Ignite"));
+        Assert.IsNotNull(assembly, "Failed to load Apache.Ignite assembly.");
+        Assert.AreNotSame(typeof(IgniteClient).Assembly, assembly);
     }
 }
