@@ -46,6 +46,10 @@ public class OldClientWithCurrentServerCompatibilityTest : IgniteTestsBase
     [OneTimeSetUp]
     public async Task InitOldClient()
     {
+        // TODO: Use a different approach:
+        // - Separate solution
+        // - Symlinks to reuse testing infra
+        // - Many project files for every version
         _packageDir = new TempDir();
         await NuGetUtils.DownloadNuGetPackageAsync("Apache.Ignite", _clientVersion, _packageDir.Path);
 
