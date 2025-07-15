@@ -17,6 +17,7 @@
 
 namespace Apache.Ignite.Tests.Compatibility;
 
+using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -74,8 +75,14 @@ public class OldClientWithCurrentServerCompatibilityTest : IgniteTestsBase
     [Test]
     public void TestAssemblyIsolation()
     {
-        var assembly = _loadContext.LoadFromAssemblyName(new AssemblyName("Apache.Ignite"));
-        Assert.IsNotNull(assembly, "Failed to load Apache.Ignite assembly.");
-        Assert.AreNotSame(typeof(IgniteClient).Assembly, assembly);
+        var clientTypeName = $"Apache.Ignite.IIgniteClient, Apache.Ignite, Version={_clientVersion}.0";
+
+        var oldClientType = Type.GetType(
+            typeName: clientTypeName,
+            assemblyResolver: _loadContext.LoadFromAssemblyName,
+            typeResolver: null,
+            throwOnError: true);
+
+        Assert.AreNotSame(typeof(IIgniteClient), oldClientType);
     }
 }
