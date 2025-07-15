@@ -66,10 +66,14 @@ public class OldClientWithCurrentServerCompatibilityTest : IgniteTestsBase
     }
 
     [Test]
-    public void TestClientStart()
+    public async Task TestClientStart()
     {
         var oldClientType = _oldClientAssembly.GetType(typeof(IgniteClient).FullName!);
-
         Assert.IsNotNull(oldClientType);
+
+        Task task = (Task)oldClientType.GetMethod("StartAsync", BindingFlags.Public | BindingFlags.Static)
+            ?.Invoke(null, [GetConfig()])!;
+
+        await task;
     }
 }
