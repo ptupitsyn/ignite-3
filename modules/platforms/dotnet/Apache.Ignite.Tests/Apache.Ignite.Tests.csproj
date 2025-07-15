@@ -35,6 +35,7 @@
         <PackageReference Include="NUnit.Analyzers" Version="3.6.1" />
         <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.4" />
         <PackageReference Include="NuGet.Protocol" Version="6.14.0" />
+        <PackageReference Include="System.Formats.Asn1" Version="6.0.1" />
 
         <!-- Test-only dependency to use as a reference implementation. -->
         <PackageReference Include="MessagePack" Version="2.5.198" />
