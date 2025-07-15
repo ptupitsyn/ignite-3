@@ -18,6 +18,8 @@
 namespace Apache.Ignite.Tests.Compatibility;
 
 using System.IO;
+using System.Linq;
+using System.Runtime.Loader;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using TestHelpers;
@@ -32,6 +34,8 @@ public class OldClientWithCurrentServerCompatibilityTest : IgniteTestsBase
 
     private TempDir _packageDir;
 
+    private AssemblyLoadContext _loadContext;
+
     public OldClientWithCurrentServerCompatibilityTest(string clientVersion) =>
         _clientVersion = clientVersion;
 
@@ -40,10 +44,31 @@ public class OldClientWithCurrentServerCompatibilityTest : IgniteTestsBase
     {
         _packageDir = new TempDir();
         await NuGetUtils.DownloadNuGetPackageAsync("Apache.Ignite", _clientVersion, _packageDir.Path);
+
+        _loadContext = new AssemblyLoadContext(
+            name: $"{nameof(OldClientWithCurrentServerCompatibilityTest)}-{_clientVersion}",
+            isCollectible: true);
+
+        var dlls = Directory.GetFiles(_packageDir.Path, "*.dll", SearchOption.AllDirectories)
+            .ToDictionary(Path.GetFileNameWithoutExtension, x => x);
+
+        _loadContext.Resolving += (context, assemblyName) =>
+        {
+            if (dlls.TryGetValue(assemblyName.FullName, out var assemblyPath))
+            {
+                return _loadContext.LoadFromAssemblyPath(Path.Combine(_packageDir.Path, assemblyPath));
+            }
+
+            return null;
+        };
     }
 
     [OneTimeTearDown]
-    public void CleanupOldClient() => _packageDir.Dispose();
+    public void CleanupOldClient()
+    {
+        _loadContext.Unload();
+        _packageDir.Dispose();
+    }
 
     [Test]
     public async Task TestDownloadNuGetPackage()

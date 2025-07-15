@@ -19,7 +19,6 @@ namespace Apache.Ignite.Tests.Compatibility;
 
 using System;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NuGet.Common;
@@ -27,7 +26,6 @@ using NuGet.Packaging;
 using NuGet.Protocol;
 using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
-using NUnit.Framework;
 
 /// <summary>
 /// NuGet utility class for compatibility tests.
@@ -57,10 +55,7 @@ public static class NuGetUtils
 
         using PackageArchiveReader packageReader = new PackageArchiveReader(packageStream);
 
-        FrameworkSpecificGroup frameworkSpecificGroup = (await packageReader.GetLibItemsAsync(cancellationToken)).Single();
-        Assert.AreEqual("net8.0", frameworkSpecificGroup.TargetFramework.GetShortFolderName());
-
-        foreach (var item in frameworkSpecificGroup.Items)
+        foreach (var item in packageReader.GetFiles())
         {
             packageReader.ExtractFile(item, Path.Combine(outputPath, item), NullLogger.Instance);
         }
