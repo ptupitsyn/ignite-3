@@ -139,7 +139,7 @@ import org.apache.ignite.internal.sql.engine.util.EmptyCacheFactory;
 import org.apache.ignite.internal.sql.engine.util.cache.CaffeineCacheFactory;
 import org.apache.ignite.internal.systemview.SystemViewManagerImpl;
 import org.apache.ignite.internal.systemview.api.SystemView;
-import org.apache.ignite.internal.thread.NamedThreadFactory;
+import org.apache.ignite.internal.thread.IgniteThreadFactory;
 import org.apache.ignite.internal.tx.InternalTransaction;
 import org.apache.ignite.internal.type.DecimalNativeType;
 import org.apache.ignite.internal.type.NativeType;
@@ -744,7 +744,7 @@ public class TestBuilders {
             ConcurrentMap<String, Long> tablesSize = new ConcurrentHashMap<>();
             var schemaManager = createSqlSchemaManager(catalogManager, tablesSize);
             var prepareService = new PrepareServiceImpl(clusterName, 0, CaffeineCacheFactory.INSTANCE,
-                    new DdlSqlToCommandConverter(), planningTimeout, PLANNING_THREAD_COUNT,
+                    new DdlSqlToCommandConverter(storageProfiles -> {}), planningTimeout, PLANNING_THREAD_COUNT,
                     new NoOpMetricManager(), schemaManager);
 
             Map<String, List<String>> systemViewsByNode = new HashMap<>();
@@ -757,7 +757,7 @@ public class TestBuilders {
             }
 
             ScheduledExecutorService scheduledExecutor = Executors.newSingleThreadScheduledExecutor(
-                    NamedThreadFactory.create("test", "common-scheduled-executors", LOG)
+                    IgniteThreadFactory.create("test", "common-scheduled-executors", LOG)
             );
 
             var clockWaiter = new ClockWaiter("test", clock, scheduledExecutor);
