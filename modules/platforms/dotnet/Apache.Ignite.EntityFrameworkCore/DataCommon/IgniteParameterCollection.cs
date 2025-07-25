@@ -20,7 +20,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Data.Common;
 using System.Linq;
-using Apache.Ignite.Sql;
 
 public class IgniteParameterCollection : DbParameterCollection
 {
@@ -36,43 +35,12 @@ public class IgniteParameterCollection : DbParameterCollection
     public override object SyncRoot
         => ((ICollection)_parameters).SyncRoot;
 
-    public new virtual IgniteParameter this[int index]
-    {
-        get => _parameters[index];
-        set
-        {
-            if (_parameters[index] == value)
-            {
-                return;
-            }
-
-            _parameters[index] = value;
-        }
-    }
-
-    public object[] ToObjectArray()
-        => _parameters.Select(x => x.Value).ToArray();
-
     public override int Add(object value)
     {
         _parameters.Add((IgniteParameter)value);
 
         return Count - 1;
     }
-
-    public virtual IgniteParameter Add(IgniteParameter value)
-    {
-        _parameters.Add(value);
-
-        return value;
-    }
-
-    public virtual IgniteParameter Add(string? parameterName, ColumnType type)
-        => Add(new IgniteParameter()
-        {
-            ParameterName = parameterName,
-            ColumnType = type
-        });
 
     public override void AddRange(Array values)
         => AddRange(values.Cast<IgniteParameter>());
