@@ -51,7 +51,7 @@ public sealed class IgniteConnection : DbConnection
 
     public override void ChangeDatabase(string databaseName)
     {
-        throw new NotImplementedException();
+        throw new NotSupportedException("Changing database is not supported in Ignite.");
     }
 
     public override void Close()
