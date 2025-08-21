@@ -17,6 +17,8 @@
 
 using System.Net.Security;
 using Apache.Ignite;
+using Apache.Ignite.Marshalling;
+using Apache.Ignite.Table;
 using Microsoft.Extensions.Logging;
 
 const string envServerAddr = "IGNITE_COMPUTE_EXECUTOR_SERVER_ADDRESS";
@@ -60,3 +62,53 @@ using var client = await IgniteClient.StartAsync(clientCfg).ConfigureAwait(false
 
 // Sleep forever. The host process will terminate us when the executor is stopped.
 await Task.Delay(Timeout.Infinite).ConfigureAwait(false);
+
+#pragma warning disable CA2007, SA1600, SA1649, SA1402, CA1050
+
+ITable? table = await client.Tables.GetTableAsync("my-table");
+
+ReceiverDescriptor<MyData, MyArg, MyResult> receiverDesc = ReceiverDescriptor.Of(new MyReceiver());
+
+IAsyncEnumerable<MyData> data = Enumerable
+    .Range(1, 100)
+    .Select(x => new MyData(x, $"Name {x}"))
+    .ToAsyncEnumerable();
+
+IAsyncEnumerable<MyResult> results = table!.RecordBinaryView.StreamDataAsync(
+    data: data,
+    receiver: receiverDesc,
+    keySelector: dataItem => new IgniteTuple { ["id"] = dataItem.Id },
+    payloadSelector: dataItem => dataItem,
+    receiverArg: new MyArg("Some info"));
+
+await foreach (MyResult result in results)
+{
+    Console.WriteLine(result);
+}
+
+public record MyData(int Id, string Name);
+
+public record MyArg(string Info);
+
+public record MyResult(MyData Data, MyArg Arg);
+
+public class MyReceiver : IDataStreamerReceiver<MyData, MyArg, MyResult>
+{
+    public IMarshaller<MyData> PayloadMarshaller =>
+        new JsonMarshaller<MyData>();
+
+    public IMarshaller<MyArg> ArgumentMarshaller =>
+        new JsonMarshaller<MyArg>();
+
+    public IMarshaller<MyResult> ResultMarshaller =>
+        new JsonMarshaller<MyResult>();
+
+    public ValueTask<IList<MyResult>?> ReceiveAsync(IList<MyData> page, MyArg arg, IDataStreamerReceiverContext context, CancellationToken cancellationToken)
+    {
+        IList<MyResult> results = page
+            .Select(data => new MyResult(data, arg))
+            .ToList();
+
+        return ValueTask.FromResult(results)!;
+    }
+}
