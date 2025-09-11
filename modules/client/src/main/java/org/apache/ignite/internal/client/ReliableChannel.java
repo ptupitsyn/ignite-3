@@ -786,7 +786,12 @@ public final class ReliableChannel implements AutoCloseable {
     }
 
     private void onPartitionAssignmentChanged(long timestamp) {
-        partitionAssignmentTimestamp.updateAndGet(curTs -> Math.max(curTs, timestamp));
+        var res = partitionAssignmentTimestamp.updateAndGet(curTs -> Math.max(curTs, timestamp));
+        boolean updated = res == timestamp;
+
+        if (updated) {
+            // TODO Re-resolve addresses on partition assignment change, in background.
+        }
     }
 
     /**
