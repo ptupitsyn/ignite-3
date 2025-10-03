@@ -34,6 +34,7 @@ public class IgniteQuerySqlGenerator : QuerySqlGenerator
                 ? " || "
                 : base.GetOperator(binaryExpression);
 
+    /// <inheritdoc />
     protected override void GenerateLimitOffset(SelectExpression selectExpression)
     {
         if (selectExpression.Limit != null
@@ -44,7 +45,7 @@ public class IgniteQuerySqlGenerator : QuerySqlGenerator
 
             Visit(
                 selectExpression.Limit
-                ?? new SqlConstantExpression(Expression.Constant(-1), selectExpression.Offset!.TypeMapping));
+                ?? new SqlConstantExpression(Expression.Constant(long.MaxValue), selectExpression.Offset!.TypeMapping));
 
             if (selectExpression.Offset != null)
             {
