@@ -28,7 +28,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Microsoft.EntityFrameworkCore.Storage;
 
-public class IgniteMigrationsSqlGenerator : MigrationsSqlGenerator
+internal sealed class IgniteMigrationsSqlGenerator : MigrationsSqlGenerator
 {
     public IgniteMigrationsSqlGenerator(MigrationsSqlGeneratorDependencies dependencies)
         : base(dependencies)
@@ -582,6 +582,36 @@ public class IgniteMigrationsSqlGenerator : MigrationsSqlGenerator
                 builder.AppendLine(",");
             }
         }
+    }
+
+    protected override void Generate(InsertDataOperation operation, IModel? model, MigrationCommandListBuilder builder, bool terminate = true)
+    {
+        // Terminate every statement - Ignite does not support multi-statement queries.
+        foreach (var modificationCommand in GenerateModificationCommands(operation, model))
+        {
+            var sqlBuilder = new StringBuilder();
+
+            SqlGenerator.AppendInsertOperation(
+                sqlBuilder,
+                modificationCommand,
+                0);
+
+            builder.Append(sqlBuilder.ToString());
+
+            EndStatement(builder);
+        }
+    }
+
+    protected override void Generate(DeleteDataOperation operation, IModel? model, MigrationCommandListBuilder builder)
+    {
+        // TODO: Fix same as above.
+        base.Generate(operation, model, builder);
+    }
+
+    protected override void Generate(UpdateDataOperation operation, IModel? model, MigrationCommandListBuilder builder)
+    {
+        // TODO: Fix same as above.
+        base.Generate(operation, model, builder);
     }
 
     protected override void Generate(

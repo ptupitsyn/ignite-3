@@ -15,11 +15,12 @@
 
 namespace Apache.Ignite.EntityFrameworkCore.Storage.Internal;
 
+using System.Data;
 using System.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
 using Sql;
 
-public class IgniteDatabaseCreator : RelationalDatabaseCreator
+internal sealed class IgniteDatabaseCreator : RelationalDatabaseCreator
 {
     private readonly IIgniteRelationalConnection _connection;
 
@@ -46,7 +47,11 @@ public class IgniteDatabaseCreator : RelationalDatabaseCreator
     public override bool HasTables()
     {
         var conn = (IgniteDbConnection)_connection.DbConnection;
-        conn.Open();
+
+        if (conn.State != ConnectionState.Open)
+        {
+            conn.Open();
+        }
 
         var igniteClient = conn.Client;
         Debug.Assert(igniteClient != null, "igniteClient != null");
