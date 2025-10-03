@@ -99,7 +99,7 @@ public class BasicTest
         var contextOptionsBuilder = new DbContextOptionsBuilder<TestDbContext>(
             new DbContextOptions<TestDbContext>(new Dictionary<Type, IDbContextOptionsExtension>()));
 
-        contextOptionsBuilder.UseIgnite(GetIgniteEndpoint());
+        contextOptionsBuilder.UseIgnite( $"Endpoints={GetIgniteEndpoint()}");
 
         return new TestDbContext(contextOptionsBuilder.Options);
     }
