@@ -405,7 +405,7 @@ namespace Apache.Ignite.Internal.Sql
         {
             if (!HasRowSet)
             {
-                throw new IgniteClientException(ErrorGroups.Sql.QueryNoResultSet, "Query has no result set.");
+                throw new SqlException(Guid.NewGuid(), ErrorGroups.Sql.QueryNoResultSet, "Query has no result set.");
             }
 
             if (_iterated)
