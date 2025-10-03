@@ -21,6 +21,7 @@ using System.Data.Common;
 using DataCommon;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
+using Sql;
 
 public class IgniteRelationalCommand : RelationalCommand
 {
@@ -31,10 +32,10 @@ public class IgniteRelationalCommand : RelationalCommand
 
     public override DbCommand CreateDbCommand(RelationalCommandParameterObject parameterObject, Guid commandId, DbCommandMethod commandMethod)
     {
-        var cmd = (IgniteCommand)base.CreateDbCommand(parameterObject, commandId, commandMethod);
+        var cmd = (IgniteDbCommand)base.CreateDbCommand(parameterObject, commandId, commandMethod);
 
-        cmd.CommandSource = parameterObject.CommandSource;
-
+        // TODO
+        // cmd.CommandSource = parameterObject.CommandSource;
         return cmd;
     }
 }

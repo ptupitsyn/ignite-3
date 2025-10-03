@@ -16,10 +16,10 @@
 namespace Apache.Ignite.EntityFrameworkCore.FunctionalTests.TestUtilities;
 
 using System.Diagnostics.CodeAnalysis;
-using DataCommon;
 using Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.TestUtilities;
+using Sql;
 
 public class IgniteTestStore : RelationalTestStore
 {
@@ -28,10 +28,10 @@ public class IgniteTestStore : RelationalTestStore
         : base(name, shared)
     {
         ConnectionString = GetIgniteEndpoint();
-        Connection = new IgniteConnection(ConnectionString);
+        Connection = new IgniteDbConnection(ConnectionString);
     }
 
-    public static string GetIgniteEndpoint() => "localhost:10942";
+    public static string GetIgniteEndpoint() => "Endpoints=localhost:10942";
 
     public static void DropAllTables() => DropAllTablesAsync().GetAwaiter().GetResult();
 

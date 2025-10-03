@@ -16,8 +16,8 @@
 namespace Apache.Ignite.EntityFrameworkCore.Storage.Internal;
 
 using System.Diagnostics;
-using DataCommon;
 using Microsoft.EntityFrameworkCore.Storage;
+using Sql;
 
 public class IgniteDatabaseCreator : RelationalDatabaseCreator
 {
@@ -45,7 +45,7 @@ public class IgniteDatabaseCreator : RelationalDatabaseCreator
 
     public override bool HasTables()
     {
-        var conn = (IgniteConnection)_connection.DbConnection;
+        var conn = (IgniteDbConnection)_connection.DbConnection;
         conn.Open();
 
         var igniteClient = conn.Client;

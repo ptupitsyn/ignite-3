@@ -17,13 +17,13 @@ namespace Apache.Ignite.EntityFrameworkCore.Storage.Internal;
 
 using System.Data.Common;
 using System.Linq;
-using DataCommon;
 using Extensions.Internal;
 using Infrastructure.Internal;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
+using Sql;
 
 public class IgniteRelationalConnection : RelationalConnection, IIgniteRelationalConnection
 {
@@ -52,7 +52,7 @@ public class IgniteRelationalConnection : RelationalConnection, IIgniteRelationa
 
     protected override DbConnection CreateDbConnection()
     {
-        var connection = new IgniteConnection(GetValidatedConnectionString());
+        var connection = new IgniteDbConnection(GetValidatedConnectionString());
         InitializeDbConnection(connection);
 
         return connection;
@@ -60,11 +60,12 @@ public class IgniteRelationalConnection : RelationalConnection, IIgniteRelationa
 
     private void InitializeDbConnection(DbConnection connection)
     {
-        if (connection is IgniteConnection igniteConn)
+        if (connection is IgniteDbConnection igniteConn)
         {
             if (_commandTimeout.HasValue)
             {
-                igniteConn.DefaultTimeout = _commandTimeout.Value;
+                // TODO
+                // igniteConn.DefaultTimeout = _commandTimeout.Value;
             }
         }
         else
