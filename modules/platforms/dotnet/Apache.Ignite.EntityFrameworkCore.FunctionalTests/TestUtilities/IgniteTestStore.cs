@@ -27,16 +27,18 @@ public class IgniteTestStore : RelationalTestStore
     public IgniteTestStore(string name, bool shared)
         : base(name, shared)
     {
-        ConnectionString = GetIgniteEndpoint();
+        ConnectionString = GetConnectionString();
         Connection = new IgniteDbConnection(ConnectionString);
     }
 
-    public static string GetIgniteEndpoint() => "Endpoints=localhost:10942";
+    public static string GetIgniteEndpoint() => "localhost:10942";
+
+    public static string GetConnectionString() => $"Endpoints={GetIgniteEndpoint()}";
 
     public static void DropAllTables() => DropAllTablesAsync().GetAwaiter().GetResult();
 
     public override DbContextOptionsBuilder AddProviderOptions(DbContextOptionsBuilder builder) =>
-        builder.UseIgnite(GetIgniteEndpoint());
+        builder.UseIgnite(ConnectionString);
 
     public override void Clean(DbContext context)
     {
