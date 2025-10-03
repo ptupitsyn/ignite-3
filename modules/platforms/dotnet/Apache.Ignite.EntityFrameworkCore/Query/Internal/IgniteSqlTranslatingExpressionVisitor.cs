@@ -461,6 +461,7 @@ public class IgniteSqlTranslatingExpressionVisitor : RelationalSqlTranslatingExp
             _ => visitedExpression
         };
 
+        // TODO: Remove?
         static string ResolveFunctionNameFromExpressionType(ExpressionType expressionType)
             => expressionType switch
             {

@@ -91,11 +91,6 @@ public class IgniteQuerySqlGenerator : QuerySqlGenerator
         }
     }
 
-    protected override Expression VisitSqlConstant(SqlConstantExpression sqlConstantExpression)
-    {
-        return base.VisitSqlConstant(sqlConstantExpression);
-    }
-
     protected override bool TryGetOperatorInfo(SqlExpression expression, out int precedence, out bool isAssociative)
     {
         (precedence, isAssociative) = expression switch
