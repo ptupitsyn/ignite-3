@@ -22,27 +22,20 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
 
-public class IgniteStringLengthTranslator : IMemberTranslator
+internal sealed class IgniteStringLengthTranslator(ISqlExpressionFactory sqlExpressionFactory) : IMemberTranslator
 {
-    private readonly ISqlExpressionFactory _sqlExpressionFactory;
-
-    public IgniteStringLengthTranslator(ISqlExpressionFactory sqlExpressionFactory)
-    {
-        _sqlExpressionFactory = sqlExpressionFactory;
-    }
-
-    public virtual SqlExpression? Translate(
+    public SqlExpression? Translate(
         SqlExpression? instance,
         MemberInfo member,
         Type returnType,
         IDiagnosticsLogger<DbLoggerCategory.Query> logger)
         => instance?.Type == typeof(string)
             && member.Name == nameof(string.Length)
-                ? _sqlExpressionFactory.Function(
+                ? sqlExpressionFactory.Function(
                     "length",
-                    new[] { instance },
+                    [instance],
                     nullable: true,
-                    argumentsPropagateNullability: new[] { true },
+                    argumentsPropagateNullability: [true],
                     returnType)
                 : null;
 }

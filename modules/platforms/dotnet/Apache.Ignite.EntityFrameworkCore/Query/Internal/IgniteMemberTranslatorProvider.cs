@@ -27,9 +27,7 @@ public class IgniteMemberTranslatorProvider : RelationalMemberTranslatorProvider
         AddTranslators(
             new IMemberTranslator[]
             {
-                new IgniteDateTimeMemberTranslator(sqlExpressionFactory),
                 new IgniteStringLengthTranslator(sqlExpressionFactory),
-                new IgniteDateOnlyMemberTranslator(sqlExpressionFactory)
             });
     }
 }

@@ -28,8 +28,6 @@ public class IgniteMethodCallTranslatorProvider : RelationalMethodCallTranslator
             new IMethodCallTranslator[]
             {
                 new IgniteCharMethodTranslator(sqlExpressionFactory),
-                new IgniteDateOnlyMethodTranslator(sqlExpressionFactory),
-                new IgniteDateTimeMethodTranslator(sqlExpressionFactory),
                 new IgniteMathTranslator(sqlExpressionFactory),
                 new IgniteObjectToStringTranslator(sqlExpressionFactory),
                 new IgniteStringMethodTranslator(sqlExpressionFactory),
