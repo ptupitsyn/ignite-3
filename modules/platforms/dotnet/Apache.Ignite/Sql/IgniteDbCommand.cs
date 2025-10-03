@@ -242,7 +242,9 @@ public sealed class IgniteDbCommand : DbCommand
         Timeout = TimeSpan.FromSeconds(CommandTimeout) // 0 means no timeout, both in ADO.NET and Ignite.
     };
 
-    private ITransaction? GetIgniteTx() => IgniteDbTransaction?.IgniteTransaction;
+    private ITransaction? GetIgniteTx() => SuppressTransaction
+        ? null
+        : IgniteDbTransaction?.IgniteTransaction;
 
     private object?[] GetArgs()
     {
