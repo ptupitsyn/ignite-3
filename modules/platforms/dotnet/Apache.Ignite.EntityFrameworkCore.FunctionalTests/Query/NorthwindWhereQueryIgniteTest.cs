@@ -31,4 +31,16 @@ public class NorthwindWhereQueryIgniteTest : NorthwindWhereQueryRelationalTestBa
         // Anonymous type to constant comparison - not supported in Ignite.
         await AssertTranslationFailed(() => base.Where_compare_constructed_multi_value_equal(async));
     }
+
+    public override Task ElementAt_over_custom_projection_compared_to_not_null(bool async)
+    {
+        // Unordered query with ElementAt is unpredictable.
+        return Task.CompletedTask;
+    }
+
+    public override Task ElementAtOrDefault_over_custom_projection_compared_to_null(bool async)
+    {
+        // Unordered query with ElementAt is unpredictable.
+        return Task.CompletedTask;
+    }
 }
