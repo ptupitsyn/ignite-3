@@ -260,7 +260,7 @@ namespace Apache.Ignite.Internal.Sql
                     throw new SqlException(
                         e.TraceId,
                         e.Code,
-                        "Invalid query, check inner exceptions for details: " + statement,
+                        $"{e.Message}: {statement}",
                         e);
 
                 case ErrorGroups.Sql.ExecutionCancelled:
