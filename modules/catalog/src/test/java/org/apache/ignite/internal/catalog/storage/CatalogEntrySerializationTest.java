@@ -515,7 +515,6 @@ public class CatalogEntrySerializationTest extends BaseIgniteAbstractTest {
                 partitions,
                 3,
                 2, // default
-                1,
                 2,
                 3,
                 DEFAULT_FILTER,
@@ -560,17 +559,17 @@ public class CatalogEntrySerializationTest extends BaseIgniteAbstractTest {
             List<String> pkCols,
             @Nullable List<String> colCols
     ) {
-        return new CatalogTableDescriptor(
-                1,
-                3,
-                1,
-                name,
-                17,
-                columns,
-                pkCols,
-                colCols,
-                "default"
-        );
+        return CatalogTableDescriptor.builder()
+                .id(1)
+                .schemaId(3)
+                .primaryKeyIndexId(1)
+                .name(name)
+                .zoneId(17)
+                .columns(columns)
+                .primaryKeyColumns(pkCols)
+                .colocationColumns(colCols)
+                .storageProfile("default")
+                .build();
     }
 
     private static CatalogSchemaDescriptor newSchemaDescriptor(String name) {

@@ -504,6 +504,9 @@ public class ErrorGroups {
 
         /** Distribution zone was not found. */
         public static final int ZONE_NOT_FOUND_ERR = DISTRIBUTION_ZONES_ERR_GROUP.registerErrorCode((short) 1);
+
+        /** Empty data nodes. */
+        public static final int EMPTY_DATA_NODES_ERR = DISTRIBUTION_ZONES_ERR_GROUP.registerErrorCode((short) 2);
     }
 
     /** Network error group. */
@@ -515,8 +518,8 @@ public class ErrorGroups {
         /** Unresolvable consistent ID. */
         public static final int UNRESOLVABLE_CONSISTENT_ID_ERR = NETWORK_ERR_GROUP.registerErrorCode((short) 1);
 
-        /** Port is in use. */
-        public static final int PORT_IN_USE_ERR = NETWORK_ERR_GROUP.registerErrorCode((short) 2);
+        /** Address or port bind error. */
+        public static final int BIND_ERR = NETWORK_ERR_GROUP.registerErrorCode((short) 2);
 
         /** File transfer error. */
         public static final int FILE_TRANSFER_ERR = NETWORK_ERR_GROUP.registerErrorCode((short) 3);
@@ -529,6 +532,10 @@ public class ErrorGroups {
 
         /** Could not resolve address. */
         public static final int ADDRESS_UNRESOLVED_ERR = NETWORK_ERR_GROUP.registerErrorCode((short) 6);
+
+        /** Alias for BIND_ERROR. This was the old name, now deprecated. */
+        @Deprecated
+        public static final int PORT_IN_USE_ERR = BIND_ERR;
     }
 
     /** Node configuration error group. */
@@ -567,6 +574,9 @@ public class ErrorGroups {
 
         /** Deployment unit is unavailable for computing. */
         public static final int UNIT_UNAVAILABLE_ERR = CODE_DEPLOYMENT_ERR_GROUP.registerErrorCode((short) 4);
+
+        /** Deployment unit zip deploy error. */
+        public static final int UNIT_ZIP_ERR = CODE_DEPLOYMENT_ERR_GROUP.registerErrorCode((short) 5);
     }
 
     /**
@@ -678,6 +688,9 @@ public class ErrorGroups {
 
         /** Primary replica await error. */
         public static final int PRIMARY_REPLICA_AWAIT_ERR = PLACEMENT_DRIVER_ERR_GROUP.registerErrorCode((short) 2);
+
+        /** Error that occurs if there are no assignments for a group. */
+        public static final int EMPTY_ASSIGNMENTS_ERR = PLACEMENT_DRIVER_ERR_GROUP.registerErrorCode((short) 3);
     }
 
     /** Critical workers error group. */

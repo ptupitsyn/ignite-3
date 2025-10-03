@@ -22,9 +22,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
@@ -55,8 +57,9 @@ import org.junit.jupiter.params.provider.MethodSource;
  * Tests for configuration compatibility.
  */
 public class ConfigurationCompatibilityTest extends IgniteAbstractTest {
-    static final String DEFAULT_FILE_NAME = "snapshot.bin";
+    static final String DEFAULT_FILE_NAME = "ignite-snapshot.bin";
     private static final String SNAPSHOTS_RESOURCE_LOCATION = "compatibility/configuration/";
+    private static final String SNAPSHOT_FILE_NAME_PREFIX = "ignite-";
 
     /**
      * This test ensures that the current configuration can be serialized and deserialized correctly.
@@ -160,20 +163,21 @@ public class ConfigurationCompatibilityTest extends IgniteAbstractTest {
     /**
      * List directory contents for a resource folder. Not recursive. Works for regular files and also JARs.
      */
-    private static Stream<Arguments> getSnapshots() throws IOException {
+    private static Stream<Arguments> getSnapshots() throws IOException, URISyntaxException {
         Enumeration<URL> resources = ConfigurationSnapshotManager.class.getClassLoader().getResources(SNAPSHOTS_RESOURCE_LOCATION);
         URL dirUrl = resources.nextElement();
         if (dirUrl == null) {
             return Stream.empty();
         }
         if ("file".equals(dirUrl.getProtocol())) {
-            Path dirPath = Path.of(dirUrl.getPath());
+            Path dirPath = Paths.get(dirUrl.toURI());
             try (Stream<Path> list = Files.list(dirPath)) {
                 return list
                         .filter(Files::isRegularFile)
                         .map(Path::getFileName)
                         .map(Path::toString)
                         .filter(p -> p.endsWith(".bin"))
+                        .filter(p -> p.startsWith(SNAPSHOT_FILE_NAME_PREFIX))
                         .map(Arguments::of)
                         .collect(Collectors.toList())
                         .stream();

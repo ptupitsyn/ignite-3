@@ -57,6 +57,7 @@ import org.apache.ignite.internal.client.TcpIgniteClient;
 import org.apache.ignite.internal.client.table.ClientTable;
 import org.apache.ignite.internal.client.tx.ClientLazyTransaction;
 import org.apache.ignite.internal.client.tx.ClientTransaction;
+import org.apache.ignite.internal.network.InternalClusterNode;
 import org.apache.ignite.internal.table.partition.HashPartition;
 import org.apache.ignite.internal.testframework.IgniteTestUtils;
 import org.apache.ignite.internal.tx.TxState;
@@ -500,7 +501,13 @@ public class ItThinClientTransactionsTest extends ItAbstractThinClientTest {
         tx2.commit();
     }
 
-    static List<Tuple> generateKeysForNode(int start, int count, Map<Partition, ClusterNode> map, ClusterNode clusterNode, Table table) {
+    static List<Tuple> generateKeysForNode(
+            int start,
+            int count,
+            Map<Partition, ClusterNode> map,
+            InternalClusterNode clusterNode,
+            Table table
+    ) {
         String clusterNodeName = clusterNode.name();
         if (map.values().stream().noneMatch(x -> Objects.equals(x.name(), clusterNodeName))) {
             return emptyList();
@@ -960,6 +967,25 @@ public class ItThinClientTransactionsTest extends ItAbstractThinClientTest {
 
         tx1.commit();
         tx0.commit();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testReadOnlyTxDoesNotSeeUpdatesAfterStart(boolean server) {
+        //noinspection resource
+        Ignite ignite = server ? server() : client();
+        KeyValueView<Integer, String> kvView = ignite.tables().table(TABLE_NAME).keyValueView(Integer.class, String.class);
+
+        // Start RO TX, don't access anything yet.
+        // Lazy client TX should record the start time at this point.
+        Transaction tx = ignite.transactions().begin(new TransactionOptions().readOnly(true));
+
+        // Put outside of TX.
+        kvView.put(null, 123, "123");
+
+        // RO tx does not see the value.
+        String val = kvView.get(tx, 123);
+        assertNull(val, "Read-only transaction should not see values committed after its start");
     }
 
     @AfterEach

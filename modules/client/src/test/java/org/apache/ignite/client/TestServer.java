@@ -50,7 +50,6 @@ import org.apache.ignite.client.handler.FakePlacementDriver;
 import org.apache.ignite.client.handler.configuration.ClientConnectorConfiguration;
 import org.apache.ignite.client.handler.configuration.ClientConnectorExtensionConfiguration;
 import org.apache.ignite.client.handler.configuration.ClientConnectorExtensionConfigurationSchema;
-import org.apache.ignite.internal.client.ClientClusterNode;
 import org.apache.ignite.internal.cluster.management.ClusterTag;
 import org.apache.ignite.internal.cluster.management.network.messages.CmgMessagesFactory;
 import org.apache.ignite.internal.components.SystemPropertiesNodeProperties;
@@ -63,13 +62,14 @@ import org.apache.ignite.internal.configuration.validation.TestConfigurationVali
 import org.apache.ignite.internal.eventlog.api.Event;
 import org.apache.ignite.internal.eventlog.api.EventLog;
 import org.apache.ignite.internal.hlc.HybridClock;
-import org.apache.ignite.internal.hlc.HybridClockImpl;
 import org.apache.ignite.internal.hlc.TestClockService;
 import org.apache.ignite.internal.lowwatermark.TestLowWatermark;
 import org.apache.ignite.internal.manager.ComponentContext;
 import org.apache.ignite.internal.manager.IgniteComponent;
 import org.apache.ignite.internal.metrics.MetricManagerImpl;
+import org.apache.ignite.internal.network.ClusterNodeImpl;
 import org.apache.ignite.internal.network.ClusterService;
+import org.apache.ignite.internal.network.InternalClusterNode;
 import org.apache.ignite.internal.network.NettyBootstrapFactory;
 import org.apache.ignite.internal.network.configuration.MulticastNodeFinderConfigurationSchema;
 import org.apache.ignite.internal.network.configuration.NetworkExtensionConfiguration;
@@ -80,7 +80,6 @@ import org.apache.ignite.internal.security.authentication.AuthenticationManager;
 import org.apache.ignite.internal.security.authentication.AuthenticationManagerImpl;
 import org.apache.ignite.internal.security.configuration.SecurityConfiguration;
 import org.apache.ignite.internal.table.IgniteTablesInternal;
-import org.apache.ignite.network.ClusterNode;
 import org.apache.ignite.network.NetworkAddress;
 import org.jetbrains.annotations.Nullable;
 import org.mockito.Mockito;
@@ -151,7 +150,6 @@ public class TestServer implements AutoCloseable {
                 clusterId,
                 securityConfiguration,
                 port,
-                null,
                 true,
                 null
         );
@@ -172,7 +170,6 @@ public class TestServer implements AutoCloseable {
             UUID clusterId,
             @Nullable SecurityConfiguration securityConfiguration,
             @Nullable Integer port,
-            @Nullable HybridClock clock,
             boolean enableRequestHandling,
             @Nullable BitSet features
     ) {
@@ -225,10 +222,6 @@ public class TestServer implements AutoCloseable {
         metrics = new ClientHandlerMetricSource();
         metrics.enable();
 
-        if (clock == null) {
-            clock = new HybridClockImpl();
-        }
-
         if (securityConfiguration == null) {
             authenticationManager = new DummyAuthenticationManager();
         } else {
@@ -264,7 +257,7 @@ public class TestServer implements AutoCloseable {
                         clusterInfo,
                         metrics,
                         authenticationManager,
-                        clock,
+                        ignite.clock(),
                         ignite.placementDriver(),
                         clientConnectorConfiguration,
                         features)
@@ -279,7 +272,7 @@ public class TestServer implements AutoCloseable {
                         mock(MetricManagerImpl.class),
                         metrics,
                         authenticationManager,
-                        new TestClockService(clock),
+                        new TestClockService(ignite.clock()),
                         new AlwaysSyncedSchemaSyncService(),
                         catalogService,
                         ignite.placementDriver(),
@@ -363,6 +356,10 @@ public class TestServer implements AutoCloseable {
         return catalogService;
     }
 
+    public HybridClock clock() {
+        return ignite.clock();
+    }
+
     /** {@inheritDoc} */
     @Override
     public void close() {
@@ -378,8 +375,8 @@ public class TestServer implements AutoCloseable {
         }
     }
 
-    private ClusterNode getClusterNode(String name) {
-        return new ClientClusterNode(getNodeId(name), name, new NetworkAddress("127.0.0.1", 8080));
+    private InternalClusterNode getClusterNode(String name) {
+        return new ClusterNodeImpl(getNodeId(name), name, new NetworkAddress("127.0.0.1", 8080));
     }
 
     private static UUID getNodeId(String name) {

@@ -23,7 +23,6 @@ import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.ignite.internal.BaseIgniteRestartTest.createVault;
 import static org.apache.ignite.internal.configuration.IgnitePaths.partitionsPath;
-import static org.apache.ignite.internal.distributionzones.rebalance.RebalanceUtil.REBALANCE_SCHEDULER_POOL_SIZE;
 import static org.apache.ignite.internal.distributionzones.rebalance.ZoneRebalanceUtil.pendingPartAssignmentsQueueKey;
 import static org.apache.ignite.internal.testframework.IgniteTestUtils.testNodeName;
 import static org.apache.ignite.internal.testframework.IgniteTestUtils.waitForCondition;
@@ -49,7 +48,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.LongSupplier;
@@ -170,6 +168,7 @@ import org.apache.ignite.internal.storage.rocksdb.configuration.schema.RocksDbSt
 import org.apache.ignite.internal.systemview.SystemViewManagerImpl;
 import org.apache.ignite.internal.systemview.api.SystemViewManager;
 import org.apache.ignite.internal.table.StreamerReceiverRunner;
+import org.apache.ignite.internal.table.TableTestUtils;
 import org.apache.ignite.internal.table.distributed.TableManager;
 import org.apache.ignite.internal.table.distributed.index.IndexMetaStorage;
 import org.apache.ignite.internal.table.distributed.raft.MinimumRequiredTimeCollectorService;
@@ -179,7 +178,6 @@ import org.apache.ignite.internal.table.distributed.schema.CheckCatalogVersionOn
 import org.apache.ignite.internal.table.distributed.schema.SchemaSyncServiceImpl;
 import org.apache.ignite.internal.table.distributed.schema.ThreadLocalPartitionCommandsMarshaller;
 import org.apache.ignite.internal.testframework.TestIgnitionManager;
-import org.apache.ignite.internal.thread.IgniteThreadFactory;
 import org.apache.ignite.internal.tx.LockManager;
 import org.apache.ignite.internal.tx.TxManager;
 import org.apache.ignite.internal.tx.configuration.TransactionConfiguration;
@@ -523,23 +521,24 @@ public class Node {
 
         LongSupplier partitionIdleSafeTimePropagationPeriodMsSupplier = () -> 10L;
 
+        clockWaiter = new ClockWaiter(name, hybridClock, threadPoolsManager.commonScheduler());
+
+        var clockService = new ClockServiceImpl(
+                hybridClock,
+                clockWaiter,
+                () -> TestIgnitionManager.DEFAULT_MAX_CLOCK_SKEW_MS,
+                skew -> {}
+        );
+
         ReplicaService replicaSvc = new ReplicaService(
                 clusterService.messagingService(),
-                hybridClock,
+                clockService,
                 threadPoolsManager.partitionOperationsExecutor(),
                 replicationConfiguration,
                 threadPoolsManager.commonScheduler()
         );
 
         resourcesRegistry = new RemotelyTriggeredResourceRegistry();
-
-        clockWaiter = new ClockWaiter(name, hybridClock, threadPoolsManager.commonScheduler());
-
-        var clockService = new ClockServiceImpl(
-                hybridClock,
-                clockWaiter,
-                () -> TestIgnitionManager.DEFAULT_MAX_CLOCK_SKEW_MS
-        );
 
         placementDriverManager = new PlacementDriverManager(
                 name,
@@ -553,7 +552,11 @@ public class Node {
                 clockService,
                 failureManager,
                 nodeProperties,
-                replicationConfiguration
+                replicationConfiguration,
+                Runnable::run,
+                metricManager,
+                zoneId -> completedFuture(Set.of()),
+                id -> null
         );
 
         var transactionInflights = new TransactionInflights(placementDriverManager.placementDriver(), clockService);
@@ -697,11 +700,6 @@ public class Node {
         lowWatermark.listen(LowWatermarkEvent.LOW_WATERMARK_CHANGED,
                 params -> catalogCompactionRunner.onLowWatermarkChanged(((ChangeLowWatermarkEventParameters) params).newLowWatermark()));
 
-        ScheduledExecutorService rebalanceScheduler = Executors.newScheduledThreadPool(
-                REBALANCE_SCHEDULER_POOL_SIZE,
-                IgniteThreadFactory.create(name, "test-rebalance-scheduler", LOG)
-        );
-
         SystemDistributedConfiguration systemDistributedConfiguration =
                 clusterConfigRegistry.getConfiguration(SystemDistributedExtensionConfiguration.KEY).system();
 
@@ -712,7 +710,8 @@ public class Node {
                 logicalTopologyService,
                 catalogManager,
                 systemDistributedConfiguration,
-                clockService
+                clockService,
+                metricManager
         );
 
         sharedTxStateStorage = new TxStateRocksDbSharedStorage(
@@ -736,7 +735,7 @@ public class Node {
                 failureManager,
                 nodeProperties,
                 threadPoolsManager.tableIoExecutor(),
-                rebalanceScheduler,
+                threadPoolsManager.rebalanceScheduler(),
                 threadPoolsManager.partitionOperationsExecutor(),
                 clockService,
                 placementDriverManager.placementDriver(),
@@ -757,7 +756,8 @@ public class Node {
                 transactionInflights,
                 txManager,
                 lowWatermark,
-                failureManager
+                failureManager,
+                metricManager
         );
 
         tableManager = new TableManager(
@@ -779,7 +779,7 @@ public class Node {
                 schemaManager,
                 threadPoolsManager.tableIoExecutor(),
                 threadPoolsManager.partitionOperationsExecutor(),
-                rebalanceScheduler,
+                threadPoolsManager.rebalanceScheduler(),
                 threadPoolsManager.commonScheduler(),
                 clockService,
                 outgoingSnapshotsManager,
@@ -798,7 +798,9 @@ public class Node {
                 partitionReplicaLifecycleManager,
                 nodeProperties,
                 minTimeCollectorService,
-                systemDistributedConfiguration
+                systemDistributedConfiguration,
+                metricManager,
+                TableTestUtils.NOOP_PARTITION_MODIFICATION_COUNTER_FACTORY
         ) {
 
             @Override

@@ -24,7 +24,6 @@ import static java.util.concurrent.CompletableFuture.failedFuture;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
-import static org.apache.ignite.internal.catalog.CatalogService.DEFAULT_STORAGE_PROFILE;
 import static org.apache.ignite.internal.hlc.HybridTimestamp.hybridTimestamp;
 import static org.apache.ignite.internal.lang.IgniteSystemProperties.COLOCATION_FEATURE_FLAG;
 import static org.apache.ignite.internal.lang.IgniteSystemProperties.colocationEnabled;
@@ -117,6 +116,7 @@ import org.apache.ignite.internal.logger.Loggers;
 import org.apache.ignite.internal.lowwatermark.LowWatermark;
 import org.apache.ignite.internal.network.ClusterNodeImpl;
 import org.apache.ignite.internal.network.ClusterNodeResolver;
+import org.apache.ignite.internal.network.InternalClusterNode;
 import org.apache.ignite.internal.network.MessagingService;
 import org.apache.ignite.internal.network.SingleClusterNodeResolver;
 import org.apache.ignite.internal.network.TopologyService;
@@ -180,6 +180,7 @@ import org.apache.ignite.internal.storage.index.StorageSortedIndexDescriptor;
 import org.apache.ignite.internal.storage.index.StorageSortedIndexDescriptor.StorageSortedIndexColumnDescriptor;
 import org.apache.ignite.internal.storage.index.impl.TestHashIndexStorage;
 import org.apache.ignite.internal.storage.index.impl.TestSortedIndexStorage;
+import org.apache.ignite.internal.table.TableTestUtils;
 import org.apache.ignite.internal.table.distributed.HashIndexLocker;
 import org.apache.ignite.internal.table.distributed.IndexLocker;
 import org.apache.ignite.internal.table.distributed.SortedIndexLocker;
@@ -191,6 +192,7 @@ import org.apache.ignite.internal.table.distributed.replicator.PartitionReplicaL
 import org.apache.ignite.internal.table.distributed.replicator.TransactionStateResolver;
 import org.apache.ignite.internal.table.impl.DummyInternalTableImpl;
 import org.apache.ignite.internal.table.impl.DummySchemaManagerImpl;
+import org.apache.ignite.internal.table.metrics.TableMetricSource;
 import org.apache.ignite.internal.testframework.IgniteAbstractTest;
 import org.apache.ignite.internal.testframework.WithSystemProperty;
 import org.apache.ignite.internal.tostring.IgniteToStringInclude;
@@ -223,9 +225,9 @@ import org.apache.ignite.internal.util.Cursor;
 import org.apache.ignite.internal.util.Lazy;
 import org.apache.ignite.internal.util.SafeTimeValuesTracker;
 import org.apache.ignite.lang.ErrorGroups.Transactions;
-import org.apache.ignite.network.ClusterNode;
 import org.apache.ignite.network.NetworkAddress;
 import org.apache.ignite.sql.ColumnType;
+import org.apache.ignite.table.QualifiedName;
 import org.apache.ignite.tx.TransactionException;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -347,10 +349,10 @@ public class ZonePartitionReplicaListenerTest extends IgniteAbstractTest {
     private final TestTxStatePartitionStorage txStateStorage = spy(new TestTxStatePartitionStorage());
 
     /** Local cluster node. */
-    private final ClusterNode localNode = new ClusterNodeImpl(nodeId(1), "node1", NetworkAddress.from("127.0.0.1:127"));
+    private final InternalClusterNode localNode = new ClusterNodeImpl(nodeId(1), "node1", NetworkAddress.from("127.0.0.1:127"));
 
     /** Another (not local) cluster node. */
-    private final ClusterNode anotherNode = new ClusterNodeImpl(nodeId(2), "node2", NetworkAddress.from("127.0.0.2:127"));
+    private final InternalClusterNode anotherNode = new ClusterNodeImpl(nodeId(2), "node2", NetworkAddress.from("127.0.0.2:127"));
 
     private TransactionStateResolver transactionStateResolver;
 
@@ -400,18 +402,26 @@ public class ZonePartitionReplicaListenerTest extends IgniteAbstractTest {
     /** Key-value marshaller for tests. */
     private KvMarshaller<TestKey, TestValue> kvMarshaller;
 
-    private final CatalogTableDescriptor tableDescriptor = new CatalogTableDescriptor(
-            TABLE_ID, 1, 2, TABLE_NAME, 1,
-            List.of(
-                    new CatalogTableColumnDescriptor("intKey", ColumnType.INT32, false, 0, 0, 0, null),
-                    new CatalogTableColumnDescriptor("strKey", ColumnType.STRING, false, 0, 0, 0, null),
-                    new CatalogTableColumnDescriptor("intVal", ColumnType.INT32, false, 0, 0, 0, null),
-                    new CatalogTableColumnDescriptor("strVal", ColumnType.STRING, false, 0, 0, 0, null)
-            ),
-            List.of("intKey", "strKey"),
-            null,
-            DEFAULT_STORAGE_PROFILE
-    );
+    private final CatalogTableDescriptor tableDescriptor;
+
+    {
+        List<CatalogTableColumnDescriptor> columns = List.of(
+                new CatalogTableColumnDescriptor("intKey", ColumnType.INT32, false, 0, 0, 0, null),
+                new CatalogTableColumnDescriptor("strKey", ColumnType.STRING, false, 0, 0, 0, null),
+                new CatalogTableColumnDescriptor("intVal", ColumnType.INT32, false, 0, 0, 0, null),
+                new CatalogTableColumnDescriptor("strVal", ColumnType.STRING, false, 0, 0, 0, null)
+        );
+        tableDescriptor = CatalogTableDescriptor.builder()
+                .id(TABLE_ID)
+                .schemaId(1)
+                .primaryKeyIndexId(2)
+                .name(TABLE_NAME)
+                .zoneId(1)
+                .columns(columns)
+                .primaryKeyColumns(List.of("intKey", "strKey"))
+                .storageProfile(CatalogService.DEFAULT_STORAGE_PROFILE)
+                .build();
+    }
 
     /** Placement driver. */
     private TestPlacementDriver placementDriver;
@@ -566,7 +576,7 @@ public class ZonePartitionReplicaListenerTest extends IgniteAbstractTest {
             }
 
             return failedFuture(new Exception("Test exception"));
-        }).when(messagingService).invoke(any(ClusterNode.class), any(), anyLong());
+        }).when(messagingService).invoke(any(InternalClusterNode.class), any(), anyLong());
 
         doAnswer(invocation -> {
             Object argument = invocation.getArgument(1);
@@ -582,12 +592,12 @@ public class ZonePartitionReplicaListenerTest extends IgniteAbstractTest {
 
         ClusterNodeResolver clusterNodeResolver = new ClusterNodeResolver() {
             @Override
-            public ClusterNode getById(UUID id) {
+            public InternalClusterNode getById(UUID id) {
                 return id.equals(localNode.id()) ? localNode : anotherNode;
             }
 
             @Override
-            public ClusterNode getByConsistentId(String consistentId) {
+            public InternalClusterNode getByConsistentId(String consistentId) {
                 return consistentId.equals(localNode.name()) ? localNode : anotherNode;
             }
         };
@@ -648,7 +658,8 @@ public class ZonePartitionReplicaListenerTest extends IgniteAbstractTest {
                         PART_ID,
                         partitionDataStorage,
                         indexUpdateHandler,
-                        replicationConfiguration
+                        replicationConfiguration,
+                        TableTestUtils.NOOP_PARTITION_MODIFICATION_COUNTER
                 ),
                 validationSchemasSource,
                 localNode,
@@ -661,7 +672,8 @@ public class ZonePartitionReplicaListenerTest extends IgniteAbstractTest {
                 indexMetaStorage,
                 lowWatermark,
                 failureManager,
-                new SystemPropertiesNodeProperties()
+                new SystemPropertiesNodeProperties(),
+                new TableMetricSource(QualifiedName.fromSimple("test_table"))
         );
 
         kvMarshaller = marshallerFor(schemaDescriptor);
@@ -1031,7 +1043,7 @@ public class ZonePartitionReplicaListenerTest extends IgniteAbstractTest {
 
     private void makeTableBeDroppedAfter(HybridTimestamp txBeginTs, int tableId) {
         CatalogTableDescriptor tableVersion1 = mock(CatalogTableDescriptor.class);
-        when(tableVersion1.tableVersion()).thenReturn(CURRENT_SCHEMA_VERSION);
+        when(tableVersion1.latestSchemaVersion()).thenReturn(CURRENT_SCHEMA_VERSION);
         when(tableVersion1.name()).thenReturn(TABLE_NAME);
 
         when(catalog.table(tableId)).thenReturn(tableVersion1);
@@ -1168,7 +1180,7 @@ public class ZonePartitionReplicaListenerTest extends IgniteAbstractTest {
 
     private void makeSchemaBeNextVersion() {
         CatalogTableDescriptor tableVersion2 = mock(CatalogTableDescriptor.class);
-        when(tableVersion2.tableVersion()).thenReturn(NEXT_SCHEMA_VERSION);
+        when(tableVersion2.latestSchemaVersion()).thenReturn(NEXT_SCHEMA_VERSION);
         when(tableVersion2.name()).thenReturn(TABLE_NAME_2);
 
         when(catalog.table(eq(TABLE_ID))).thenReturn(tableVersion2);
@@ -1414,7 +1426,6 @@ public class ZonePartitionReplicaListenerTest extends IgniteAbstractTest {
 
         zonePartitionReplicaListener.removeTableReplicaProcessor(TABLE_ID);
     }
-
 
     @Test
     @WithSystemProperty(key = COLOCATION_FEATURE_FLAG, value = "true")
@@ -1785,7 +1796,6 @@ public class ZonePartitionReplicaListenerTest extends IgniteAbstractTest {
         CompletableFuture<?> writeAfterCleanupFuture = zonePartitionReplicaListener.invoke(updatingRequestSupplier.get(), localNode.id());
         assertThat(writeAfterCleanupFuture, willThrowFast(TransactionException.class));
     }
-
 
     private void checkRowInMvStorage(BinaryRow binaryRow, boolean shouldBePresent) {
         Cursor<RowId> cursor = pkStorage().get(binaryRow);

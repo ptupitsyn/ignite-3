@@ -26,11 +26,13 @@ import org.apache.ignite.internal.CompatibilityTestBase;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.params.ParameterizedClass;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Tests that current Java client can work with all older server versions.
  */
+@ParameterizedClass
 @MethodSource("serverVersions")
 public class CurrentClientWithOldServerCompatibilityTest extends CompatibilityTestBase implements ClientCompatibilityTests {
     private final AtomicInteger idGen = new AtomicInteger(1000);
@@ -39,7 +41,7 @@ public class CurrentClientWithOldServerCompatibilityTest extends CompatibilityTe
 
     @Override
     protected void setupBaseVersion(Ignite baseIgnite) {
-        createDefaultTables(baseIgnite);
+        initTestData(baseIgnite);
     }
 
     @Override
@@ -82,7 +84,6 @@ public class CurrentClientWithOldServerCompatibilityTest extends CompatibilityTe
 
     @Override
     public String tableNamePrefix() {
-        // TODO IGNITE-25846 Remove this method, table name should be the same across versions.
         return "PUBLIC.";
     }
 }

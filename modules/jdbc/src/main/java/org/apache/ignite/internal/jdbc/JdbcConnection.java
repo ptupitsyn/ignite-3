@@ -79,6 +79,8 @@ public class JdbcConnection implements Connection {
     /** Network timeout permission. */
     private static final String SET_NETWORK_TIMEOUT_PERM = "setNetworkTimeout";
 
+    private static final AtomicLong GLOBAL_CONN_ID_GEN = new AtomicLong();
+
     /** Statements modification mutex. */
     private final Object stmtsMux = new Object();
 
@@ -150,7 +152,7 @@ public class JdbcConnection implements Connection {
         this.handler = new JdbcClientQueryEventHandler(client);
 
         try {
-            JdbcConnectResult result = handler.connect(connProps.getConnectionTimeZone()).get();
+            JdbcConnectResult result = handler.connect(connProps.getConnectionTimeZone(), null).get();
 
             if (!result.success()) {
                 throw IgniteQueryErrorCode.createJdbcSqlException(result.err(), result.status());
@@ -165,7 +167,7 @@ public class JdbcConnection implements Connection {
             throw new SQLException("Connection initialization canceled.", e);
         }
 
-        txIsolation = Connection.TRANSACTION_NONE;
+        txIsolation = TRANSACTION_NONE;
 
         schema = normalizeSchema(connProps.getSchema());
 
@@ -187,7 +189,8 @@ public class JdbcConnection implements Connection {
                 false,
                 extractAuthenticationConfiguration(connProps),
                 IgniteClientConfiguration.DFLT_OPERATION_TIMEOUT,
-                IgniteClientConfiguration.DFLT_SQL_PARTITION_AWARENESS_METADATA_CACHE_SIZE
+                IgniteClientConfiguration.DFLT_SQL_PARTITION_AWARENESS_METADATA_CACHE_SIZE,
+                "jdbc_client_" + GLOBAL_CONN_ID_GEN.getAndIncrement() // Use underscores for JMX compat.
         );
 
         return (TcpIgniteClient) sync(TcpIgniteClient.startAsync(cfg, observableTimeTracker));
@@ -516,11 +519,11 @@ public class JdbcConnection implements Connection {
         ensureNotClosed();
 
         switch (level) {
-            case Connection.TRANSACTION_READ_UNCOMMITTED:
-            case Connection.TRANSACTION_READ_COMMITTED:
-            case Connection.TRANSACTION_REPEATABLE_READ:
-            case Connection.TRANSACTION_SERIALIZABLE:
-            case Connection.TRANSACTION_NONE:
+            case TRANSACTION_READ_UNCOMMITTED:
+            case TRANSACTION_READ_COMMITTED:
+            case TRANSACTION_REPEATABLE_READ:
+            case TRANSACTION_SERIALIZABLE:
+            case TRANSACTION_NONE:
                 break;
 
             default:

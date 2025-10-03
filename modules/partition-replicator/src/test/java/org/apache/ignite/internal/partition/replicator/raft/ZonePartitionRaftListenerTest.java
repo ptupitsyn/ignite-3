@@ -495,7 +495,6 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
         listener.removeTableProcessor(TABLE_ID);
     }
 
-
     @Test
     void updatesLastAppliedForFinishTxCommands() {
         safeTimeTracker.update(clock.now(), null);
@@ -552,12 +551,10 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
         return commandClosure;
     }
 
-
     private PartitionListener partitionListener(int tableId) {
         LeasePlacementDriver placementDriver = mock(LeasePlacementDriver.class);
         lenient().when(placementDriver.getCurrentPrimaryReplica(any(), any())).thenReturn(null);
 
-        HybridClock clock = new HybridClockImpl();
         ClockService clockService = mock(ClockService.class);
         lenient().when(clockService.current()).thenReturn(clock.current());
 

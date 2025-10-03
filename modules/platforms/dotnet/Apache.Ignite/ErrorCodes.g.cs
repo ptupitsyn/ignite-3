@@ -433,6 +433,9 @@ namespace Apache.Ignite
 
             /// <summary> ZoneNotFound error. </summary>
             public const int ZoneNotFound = (GroupCode << 16) | (1 & 0xFFFF);
+
+            /// <summary> EmptyDataNodes error. </summary>
+            public const int EmptyDataNodes = (GroupCode << 16) | (2 & 0xFFFF);
         }
 
         /// <summary> Network errors. </summary>
@@ -450,8 +453,8 @@ namespace Apache.Ignite
             /// <summary> UnresolvableConsistentId error. </summary>
             public const int UnresolvableConsistentId = (GroupCode << 16) | (1 & 0xFFFF);
 
-            /// <summary> PortInUse error. </summary>
-            public const int PortInUse = (GroupCode << 16) | (2 & 0xFFFF);
+            /// <summary> Bind error. </summary>
+            public const int Bind = (GroupCode << 16) | (2 & 0xFFFF);
 
             /// <summary> FileTransfer error. </summary>
             public const int FileTransfer = (GroupCode << 16) | (3 & 0xFFFF);
@@ -464,6 +467,10 @@ namespace Apache.Ignite
 
             /// <summary> AddressUnresolved error. </summary>
             public const int AddressUnresolved = (GroupCode << 16) | (6 & 0xFFFF);
+
+            /// <summary> PortInUse is obsolete. Use Bind instead. </summary>
+            [Obsolete]
+            public const int PortInUse = Bind;
         }
 
         /// <summary> NodeConfiguration errors. </summary>
@@ -514,6 +521,9 @@ namespace Apache.Ignite
 
             /// <summary> UnitUnavailable error. </summary>
             public const int UnitUnavailable = (GroupCode << 16) | (4 & 0xFFFF);
+
+            /// <summary> UnitZip error. </summary>
+            public const int UnitZip = (GroupCode << 16) | (5 & 0xFFFF);
         }
 
         /// <summary> GarbageCollector errors. </summary>
@@ -645,6 +655,9 @@ namespace Apache.Ignite
 
             /// <summary> PrimaryReplicaAwait error. </summary>
             public const int PrimaryReplicaAwait = (GroupCode << 16) | (2 & 0xFFFF);
+
+            /// <summary> EmptyAssignments error. </summary>
+            public const int EmptyAssignments = (GroupCode << 16) | (3 & 0xFFFF);
         }
 
         /// <summary> CriticalWorkers errors. </summary>

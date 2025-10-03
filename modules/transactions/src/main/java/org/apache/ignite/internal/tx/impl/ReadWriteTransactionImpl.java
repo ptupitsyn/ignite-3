@@ -302,4 +302,26 @@ public class ReadWriteTransactionImpl extends IgniteAbstractTransactionImpl {
     public CompletableFuture<Void> kill() {
         return finishInternal(false, null, false, false, false);
     }
+
+    @Override
+    public boolean isRolledBackWithTimeoutExceeded() {
+        // `finishInternal` is called under the write lock, so reading `timeoutExceeded` under the read lock
+        // in order to avoid data race.
+        enlistPartitionLock.readLock().lock();
+        try {
+            return timeoutExceeded;
+        } finally {
+            enlistPartitionLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Fail the transaction with exception so finishing it is not possible.
+     *
+     * @param e Fail reason.
+     */
+    public void fail(TransactionException e) {
+        // Thread safety is not needed.
+        finishFuture = failedFuture(e);
+    }
 }
