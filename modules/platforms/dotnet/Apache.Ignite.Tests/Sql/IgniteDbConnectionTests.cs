@@ -17,7 +17,9 @@
 
 namespace Apache.Ignite.Tests.Sql;
 
+using System;
 using System.Data;
+using System.Data.Common;
 using System.Linq;
 using System.Threading.Tasks;
 using Ignite.Sql;
@@ -25,6 +27,61 @@ using NUnit.Framework;
 
 public class IgniteDbConnectionTests : IgniteTestsBase
 {
+    [Test]
+    public async Task Demo()
+    {
+        var connStr = $"Endpoints=localhost:10942,localhost:10801;SocketTimeout=00:00:07";
+        await using var conn = new IgniteDbConnection(connStr);
+        await conn.OpenAsync();
+
+        DbCommand createTableCmd = conn.CreateCommand();
+        createTableCmd.CommandText = "CREATE TABLE IF NOT EXISTS Person (ID INT PRIMARY KEY, Name VARCHAR)";
+        await createTableCmd.ExecuteNonQueryAsync();
+
+        DbCommand insertCmd = conn.CreateCommand();
+        insertCmd.CommandText = "INSERT INTO Person (ID, Name) VALUES (?, ?)";
+
+        await using DbTransaction tx = await conn.BeginTransactionAsync();
+        insertCmd.Transaction = tx;
+
+        DbParameter idParam = insertCmd.CreateParameter();
+        insertCmd.Parameters.Add(idParam);
+
+        DbParameter nameParam = insertCmd.CreateParameter();
+        insertCmd.Parameters.Add(nameParam);
+
+        for (var i = 1; i <= 3; i++)
+        {
+            idParam.Value = i;
+            nameParam.Value = "Person " + i;
+            await insertCmd.ExecuteNonQueryAsync();
+        }
+
+        await tx.CommitAsync();
+
+        DbCommand selectCmd = conn.CreateCommand();
+        selectCmd.CommandText = "SELECT * FROM Person WHERE ID > ?";
+
+        DbParameter selectParam = selectCmd.CreateParameter();
+        selectParam.Value = 1;
+        selectCmd.Parameters.Add(selectParam);
+
+        await using var reader = await selectCmd.ExecuteReaderAsync();
+
+        for (var i = 0; i < reader.FieldCount; i++)
+        {
+            Console.WriteLine($"{reader.GetName(i)}: {reader.GetFieldType(i)}");
+        }
+
+        while (await reader.ReadAsync())
+        {
+            int id = reader.GetInt32(0);
+            string name = reader.GetString(1);
+
+            Console.WriteLine($"Person [ID={id}, Name={name}]");
+        }
+    }
+
     [Test]
     public async Task TestOpenClose()
     {
