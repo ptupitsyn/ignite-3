@@ -24,22 +24,25 @@ using Microsoft.EntityFrameworkCore.Storage;
 
 public class IgniteTypeMappingSource : RelationalTypeMappingSource
 {
+    // TODO: Get rid of custom type mapping classes where possible (e.g., use built-in StringTypeMapping).
     internal const string IntegerTypeName = "INTEGER";
     internal const string RealTypeName = "REAL";
     internal const string BlobTypeName = "BLOB";
     internal const string TextTypeName = "VARCHAR";
     internal const string GuidTypeName = "UUID";
+    internal const string BoolTypeName = "BOOL";
 
     private static readonly LongTypeMapping Integer = new(IntegerTypeName);
     private static readonly DoubleTypeMapping Real = new(RealTypeName);
     private static readonly IgniteByteArrayTypeMapping Blob = IgniteByteArrayTypeMapping.Default;
     private static readonly IgniteStringTypeMapping Text = IgniteStringTypeMapping.Default;
+    private static readonly IgniteBoolTypeMapping Bool = new(BoolTypeName, null);
 
     private readonly Dictionary<Type, RelationalTypeMapping> _clrTypeMappings = new()
     {
         { typeof(string), Text },
         { typeof(byte[]), Blob },
-        { typeof(bool), new BoolTypeMapping(IntegerTypeName) },
+        { typeof(bool), Bool },
         { typeof(byte), new ByteTypeMapping(IntegerTypeName) },
         { typeof(char), new CharTypeMapping(TextTypeName) },
         { typeof(int), new IntTypeMapping(IntegerTypeName) },
