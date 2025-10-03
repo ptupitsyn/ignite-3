@@ -43,6 +43,6 @@ public class SeedingIgniteTest : SeedingTestBase
         }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-            => optionsBuilder.UseIgnite(IgniteTestStore.GetIgniteEndpoint());
+            => optionsBuilder.UseIgnite(IgniteTestStore.GetConnectionString());
     }
 }
