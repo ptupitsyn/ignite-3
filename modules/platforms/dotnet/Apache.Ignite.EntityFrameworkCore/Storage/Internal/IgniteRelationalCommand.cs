@@ -18,7 +18,6 @@ namespace Apache.Ignite.EntityFrameworkCore.Storage.Internal;
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
-using DataCommon;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
 using Sql;
