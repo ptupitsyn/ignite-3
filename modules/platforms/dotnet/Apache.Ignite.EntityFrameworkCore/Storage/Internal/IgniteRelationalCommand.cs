@@ -37,7 +37,7 @@ public class IgniteRelationalCommand : RelationalCommand
         if (parameterObject.CommandSource == CommandSource.Migrations)
         {
             // TODO
-            // cmd.SuppressTransaction = true;
+            cmd.SuppressTransaction = true;
         }
 
         return cmd;
