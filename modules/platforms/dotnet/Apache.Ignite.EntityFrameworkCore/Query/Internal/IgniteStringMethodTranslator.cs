@@ -24,7 +24,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
 
-public class IgniteStringMethodTranslator : IMethodCallTranslator
+internal sealed class IgniteStringMethodTranslator : IMethodCallTranslator
 {
     private static readonly MethodInfo IndexOfMethodInfo
         = typeof(string).GetRuntimeMethod(nameof(string.IndexOf), new[] { typeof(string) })!;
@@ -96,7 +96,7 @@ public class IgniteStringMethodTranslator : IMethodCallTranslator
         _sqlExpressionFactory = sqlExpressionFactory;
     }
 
-    public virtual SqlExpression? Translate(
+    public SqlExpression? Translate(
         SqlExpression? instance,
         MethodInfo method,
         IReadOnlyList<SqlExpression> arguments,
@@ -111,12 +111,11 @@ public class IgniteStringMethodTranslator : IMethodCallTranslator
 
                 return _sqlExpressionFactory.Subtract(
                     _sqlExpressionFactory.Function(
-                        "instr",
-                        new[]
-                        {
+                        "POSITION",
+                        [
                             _sqlExpressionFactory.ApplyTypeMapping(instance, stringTypeMapping),
                             _sqlExpressionFactory.ApplyTypeMapping(argument, stringTypeMapping)
-                        },
+                        ],
                         nullable: true,
                         argumentsPropagateNullability: new[] { true, true },
                         method.ReturnType),
