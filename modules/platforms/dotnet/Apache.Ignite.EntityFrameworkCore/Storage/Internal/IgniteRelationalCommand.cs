@@ -34,8 +34,11 @@ public class IgniteRelationalCommand : RelationalCommand
     {
         var cmd = (IgniteDbCommand)base.CreateDbCommand(parameterObject, commandId, commandMethod);
 
-        // TODO
-        // cmd.CommandSource = parameterObject.CommandSource;
+        if (parameterObject.CommandSource == CommandSource.Migrations)
+        {
+            cmd.SuppressTransaction = true;
+        }
+
         return cmd;
     }
 }

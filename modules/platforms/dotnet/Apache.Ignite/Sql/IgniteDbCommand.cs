@@ -74,6 +74,13 @@ public sealed class IgniteDbCommand : DbCommand
         set => Transaction = value;
     }
 
+    /// <summary>
+    /// Gets or sets a value indicating whether to suppress (ignore) the specified <see cref="DbTransaction"/>.
+    /// <para />
+    /// Internal use only.
+    /// </summary>
+    internal bool SuppressTransaction { get; set; }
+
     /// <inheritdoc />
     protected override DbConnection? DbConnection { get; set; }
 
