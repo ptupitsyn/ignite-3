@@ -78,7 +78,15 @@ namespace Apache.Ignite.Internal.Sql
             var resultSet = await ExecuteAsyncInternal<object>(
                 transaction, statement, _ => null!, args, cancellationToken).ConfigureAwait(false);
 
-            return new IgniteDbDataReader(resultSet);
+            try
+            {
+                return new IgniteDbDataReader(resultSet);
+            }
+            catch (SqlException e)
+            {
+                ConvertExceptionAndThrow(e, statement, cancellationToken);
+                throw;
+            }
         }
 
         /// <inheritdoc/>
