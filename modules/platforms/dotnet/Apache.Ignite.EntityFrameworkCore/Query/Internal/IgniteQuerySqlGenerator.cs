@@ -15,6 +15,7 @@
 
 namespace Apache.Ignite.EntityFrameworkCore.Query.Internal;
 
+using System;
 using System.Linq.Expressions;
 using Common;
 using Microsoft.EntityFrameworkCore.Query;
@@ -135,6 +136,15 @@ internal sealed class IgniteQuerySqlGenerator(QuerySqlGeneratorDependencies depe
 
     protected override Expression VisitSqlParameter(SqlParameterExpression sqlParameterExpression)
     {
-        return base.VisitSqlParameter(sqlParameterExpression);
+        // Override the clever logic in the base class that tries to reuse parameters.
+        // Ignite doesn't support named parameters, so every parameter must be provided.
+        Microsoft.EntityFrameworkCore.Storage.RelationalCommandBuilderExtensions.AddParameter(
+            Sql,
+            sqlParameterExpression.Name,
+            "?",
+            sqlParameterExpression.TypeMapping!,
+            sqlParameterExpression.IsNullable);
+
+        return sqlParameterExpression;
     }
 }
