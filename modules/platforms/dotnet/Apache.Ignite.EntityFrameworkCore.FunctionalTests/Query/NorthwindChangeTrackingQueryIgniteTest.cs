@@ -13,23 +13,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-namespace Apache.Ignite.EntityFrameworkCore.FunctionalTests;
+namespace Apache.Ignite.EntityFrameworkCore.FunctionalTests.Query;
 
-using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
-using Microsoft.EntityFrameworkCore.Update;
+using Microsoft.EntityFrameworkCore.TestModels.Northwind;
+using Microsoft.EntityFrameworkCore.TestUtilities;
+using TestModels.Northwind;
 
-public class IgniteComplianceTest : RelationalComplianceTestBase
+public class NorthwindChangeTrackingQueryIgniteTest(NorthwindQueryIgniteFixture<NoopModelCustomizer> fixture)
+    : NorthwindChangeTrackingQueryTestBase<
+        NorthwindQueryIgniteFixture<NoopModelCustomizer>>(fixture)
 {
-    protected override ICollection<Type> IgnoredTestBases { get; } = new HashSet<Type>
-    {
-        typeof(FromSqlSprocQueryTestBase<>),
-        typeof(SqlExecutorTestBase<>),
-        typeof(UdfDbFunctionTestBase<>),
-        typeof(TPCRelationshipsQueryTestBase<>),
-        typeof(StoredProcedureUpdateTestBase) // Ignite doesn't support stored procedures
-    };
-
-    protected override Assembly TargetAssembly { get; } = typeof(IgniteComplianceTest).Assembly;
+    protected override NorthwindContext CreateNoTrackingContext()
+        => new NorthwindIgniteContext(
+            new DbContextOptionsBuilder(Fixture.CreateOptions())
+                .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking).Options);
 }
