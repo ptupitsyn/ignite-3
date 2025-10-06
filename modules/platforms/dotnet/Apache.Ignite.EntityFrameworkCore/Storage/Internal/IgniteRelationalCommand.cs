@@ -38,6 +38,11 @@ public class IgniteRelationalCommand : RelationalCommand
             cmd.SuppressTransaction = true;
         }
 
+        if (this.Parameters.Count > 0)
+        {
+            Console.WriteLine(CommandText);
+        }
+
         return cmd;
     }
 }
