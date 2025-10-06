@@ -27,6 +27,7 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.EntityFrameworkCore.Update;
 
 internal sealed class IgniteMigrationsSqlGenerator : MigrationsSqlGenerator
 {
@@ -40,6 +41,309 @@ internal sealed class IgniteMigrationsSqlGenerator : MigrationsSqlGenerator
         IModel? model = null,
         MigrationsSqlGenerationOptions options = MigrationsSqlGenerationOptions.Default)
         => base.Generate(RewriteOperations(operations, model), model, options);
+
+    protected override void Generate(AlterDatabaseOperation operation, IModel? model, MigrationCommandListBuilder builder)
+    {
+        builder
+            .Append("SELECT InitSpatialMetaData()")
+            .AppendLine(Dependencies.SqlGenerationHelper.StatementTerminator);
+        EndStatement(builder);
+    }
+
+    protected override void Generate(
+        DropIndexOperation operation,
+        IModel? model,
+        MigrationCommandListBuilder builder,
+        bool terminate = true)
+    {
+        builder
+            .Append("DROP INDEX ")
+            .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.Name));
+
+        if (terminate)
+        {
+            builder
+                .AppendLine(Dependencies.SqlGenerationHelper.StatementTerminator)
+                .EndCommand();
+        }
+    }
+
+    protected override void Generate(RenameIndexOperation operation, IModel? model, MigrationCommandListBuilder builder)
+        => throw new NotSupportedException(
+            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
+
+    protected override void Generate(RenameTableOperation operation, IModel? model, MigrationCommandListBuilder builder)
+    {
+        if (operation.NewName != null
+            && operation.NewName != operation.Name)
+        {
+            builder
+                .Append("ALTER TABLE ")
+                .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.Name))
+                .Append(" RENAME TO ")
+                .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.NewName))
+                .AppendLine(Dependencies.SqlGenerationHelper.StatementTerminator)
+                .EndCommand();
+        }
+    }
+
+    protected override void Generate(RenameColumnOperation operation, IModel? model, MigrationCommandListBuilder builder)
+        => builder
+            .Append("ALTER TABLE ")
+            .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.Table))
+            .Append(" RENAME COLUMN ")
+            .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.Name))
+            .Append(" TO ")
+            .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.NewName))
+            .AppendLine(Dependencies.SqlGenerationHelper.StatementTerminator)
+            .EndCommand();
+
+    protected override void Generate(
+        CreateTableOperation operation,
+        IModel? model,
+        MigrationCommandListBuilder builder,
+        bool terminate = true)
+    {
+        builder
+            .Append("CREATE TABLE ")
+            .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.Name, operation.Schema))
+            .AppendLine(" (");
+
+        using (builder.Indent())
+        {
+            if (!string.IsNullOrEmpty(operation.Comment))
+            {
+                builder
+                    .AppendLines(Dependencies.SqlGenerationHelper.GenerateComment(operation.Comment))
+                    .AppendLine();
+            }
+
+            CreateTableColumns(operation, model, builder);
+            CreateTableConstraints(operation, model, builder);
+            builder.AppendLine();
+        }
+
+        builder.Append(")");
+
+        if (terminate)
+        {
+            builder.AppendLine(Dependencies.SqlGenerationHelper.StatementTerminator);
+            EndStatement(builder);
+        }
+    }
+
+    protected override void CreateTableColumns(
+        CreateTableOperation operation,
+        IModel? model,
+        MigrationCommandListBuilder builder)
+    {
+        if (operation.Columns.All(c => string.IsNullOrEmpty(c.Comment)))
+        {
+            base.CreateTableColumns(operation, model, builder);
+        }
+        else
+        {
+            CreateTableColumnsWithComments(operation, model, builder);
+        }
+    }
+
+    protected override void Generate(InsertDataOperation operation, IModel? model, MigrationCommandListBuilder builder, bool terminate = true) =>
+        Generate(builder, GenerateModificationCommands(operation, model));
+
+    protected override void Generate(DeleteDataOperation operation, IModel? model, MigrationCommandListBuilder builder) =>
+        Generate(builder, GenerateModificationCommands(operation, model));
+
+    protected override void Generate(UpdateDataOperation operation, IModel? model, MigrationCommandListBuilder builder) =>
+        Generate(builder, GenerateModificationCommands(operation, model));
+
+    protected override void Generate(
+        AddForeignKeyOperation operation,
+        IModel? model,
+        MigrationCommandListBuilder builder,
+        bool terminate = true)
+        => throw new NotSupportedException(
+            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
+
+    protected override void Generate(
+        AddPrimaryKeyOperation operation,
+        IModel? model,
+        MigrationCommandListBuilder builder,
+        bool terminate = true)
+        => throw new NotSupportedException(
+            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
+
+    protected override void Generate(AddUniqueConstraintOperation operation, IModel? model, MigrationCommandListBuilder builder)
+        => throw new NotSupportedException(
+            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
+
+    protected override void Generate(AddCheckConstraintOperation operation, IModel? model, MigrationCommandListBuilder builder)
+        => throw new NotSupportedException(
+            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
+
+    protected override void Generate(
+        DropColumnOperation operation,
+        IModel? model,
+        MigrationCommandListBuilder builder,
+        bool terminate = true)
+        => throw new NotSupportedException(
+            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
+
+    protected override void Generate(
+        DropForeignKeyOperation operation,
+        IModel? model,
+        MigrationCommandListBuilder builder,
+        bool terminate = true)
+        => throw new NotSupportedException(
+            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
+
+    protected override void Generate(
+        DropPrimaryKeyOperation operation,
+        IModel? model,
+        MigrationCommandListBuilder builder,
+        bool terminate = true)
+        => throw new NotSupportedException(
+            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
+
+    protected override void Generate(DropUniqueConstraintOperation operation, IModel? model, MigrationCommandListBuilder builder)
+        => throw new NotSupportedException(
+            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
+
+    protected override void Generate(DropCheckConstraintOperation operation, IModel? model, MigrationCommandListBuilder builder)
+        => throw new NotSupportedException(
+            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
+
+    protected override void Generate(AlterColumnOperation operation, IModel? model, MigrationCommandListBuilder builder)
+        => throw new NotSupportedException(
+            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
+
+    protected override void ComputedColumnDefinition(
+        string? schema,
+        string table,
+        string name,
+        ColumnOperation operation,
+        IModel? model,
+        MigrationCommandListBuilder builder)
+    {
+        builder.Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(name));
+
+        builder
+            .Append(" AS (")
+            .Append(operation.ComputedColumnSql!)
+            .Append(")");
+
+        if (operation.IsStored == true)
+        {
+            builder.Append(" STORED");
+        }
+
+        if (operation.Collation != null)
+        {
+            builder
+                .Append(" COLLATE ")
+                .Append(operation.Collation);
+        }
+    }
+
+    protected override void Generate(EnsureSchemaOperation operation, IModel? model, MigrationCommandListBuilder builder)
+    {
+    }
+
+    protected override void Generate(DropSchemaOperation operation, IModel? model, MigrationCommandListBuilder builder)
+    {
+    }
+
+    protected override void Generate(RestartSequenceOperation operation, IModel? model, MigrationCommandListBuilder builder)
+        => throw new NotSupportedException(IgniteStrings.SequencesNotSupported);
+
+    protected override void Generate(CreateSequenceOperation operation, IModel? model, MigrationCommandListBuilder builder)
+        => throw new NotSupportedException(IgniteStrings.SequencesNotSupported);
+
+    protected override void Generate(RenameSequenceOperation operation, IModel? model, MigrationCommandListBuilder builder)
+        => throw new NotSupportedException(IgniteStrings.SequencesNotSupported);
+
+    protected override void Generate(AlterSequenceOperation operation, IModel? model, MigrationCommandListBuilder builder)
+        => throw new NotSupportedException(IgniteStrings.SequencesNotSupported);
+
+    protected override void Generate(DropSequenceOperation operation, IModel? model, MigrationCommandListBuilder builder)
+        => throw new NotSupportedException(IgniteStrings.SequencesNotSupported);
+
+    protected override void PrimaryKeyConstraint(AddPrimaryKeyOperation operation, IModel? model, MigrationCommandListBuilder builder)
+    {
+        // Ignite-specific: no constraints.
+        // if (operation.Name != null)
+        // {
+        //     builder
+        //         .Append("CONSTRAINT ")
+        //         .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.Name))
+        //         .Append(" ");
+        // }
+        builder
+            .Append("PRIMARY KEY ");
+
+        IndexTraits(operation, model, builder);
+
+        builder.Append("(")
+            .Append(ColumnList(operation.Columns))
+            .Append(")");
+    }
+
+    protected override void ForeignKeyConstraint(AddForeignKeyOperation operation, IModel? model, MigrationCommandListBuilder builder)
+    {
+        // Ignite-specific: no constraints.
+        // No-op.
+    }
+
+    protected override void CreateTableForeignKeys(CreateTableOperation operation, IModel? model, MigrationCommandListBuilder builder)
+    {
+        // Ignite-specific: no constraints.
+        // No-op.
+    }
+
+    private void Generate(MigrationCommandListBuilder builder, IEnumerable<IReadOnlyModificationCommand> commands)
+    {
+        // Terminate every statement - Ignite does not support multi-statement queries.
+        foreach (IReadOnlyModificationCommand modificationCommand in commands)
+        {
+            var sqlBuilder = new StringBuilder();
+
+            SqlGenerator.AppendDeleteOperation(
+                sqlBuilder,
+                modificationCommand,
+                0);
+
+            builder.Append(sqlBuilder.ToString());
+
+            EndStatement(builder);
+        }
+    }
+
+    private void CreateTableColumnsWithComments(
+        CreateTableOperation operation,
+        IModel? model,
+        MigrationCommandListBuilder builder)
+    {
+        for (var i = 0; i < operation.Columns.Count; i++)
+        {
+            var column = operation.Columns[i];
+
+            if (i > 0)
+            {
+                builder.AppendLine();
+            }
+
+            if (!string.IsNullOrEmpty(column.Comment))
+            {
+                builder.AppendLines(Dependencies.SqlGenerationHelper.GenerateComment(column.Comment));
+            }
+
+            ColumnDefinition(column, model, builder);
+
+            if (i != operation.Columns.Count - 1)
+            {
+                builder.AppendLine(",");
+            }
+        }
+    }
 
     private IReadOnlyList<MigrationOperation> RewriteOperations(
         IReadOnlyList<MigrationOperation> migrationOperations,
@@ -381,7 +685,7 @@ internal sealed class IgniteMigrationsSqlGenerator : MigrationsSqlGenerator
 
                 if (defaultValue != null)
                 {
-                    var defaultValueTypeMapping = (column.StoreType == null
+                    var defaultValueTypeMapping = (column.StoreType == null!
                             ? null
                             : Dependencies.TypeMappingSource.FindMapping(defaultValue.GetType(), column.StoreType))
                         ?? Dependencies.TypeMappingSource.GetMappingForValue(defaultValue);
@@ -449,312 +753,6 @@ internal sealed class IgniteMigrationsSqlGenerator : MigrationsSqlGenerator
         }
 
         return operations;
-    }
-
-    protected override void Generate(AlterDatabaseOperation operation, IModel? model, MigrationCommandListBuilder builder)
-    {
-        builder
-            .Append("SELECT InitSpatialMetaData()")
-            .AppendLine(Dependencies.SqlGenerationHelper.StatementTerminator);
-        EndStatement(builder);
-    }
-
-    protected override void Generate(
-        DropIndexOperation operation,
-        IModel? model,
-        MigrationCommandListBuilder builder,
-        bool terminate)
-    {
-        builder
-            .Append("DROP INDEX ")
-            .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.Name));
-
-        if (terminate)
-        {
-            builder
-                .AppendLine(Dependencies.SqlGenerationHelper.StatementTerminator)
-                .EndCommand();
-        }
-    }
-
-    protected override void Generate(RenameIndexOperation operation, IModel? model, MigrationCommandListBuilder builder)
-        => throw new NotSupportedException(
-            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
-
-    protected override void Generate(RenameTableOperation operation, IModel? model, MigrationCommandListBuilder builder)
-    {
-        if (operation.NewName != null
-            && operation.NewName != operation.Name)
-        {
-            builder
-                .Append("ALTER TABLE ")
-                .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.Name))
-                .Append(" RENAME TO ")
-                .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.NewName))
-                .AppendLine(Dependencies.SqlGenerationHelper.StatementTerminator)
-                .EndCommand();
-        }
-    }
-
-    protected override void Generate(RenameColumnOperation operation, IModel? model, MigrationCommandListBuilder builder)
-        => builder
-            .Append("ALTER TABLE ")
-            .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.Table))
-            .Append(" RENAME COLUMN ")
-            .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.Name))
-            .Append(" TO ")
-            .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.NewName))
-            .AppendLine(Dependencies.SqlGenerationHelper.StatementTerminator)
-            .EndCommand();
-
-    protected override void Generate(
-        CreateTableOperation operation,
-        IModel? model,
-        MigrationCommandListBuilder builder,
-        bool terminate = true)
-    {
-        builder
-            .Append("CREATE TABLE ")
-            .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.Name, operation.Schema))
-            .AppendLine(" (");
-
-        using (builder.Indent())
-        {
-            if (!string.IsNullOrEmpty(operation.Comment))
-            {
-                builder
-                    .AppendLines(Dependencies.SqlGenerationHelper.GenerateComment(operation.Comment))
-                    .AppendLine();
-            }
-
-            CreateTableColumns(operation, model, builder);
-            CreateTableConstraints(operation, model, builder);
-            builder.AppendLine();
-        }
-
-        builder.Append(")");
-
-        if (terminate)
-        {
-            builder.AppendLine(Dependencies.SqlGenerationHelper.StatementTerminator);
-            EndStatement(builder);
-        }
-    }
-
-    protected override void CreateTableColumns(
-        CreateTableOperation operation,
-        IModel? model,
-        MigrationCommandListBuilder builder)
-    {
-        if (operation.Columns.All(c => string.IsNullOrEmpty(c.Comment)))
-        {
-            base.CreateTableColumns(operation, model, builder);
-        }
-        else
-        {
-            CreateTableColumnsWithComments(operation, model, builder);
-        }
-    }
-
-    private void CreateTableColumnsWithComments(
-        CreateTableOperation operation,
-        IModel? model,
-        MigrationCommandListBuilder builder)
-    {
-        for (var i = 0; i < operation.Columns.Count; i++)
-        {
-            var column = operation.Columns[i];
-
-            if (i > 0)
-            {
-                builder.AppendLine();
-            }
-
-            if (!string.IsNullOrEmpty(column.Comment))
-            {
-                builder.AppendLines(Dependencies.SqlGenerationHelper.GenerateComment(column.Comment));
-            }
-
-            ColumnDefinition(column, model, builder);
-
-            if (i != operation.Columns.Count - 1)
-            {
-                builder.AppendLine(",");
-            }
-        }
-    }
-
-    protected override void Generate(InsertDataOperation operation, IModel? model, MigrationCommandListBuilder builder, bool terminate = true)
-    {
-        // Terminate every statement - Ignite does not support multi-statement queries.
-        foreach (var modificationCommand in GenerateModificationCommands(operation, model))
-        {
-            var sqlBuilder = new StringBuilder();
-
-            SqlGenerator.AppendInsertOperation(
-                sqlBuilder,
-                modificationCommand,
-                0);
-
-            builder.Append(sqlBuilder.ToString());
-
-            EndStatement(builder);
-        }
-    }
-
-    protected override void Generate(DeleteDataOperation operation, IModel? model, MigrationCommandListBuilder builder)
-    {
-        // TODO: Fix same as above.
-        base.Generate(operation, model, builder);
-    }
-
-    protected override void Generate(UpdateDataOperation operation, IModel? model, MigrationCommandListBuilder builder)
-    {
-        // TODO: Fix same as above.
-        base.Generate(operation, model, builder);
-    }
-
-    protected override void Generate(
-        AddForeignKeyOperation operation,
-        IModel? model,
-        MigrationCommandListBuilder builder,
-        bool terminate = true)
-        => throw new NotSupportedException(
-            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
-
-    protected override void Generate(
-        AddPrimaryKeyOperation operation,
-        IModel? model,
-        MigrationCommandListBuilder builder,
-        bool terminate = true)
-        => throw new NotSupportedException(
-            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
-
-    protected override void Generate(AddUniqueConstraintOperation operation, IModel? model, MigrationCommandListBuilder builder)
-        => throw new NotSupportedException(
-            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
-
-    protected override void Generate(AddCheckConstraintOperation operation, IModel? model, MigrationCommandListBuilder builder)
-        => throw new NotSupportedException(
-            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
-
-    protected override void Generate(
-        DropColumnOperation operation,
-        IModel? model,
-        MigrationCommandListBuilder builder,
-        bool terminate = true)
-        => throw new NotSupportedException(
-            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
-
-    protected override void Generate(
-        DropForeignKeyOperation operation,
-        IModel? model,
-        MigrationCommandListBuilder builder,
-        bool terminate = true)
-        => throw new NotSupportedException(
-            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
-
-    protected override void Generate(
-        DropPrimaryKeyOperation operation,
-        IModel? model,
-        MigrationCommandListBuilder builder,
-        bool terminate = true)
-        => throw new NotSupportedException(
-            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
-
-    protected override void Generate(DropUniqueConstraintOperation operation, IModel? model, MigrationCommandListBuilder builder)
-        => throw new NotSupportedException(
-            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
-
-    protected override void Generate(DropCheckConstraintOperation operation, IModel? model, MigrationCommandListBuilder builder)
-        => throw new NotSupportedException(
-            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
-
-    protected override void Generate(AlterColumnOperation operation, IModel? model, MigrationCommandListBuilder builder)
-        => throw new NotSupportedException(
-            IgniteStrings.InvalidMigrationOperation(operation.GetType().ShortDisplayName()));
-
-    protected override void ComputedColumnDefinition(
-        string? schema,
-        string table,
-        string name,
-        ColumnOperation operation,
-        IModel? model,
-        MigrationCommandListBuilder builder)
-    {
-        builder.Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(name));
-
-        builder
-            .Append(" AS (")
-            .Append(operation.ComputedColumnSql!)
-            .Append(")");
-
-        if (operation.IsStored == true)
-        {
-            builder.Append(" STORED");
-        }
-
-        if (operation.Collation != null)
-        {
-            builder
-                .Append(" COLLATE ")
-                .Append(operation.Collation);
-        }
-    }
-
-    protected override void Generate(EnsureSchemaOperation operation, IModel? model, MigrationCommandListBuilder builder)
-    {
-    }
-
-    protected override void Generate(DropSchemaOperation operation, IModel? model, MigrationCommandListBuilder builder)
-    {
-    }
-
-    protected override void Generate(RestartSequenceOperation operation, IModel? model, MigrationCommandListBuilder builder)
-        => throw new NotSupportedException(IgniteStrings.SequencesNotSupported);
-
-    protected override void Generate(CreateSequenceOperation operation, IModel? model, MigrationCommandListBuilder builder)
-        => throw new NotSupportedException(IgniteStrings.SequencesNotSupported);
-
-    protected override void Generate(RenameSequenceOperation operation, IModel? model, MigrationCommandListBuilder builder)
-        => throw new NotSupportedException(IgniteStrings.SequencesNotSupported);
-
-    protected override void Generate(AlterSequenceOperation operation, IModel? model, MigrationCommandListBuilder builder)
-        => throw new NotSupportedException(IgniteStrings.SequencesNotSupported);
-
-    protected override void Generate(DropSequenceOperation operation, IModel? model, MigrationCommandListBuilder builder)
-        => throw new NotSupportedException(IgniteStrings.SequencesNotSupported);
-
-    protected override void PrimaryKeyConstraint(AddPrimaryKeyOperation operation, IModel? model, MigrationCommandListBuilder builder)
-    {
-        // Ignite-specific: no constraints.
-        // if (operation.Name != null)
-        // {
-        //     builder
-        //         .Append("CONSTRAINT ")
-        //         .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.Name))
-        //         .Append(" ");
-        // }
-        builder
-            .Append("PRIMARY KEY ");
-
-        IndexTraits(operation, model, builder);
-
-        builder.Append("(")
-            .Append(ColumnList(operation.Columns))
-            .Append(")");
-    }
-
-    protected override void ForeignKeyConstraint(AddForeignKeyOperation operation, IModel? model, MigrationCommandListBuilder builder)
-    {
-        // Ignite-specific: no constraints.
-        // No-op.
-    }
-
-    protected override void CreateTableForeignKeys(CreateTableOperation operation, IModel? model, MigrationCommandListBuilder builder)
-    {
-        // Ignite-specific: no constraints.
-        // No-op.
     }
 
     [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:Fields should be private", Justification = "Private class.")]
