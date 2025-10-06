@@ -40,10 +40,7 @@ public class IgniteTestStore : RelationalTestStore
     public override DbContextOptionsBuilder AddProviderOptions(DbContextOptionsBuilder builder) =>
         builder.UseIgnite(ConnectionString);
 
-    public override void Clean(DbContext context)
-    {
-        // TODO: Clean all tables?
-    }
+    public override void Clean(DbContext context) => new IgniteDatabaseCleaner().Clean(context.Database);
 
     public override TestStore Initialize(
         IServiceProvider serviceProvider,
