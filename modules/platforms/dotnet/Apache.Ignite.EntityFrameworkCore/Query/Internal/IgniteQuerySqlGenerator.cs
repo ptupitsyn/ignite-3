@@ -141,9 +141,11 @@ internal sealed class IgniteQuerySqlGenerator(QuerySqlGeneratorDependencies depe
         Microsoft.EntityFrameworkCore.Storage.RelationalCommandBuilderExtensions.AddParameter(
             Sql,
             sqlParameterExpression.Name,
-            "?",
+            sqlParameterExpression.Name,
             sqlParameterExpression.TypeMapping!,
             sqlParameterExpression.IsNullable);
+
+        Sql.Append("?");
 
         return sqlParameterExpression;
     }
