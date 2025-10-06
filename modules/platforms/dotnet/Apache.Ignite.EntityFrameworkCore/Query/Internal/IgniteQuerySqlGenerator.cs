@@ -15,26 +15,20 @@
 
 namespace Apache.Ignite.EntityFrameworkCore.Query.Internal;
 
-using System;
 using System.Linq.Expressions;
 using Common;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
 
-public class IgniteQuerySqlGenerator : QuerySqlGenerator
+internal sealed class IgniteQuerySqlGenerator(QuerySqlGeneratorDependencies dependencies)
+    : QuerySqlGenerator(dependencies)
 {
-    public IgniteQuerySqlGenerator(QuerySqlGeneratorDependencies dependencies)
-        : base(dependencies)
-    {
-    }
-
     protected override string GetOperator(SqlBinaryExpression binaryExpression)
         => binaryExpression.OperatorType == ExpressionType.Add
             && binaryExpression.Type == typeof(string)
                 ? " || "
                 : base.GetOperator(binaryExpression);
 
-    /// <inheritdoc />
     protected override void GenerateLimitOffset(SelectExpression selectExpression)
     {
         if (selectExpression.Limit != null
@@ -137,5 +131,10 @@ public class IgniteQuerySqlGenerator : QuerySqlGenerator
         };
 
         return precedence != default;
+    }
+
+    protected override Expression VisitSqlParameter(SqlParameterExpression sqlParameterExpression)
+    {
+        return base.VisitSqlParameter(sqlParameterExpression);
     }
 }
