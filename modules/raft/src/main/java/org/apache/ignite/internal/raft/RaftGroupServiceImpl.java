@@ -25,6 +25,7 @@ import static org.apache.ignite.internal.tostring.IgniteToStringBuilder.includeS
 import static org.apache.ignite.internal.util.CompletableFutures.nullCompletedFuture;
 import static org.apache.ignite.internal.util.ExceptionUtils.unwrapCause;
 import static org.apache.ignite.lang.ErrorGroups.Common.INTERNAL_ERR;
+import static org.apache.ignite.lang.ErrorGroups.Common.NODE_STOPPING_ERR;
 import static org.apache.ignite.raft.jraft.rpc.CliRequests.AddLearnersRequest;
 import static org.apache.ignite.raft.jraft.rpc.CliRequests.AddPeerRequest;
 import static org.apache.ignite.raft.jraft.rpc.CliRequests.AddPeerResponse;
@@ -57,6 +58,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import org.apache.ignite.internal.lang.IgniteInternalException;
 import org.apache.ignite.internal.lang.IgniteSystemProperties;
+import org.apache.ignite.internal.lang.NodeStoppingException;
 import org.apache.ignite.internal.logger.IgniteLogger;
 import org.apache.ignite.internal.logger.Loggers;
 import org.apache.ignite.internal.network.ClusterService;
@@ -65,6 +67,7 @@ import org.apache.ignite.internal.network.NetworkMessage;
 import org.apache.ignite.internal.network.RecipientLeftException;
 import org.apache.ignite.internal.network.TopologyEventHandler;
 import org.apache.ignite.internal.raft.configuration.RaftConfiguration;
+import org.apache.ignite.internal.raft.rebalance.RaftStaleUpdateException;
 import org.apache.ignite.internal.raft.service.LeaderWithTerm;
 import org.apache.ignite.internal.raft.service.RaftGroupService;
 import org.apache.ignite.internal.replicator.ReplicationGroupId;
@@ -132,6 +135,9 @@ public class RaftGroupServiceImpl implements RaftGroupService {
 
     private final TopologyEventHandler topologyEventHandler;
 
+    // TODO: https://issues.apache.org/jira/browse/IGNITE-26085 Remove, tmp hack
+    private volatile boolean stopping;
+
     /**
      * Constructor.
      *
@@ -169,6 +175,7 @@ public class RaftGroupServiceImpl implements RaftGroupService {
         this.stoppingExceptionFactory = stoppingExceptionFactory;
         this.throttlingContextHolder = throttlingContextHolder;
         this.topologyEventHandler = topologyEventHandler();
+        this.stopping = false;
     }
 
     /**
@@ -349,17 +356,18 @@ public class RaftGroupServiceImpl implements RaftGroupService {
     }
 
     @Override
-    public CompletableFuture<Void> addPeer(Peer peer) {
+    public CompletableFuture<Void> addPeer(Peer peer, long sequenceToken) {
         Peer leader = this.leader;
 
         if (leader == null) {
-            return refreshLeader(() -> "addPeer").thenCompose(res -> addPeer(peer));
+            return refreshLeader(() -> "addPeer").thenCompose(res -> addPeer(peer, sequenceToken));
         }
 
         Function<Peer, AddPeerRequest> requestFactory = targetPeer -> factory.addPeerRequest()
                 .leaderId(peerId(targetPeer))
                 .groupId(groupId)
                 .peerId(peerId(peer))
+                .sequenceToken(sequenceToken)
                 .build();
 
         return this.<AddPeerResponse>sendWithRetry(leader, requestFactory, true)
@@ -367,17 +375,18 @@ public class RaftGroupServiceImpl implements RaftGroupService {
     }
 
     @Override
-    public CompletableFuture<Void> removePeer(Peer peer) {
+    public CompletableFuture<Void> removePeer(Peer peer, long sequenceToken) {
         Peer leader = this.leader;
 
         if (leader == null) {
-            return refreshLeader(() -> "removePeer").thenCompose(res -> removePeer(peer));
+            return refreshLeader(() -> "removePeer").thenCompose(res -> removePeer(peer, sequenceToken));
         }
 
         Function<Peer, RemovePeerRequest> requestFactory = targetPeer -> factory.removePeerRequest()
                 .leaderId(peerId(targetPeer))
                 .groupId(groupId)
                 .peerId(peerId(peer))
+                .sequenceToken(sequenceToken)
                 .build();
 
         return this.<RemovePeerResponse>sendWithRetry(leader, requestFactory, false)
@@ -385,11 +394,12 @@ public class RaftGroupServiceImpl implements RaftGroupService {
     }
 
     @Override
-    public CompletableFuture<Void> changePeersAndLearners(PeersAndLearners peersAndLearners, long term) {
+    public CompletableFuture<Void> changePeersAndLearners(PeersAndLearners peersAndLearners, long term, long sequenceToken) {
         Peer leader = this.leader;
 
         if (leader == null) {
-            return refreshLeader(() -> "changePeersAndLearners").thenCompose(res -> changePeersAndLearners(peersAndLearners, term));
+            return refreshLeader(() -> "changePeersAndLearners")
+                    .thenCompose(res -> changePeersAndLearners(peersAndLearners, term, sequenceToken));
         }
 
         Function<Peer, ChangePeersAndLearnersRequest> requestFactory = targetPeer -> factory.changePeersAndLearnersRequest()
@@ -398,6 +408,7 @@ public class RaftGroupServiceImpl implements RaftGroupService {
                 .newPeersList(peerIds(peersAndLearners.peers()))
                 .newLearnersList(peerIds(peersAndLearners.learners()))
                 .term(term)
+                .sequenceToken(sequenceToken)
                 .build();
 
         LOG.info("Sending changePeersAndLearners request for group={} to peers={} and learners={} with leader term={}",
@@ -411,12 +422,12 @@ public class RaftGroupServiceImpl implements RaftGroupService {
     }
 
     @Override
-    public CompletableFuture<Void> changePeersAndLearnersAsync(PeersAndLearners peersAndLearners, long term) {
+    public CompletableFuture<Void> changePeersAndLearnersAsync(PeersAndLearners peersAndLearners, long term, long sequenceToken) {
         Peer leader = this.leader;
 
         if (leader == null) {
             return refreshLeader(() -> "changePeersAndLearnersAsync")
-                    .thenCompose(res -> changePeersAndLearnersAsync(peersAndLearners, term));
+                    .thenCompose(res -> changePeersAndLearnersAsync(peersAndLearners, term, sequenceToken));
         }
 
         Function<Peer, ChangePeersAndLearnersAsyncRequest> requestFactory = targetPeer -> factory.changePeersAndLearnersAsyncRequest()
@@ -425,6 +436,7 @@ public class RaftGroupServiceImpl implements RaftGroupService {
                 .term(term)
                 .newPeersList(peerIds(peersAndLearners.peers()))
                 .newLearnersList(peerIds(peersAndLearners.learners()))
+                .sequenceToken(sequenceToken)
                 .build();
 
         LOG.info("Sending changePeersAndLearnersAsync request for group={} to peers={} and learners={} with leader term={}",
@@ -439,17 +451,18 @@ public class RaftGroupServiceImpl implements RaftGroupService {
     }
 
     @Override
-    public CompletableFuture<Void> addLearners(Collection<Peer> learners) {
+    public CompletableFuture<Void> addLearners(Collection<Peer> learners, long sequenceToken) {
         Peer leader = this.leader;
 
         if (leader == null) {
-            return refreshLeader(() -> "addLearners").thenCompose(res -> addLearners(learners));
+            return refreshLeader(() -> "addLearners").thenCompose(res -> addLearners(learners, sequenceToken));
         }
 
         Function<Peer, AddLearnersRequest> requestFactory = targetPeer -> factory.addLearnersRequest()
                 .leaderId(peerId(targetPeer))
                 .groupId(groupId)
                 .learnersList(peerIds(learners))
+                .sequenceToken(sequenceToken)
                 .build();
 
         return this.<LearnersOpResponse>sendWithRetry(leader, requestFactory, false)
@@ -457,17 +470,18 @@ public class RaftGroupServiceImpl implements RaftGroupService {
     }
 
     @Override
-    public CompletableFuture<Void> removeLearners(Collection<Peer> learners) {
+    public CompletableFuture<Void> removeLearners(Collection<Peer> learners, long sequenceToken) {
         Peer leader = this.leader;
 
         if (leader == null) {
-            return refreshLeader(() -> "removeLearners").thenCompose(res -> removeLearners(learners));
+            return refreshLeader(() -> "removeLearners").thenCompose(res -> removeLearners(learners, sequenceToken));
         }
 
         Function<Peer, RemoveLearnersRequest> requestFactory = targetPeer -> factory.removeLearnersRequest()
                 .leaderId(peerId(targetPeer))
                 .groupId(groupId)
                 .learnersList(peerIds(learners))
+                .sequenceToken(sequenceToken)
                 .build();
 
         return this.<LearnersOpResponse>sendWithRetry(leader, requestFactory, false)
@@ -475,17 +489,18 @@ public class RaftGroupServiceImpl implements RaftGroupService {
     }
 
     @Override
-    public CompletableFuture<Void> resetLearners(Collection<Peer> learners) {
+    public CompletableFuture<Void> resetLearners(Collection<Peer> learners, long sequenceToken) {
         Peer leader = this.leader;
 
         if (leader == null) {
-            return refreshLeader(() -> "resetLearners").thenCompose(res -> resetLearners(learners));
+            return refreshLeader(() -> "resetLearners").thenCompose(res -> resetLearners(learners, sequenceToken));
         }
 
         Function<Peer, ResetLearnersRequest> requestFactory = targetPeer -> factory.resetLearnersRequest()
                 .leaderId(peerId(targetPeer))
                 .groupId(groupId)
                 .learnersList(peerIds(learners))
+                .sequenceToken(sequenceToken)
                 .build();
 
         return this.<LearnersOpResponse>sendWithRetry(leader, requestFactory, false)
@@ -707,8 +722,13 @@ public class RaftGroupServiceImpl implements RaftGroupService {
             long requestStartTime = currentTimeMillis();
 
             if (requestStartTime >= retryContext.stopTime()) {
-                fut.completeExceptionally(retryContext.createTimeoutException());
+                // TODO: https://issues.apache.org/jira/browse/IGNITE-26085 Remove, tmp hack
+                if (stopping) {
+                    fut.completeExceptionally(new NodeStoppingException());
+                    return;
+                }
 
+                fut.completeExceptionally(retryContext.createTimeoutException());
                 return;
             }
 
@@ -718,8 +738,15 @@ public class RaftGroupServiceImpl implements RaftGroupService {
                     ? peerThrottlingContextHolder.peerRequestTimeoutMillis() : retryContext.responseTimeoutMillis();
 
             resolvePeer(retryContext.targetPeer())
-                    .thenCompose(node -> cluster.messagingService()
-                            .invoke(node, retryContext.request(), responseTimeout))
+                    .thenCompose(node -> {
+                        // TODO: https://issues.apache.org/jira/browse/IGNITE-26085 Remove, tmp hack
+                        if (stopping) {
+                            throw new IgniteInternalException(NODE_STOPPING_ERR, new NodeStoppingException());
+                        }
+
+                        return cluster.messagingService()
+                                .invoke(node, retryContext.request(), responseTimeout);
+                    })
                     .whenComplete((resp, err) -> {
                         if (LOG.isTraceEnabled()) {
                             LOG.trace("sendWithRetry req={} resp={} from={} to={} err={}",
@@ -865,6 +892,11 @@ public class RaftGroupServiceImpl implements RaftGroupService {
 
                 break;
             }
+
+            case ESTALE:
+                fut.completeExceptionally(new RaftStaleUpdateException(resp.errorMsg()));
+
+                break;
 
             default:
                 fut.completeExceptionally(new RaftException(error, resp.errorMsg()));
@@ -1089,5 +1121,10 @@ public class RaftGroupServiceImpl implements RaftGroupService {
                 }
             }
         };
+    }
+
+    @Override
+    public void markAsStopping() {
+        stopping = true;
     }
 }

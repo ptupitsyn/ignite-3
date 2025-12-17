@@ -338,10 +338,12 @@ public class CmgRaftService implements ManuallyCloseable {
 
         if (newLearners.isEmpty()) {
             // Methods for working with learners do not support empty peer lists for some reason.
-            return raftService.changePeersAndLearnersAsync(newConfiguration, term)
+            // TODO: https://issues.apache.org/jira/browse/IGNITE-26855.
+            return raftService.changePeersAndLearnersAsync(newConfiguration, term,  0)
                     .thenRun(() -> raftService.updateConfiguration(newConfiguration));
         } else {
-            return raftService.resetLearners(newConfiguration.learners());
+            // TODO: https://issues.apache.org/jira/browse/IGNITE-26855.
+            return raftService.resetLearners(newConfiguration.learners(), 0);
         }
     }
 
@@ -371,5 +373,13 @@ public class CmgRaftService implements ManuallyCloseable {
     @Override
     public void close() {
         raftService.shutdown();
+    }
+
+    // TODO: https://issues.apache.org/jira/browse/IGNITE-26085 Remove, tmp hack
+    /**
+     * Mark service as stopping.
+     */
+    public void markAsStopping() {
+        raftService.markAsStopping();
     }
 }

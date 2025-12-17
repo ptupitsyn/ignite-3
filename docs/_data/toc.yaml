@@ -23,6 +23,8 @@
       url: installation/deb-rpm
     - title: Installing Docker
       url: installation/installing-using-docker
+    - title: Migration From Ignite 3.0
+      url: installation/migration-from-ai3-1
     - title: Migration From Ignite 2
       url: installation/migration-from-ai2/overview
       items:
@@ -80,8 +82,6 @@
           url: developers-guide/sql/calcite-based-sql-engine
         - title: SQL API
           url: developers-guide/sql/sql-api
-        - title: JDBC Driver
-          url: developers-guide/sql/jdbc-driver
         - title: ODBC Driver
           url: developers-guide/sql/odbc/odbc-driver
         - title: ODBC Connection String
@@ -135,6 +135,8 @@
           url: administrators-guide/storage/storage-profiles
         - title: Data Partitions
           url: administrators-guide/storage/data-partitions
+        - title: Distribution Zones
+          url: administrators-guide/storage/distribution-zones
     - title: Storage Engines
       url: administrators-guide/storage/engines/storage-engines
       items:
