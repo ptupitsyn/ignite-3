@@ -18,6 +18,8 @@
 
 # Code analysis
 dotnet_diagnostic.CA1861.severity = none # Prefer fields over constant array arguments
+dotnet_diagnostic.CA1812.severity = none # Unused class (false positives)
+
 dotnet_diagnostic.CS1591.severity = none # Missing XML comment for publicly visible type or member
 
 dotnet_diagnostic.SA0001.severity = none # Enable xmldoc file generation
