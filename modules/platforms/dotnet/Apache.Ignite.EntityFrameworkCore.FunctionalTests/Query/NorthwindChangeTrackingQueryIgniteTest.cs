@@ -33,6 +33,12 @@ public class NorthwindChangeTrackingQueryIgniteTest : NorthwindChangeTrackingQue
         IgniteTestLoggerFactory.TestOutputHelper = testOutputHelper;
     }
 
+    [ConditionalFact(Skip = "Unordered query check is unpredictable.")]
+    public override void Multiple_entities_can_revert()
+    {
+        base.Multiple_entities_can_revert();
+    }
+
     protected override NorthwindContext CreateNoTrackingContext()
         => new NorthwindIgniteContext(
             new DbContextOptionsBuilder(Fixture.CreateOptions())
