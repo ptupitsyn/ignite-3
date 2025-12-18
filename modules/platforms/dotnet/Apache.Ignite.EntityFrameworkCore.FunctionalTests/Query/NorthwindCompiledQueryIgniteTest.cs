@@ -47,4 +47,15 @@ public class NorthwindCompiledQueryIgniteTest(NorthwindQueryIgniteFixture<NoopMo
     {
         // No-op.
     }
+
+    public override void Query_with_array_parameter()
+    {
+        // Array parameters are not supported in Ignite.
+    }
+
+    public override Task Query_with_array_parameter_async()
+    {
+        // Array parameters are not supported in Ignite.
+        return Task.CompletedTask;
+    }
 }
