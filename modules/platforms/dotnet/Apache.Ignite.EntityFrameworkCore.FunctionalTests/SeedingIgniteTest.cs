@@ -35,10 +35,7 @@ public class SeedingIgniteTest : SeedingTestBase
     {
         IgniteTestStore.DropAllTables();
 
-        var ctx = new SeedingIgniteContext(testId);
-        ctx.Database.EnsureCreated();
-
-        return ctx;
+        return new SeedingIgniteContext(testId);
     }
 
     protected class SeedingIgniteContext : SeedingContext
