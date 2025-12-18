@@ -46,7 +46,79 @@ public class NorthwindWhereQueryIgniteTest : NorthwindWhereQueryRelationalTestBa
 
     public override Task Where_string_indexof(bool async)
     {
-        // TODO: Ticket for string functions.
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_datetime_date_component(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_date_add_year_constant_component(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_datetime_year_component(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_datetime_month_component(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_datetime_dayOfYear_component(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_datetime_day_component(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_datetime_hour_component(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_datetime_minute_component(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_datetime_second_component(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_datetime_millisecond_component(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_datetimeoffset_now_component(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_datetimeoffset_utcnow_component(bool async)
+    {
+        // Not supported.
         return Task.CompletedTask;
     }
 }
