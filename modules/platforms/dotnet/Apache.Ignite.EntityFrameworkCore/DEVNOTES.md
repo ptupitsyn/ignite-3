@@ -2,6 +2,7 @@
 
 ## Where to Look for Things
 * Migrations SQL generation: `IgniteMigrationsSqlGenerator`
+* Literal value formatting: `*TypeMapping` classes, e.g. `IgniteDateTimeTypeMapping`
 
 ## Known Issues
 * Auto-generated columns
