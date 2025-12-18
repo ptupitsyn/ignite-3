@@ -20,13 +20,8 @@ using Common;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage;
 
-public class IgniteHistoryRepository : HistoryRepository
+public class IgniteHistoryRepository(HistoryRepositoryDependencies dependencies) : HistoryRepository(dependencies)
 {
-    public IgniteHistoryRepository(HistoryRepositoryDependencies dependencies)
-        : base(dependencies)
-    {
-    }
-
     protected override string ExistsSql
     {
         get
@@ -37,9 +32,6 @@ public class IgniteHistoryRepository : HistoryRepository
             return $"SELECT COUNT(*) FROM SYSTEM.TABLES WHERE TABLE_NAME = {literal};";
         }
     }
-
-    protected override bool InterpretExistsResult(object? value)
-        => (long)value! != 0L;
 
     public override string GetCreateIfNotExistsScript()
     {
@@ -57,4 +49,7 @@ public class IgniteHistoryRepository : HistoryRepository
 
     public override string GetEndIfScript()
         => throw new NotSupportedException(IgniteStrings.MigrationScriptGenerationNotSupported);
+
+    protected override bool InterpretExistsResult(object? value)
+        => (long)value! != 0L;
 }
