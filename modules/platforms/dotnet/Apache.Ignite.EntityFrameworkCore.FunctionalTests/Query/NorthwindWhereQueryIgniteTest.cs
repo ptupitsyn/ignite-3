@@ -139,4 +139,40 @@ public class NorthwindWhereQueryIgniteTest : NorthwindWhereQueryRelationalTestBa
         // Not supported.
         return Task.CompletedTask;
     }
+
+    public override Task Where_compare_tuple_constructed_equal(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_compare_tuple_constructed_multi_value_equal(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_compare_tuple_constructed_multi_value_not_equal(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_compare_tuple_create_constructed_equal(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_compare_tuple_create_constructed_multi_value_equal(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_compare_tuple_create_constructed_multi_value_not_equal(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
 }
