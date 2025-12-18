@@ -60,159 +60,185 @@ public class NorthwindWhereQueryIgniteTest : NorthwindWhereQueryRelationalTestBa
         return base.Where_datetime_date_component(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_date_add_year_constant_component(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_date_add_year_constant_component(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_datetime_year_component(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_datetime_year_component(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_datetime_month_component(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_datetime_month_component(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_datetime_dayOfYear_component(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_datetime_dayOfYear_component(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_datetime_day_component(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_datetime_day_component(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_datetime_hour_component(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_datetime_hour_component(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_datetime_minute_component(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_datetime_minute_component(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_datetime_second_component(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_datetime_second_component(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_datetime_millisecond_component(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_datetime_millisecond_component(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_datetimeoffset_now_component(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_datetimeoffset_now_component(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_datetimeoffset_utcnow_component(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_datetimeoffset_utcnow_component(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_bitwise_or(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_bitwise_or(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_bitwise_and(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_bitwise_and(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_bitwise_xor(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_bitwise_xor(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_compare_tuple_constructed_equal(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_compare_tuple_constructed_equal(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_compare_tuple_constructed_multi_value_equal(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_compare_tuple_constructed_multi_value_equal(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_compare_tuple_constructed_multi_value_not_equal(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_compare_tuple_constructed_multi_value_not_equal(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_compare_tuple_create_constructed_equal(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_compare_tuple_create_constructed_equal(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_compare_tuple_create_constructed_multi_value_equal(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_compare_tuple_create_constructed_multi_value_equal(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_compare_tuple_create_constructed_multi_value_not_equal(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_compare_tuple_create_constructed_multi_value_not_equal(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_compare_constructed_equal(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_compare_constructed_equal(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_compare_constructed_multi_value_not_equal(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_compare_constructed_multi_value_not_equal(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_datetime_now(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_datetime_now(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_datetime_utcnow(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_datetime_utcnow(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_datetimeoffset_utcnow(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_datetimeoffset_utcnow(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_datetime_today(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_datetime_today(async);
     }
 }
