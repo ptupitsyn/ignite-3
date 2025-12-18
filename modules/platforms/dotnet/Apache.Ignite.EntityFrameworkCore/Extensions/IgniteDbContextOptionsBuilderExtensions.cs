@@ -65,8 +65,6 @@ public static class IgniteDbContextOptionsBuilderExtensions
         bool contextOwnsConnection,
         Action<IgniteDbContextOptionsBuilder>? igniteOptionsAction = null)
     {
-        Check.NotNull(connection, nameof(connection));
-
         var extension = (IgniteOptionsExtension)GetOrCreateExtension(optionsBuilder).WithConnection(connection, contextOwnsConnection);
         ((IDbContextOptionsBuilderInfrastructure)optionsBuilder).AddOrUpdateExtension(extension);
 

@@ -29,9 +29,6 @@ public class IgniteUpdateSqlGenerator : UpdateAndSelectSqlGenerator
 
     protected override void AppendIdentityWhereCondition(StringBuilder commandStringBuilder, IColumnModification columnModification)
     {
-        Check.NotNull(commandStringBuilder, nameof(commandStringBuilder));
-        Check.NotNull(columnModification, nameof(columnModification));
-
         // SqlGenerationHelper.DelimitIdentifier(commandStringBuilder, "rowid");
         // commandStringBuilder.Append(" = ").Append("last_insert_rowid()");
 

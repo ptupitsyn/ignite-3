@@ -743,7 +743,7 @@ internal sealed class IgniteMigrationsSqlGenerator : MigrationsSqlGenerator
             rebuilds.Remove(skippedRebuild);
         }
 
-        if (rebuilds.Any())
+        if (rebuilds.Count != 0)
         {
             operations.Add(
                 new SqlOperation { Sql = "PRAGMA foreign_keys = 0;", SuppressTransaction = true });
@@ -763,7 +763,7 @@ internal sealed class IgniteMigrationsSqlGenerator : MigrationsSqlGenerator
                 });
         }
 
-        if (rebuilds.Any())
+        if (rebuilds.Count != 0)
         {
             operations.Add(
                 new SqlOperation { Sql = "PRAGMA foreign_keys = 1;", SuppressTransaction = true });
