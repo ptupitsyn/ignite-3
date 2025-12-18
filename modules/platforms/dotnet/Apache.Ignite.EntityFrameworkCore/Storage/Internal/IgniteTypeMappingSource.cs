@@ -18,11 +18,13 @@ namespace Apache.Ignite.EntityFrameworkCore.Storage.Internal;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using Common;
 using Microsoft.EntityFrameworkCore.Storage;
 
-public class IgniteTypeMappingSource : RelationalTypeMappingSource
+public class IgniteTypeMappingSource(
+    TypeMappingSourceDependencies dependencies,
+    RelationalTypeMappingSourceDependencies relationalDependencies)
+    : RelationalTypeMappingSource(dependencies, relationalDependencies)
 {
     // TODO: Get rid of custom type mapping classes where possible (e.g., use built-in StringTypeMapping).
     internal const string IntegerTypeName = "INTEGER";
@@ -32,7 +34,7 @@ public class IgniteTypeMappingSource : RelationalTypeMappingSource
     internal const string GuidTypeName = "UUID";
     internal const string BoolTypeName = "BOOL";
 
-    private static readonly LongTypeMapping Integer = new(IntegerTypeName);
+    private static readonly LongTypeMapping BigInt = new(IntegerTypeName);
     private static readonly DoubleTypeMapping Real = new(RealTypeName);
     private static readonly IgniteByteArrayTypeMapping Blob = IgniteByteArrayTypeMapping.Default;
     private static readonly IgniteStringTypeMapping Text = IgniteStringTypeMapping.Default;
@@ -46,7 +48,7 @@ public class IgniteTypeMappingSource : RelationalTypeMappingSource
         { typeof(byte), new ByteTypeMapping(IntegerTypeName) },
         { typeof(char), new CharTypeMapping(TextTypeName) },
         { typeof(int), new IntTypeMapping(IntegerTypeName) },
-        { typeof(long), Integer },
+        { typeof(long), BigInt },
         { typeof(sbyte), new SByteTypeMapping(IntegerTypeName) },
         { typeof(short), new ShortTypeMapping(IntegerTypeName) },
         { typeof(uint), new UIntTypeMapping(IntegerTypeName) },
@@ -65,18 +67,31 @@ public class IgniteTypeMappingSource : RelationalTypeMappingSource
 
     private readonly Dictionary<string, RelationalTypeMapping> _storeTypeMappings = new(StringComparer.OrdinalIgnoreCase)
     {
-        { IntegerTypeName, Integer },
+        { IntegerTypeName, BigInt },
         { RealTypeName, Real },
         { BlobTypeName, Blob },
         { TextTypeName, Text }
     };
 
-    public IgniteTypeMappingSource(
-        TypeMappingSourceDependencies dependencies,
-        RelationalTypeMappingSourceDependencies relationalDependencies)
-        : base(dependencies, relationalDependencies)
+    private readonly Func<string, RelationalTypeMapping?>[] _typeRules =
     {
-    }
+        name => Contains(name, "INT")
+            ? BigInt
+            : null,
+        name => Contains(name, "CHAR")
+                || Contains(name, "CLOB")
+                || Contains(name, "TEXT")
+            ? Text
+            : null,
+        name => Contains(name, "BLOB")
+            ? Blob
+            : null,
+        name => Contains(name, "REAL")
+                || Contains(name, "FLOA")
+                || Contains(name, "DOUB")
+            ? Real
+            : null
+    };
 
     protected override RelationalTypeMapping? FindMapping(in RelationalTypeMappingInfo mappingInfo)
     {
@@ -88,6 +103,9 @@ public class IgniteTypeMappingSource : RelationalTypeMappingSource
                 ? mapping.WithStoreTypeAndSize(mappingInfo.StoreTypeName, null)
                 : mapping;
     }
+
+    private static bool Contains(string haystack, string needle)
+        => haystack.Contains(needle, StringComparison.OrdinalIgnoreCase);
 
     private RelationalTypeMapping? FindRawMapping(RelationalTypeMappingInfo mappingInfo)
     {
@@ -130,27 +148,4 @@ public class IgniteTypeMappingSource : RelationalTypeMappingSource
 
         return null;
     }
-
-    private readonly Func<string, RelationalTypeMapping?>[] _typeRules =
-    {
-        name => Contains(name, "INT")
-            ? Integer
-            : null,
-        name => Contains(name, "CHAR")
-            || Contains(name, "CLOB")
-            || Contains(name, "TEXT")
-                ? Text
-                : null,
-        name => Contains(name, "BLOB")
-            ? Blob
-            : null,
-        name => Contains(name, "REAL")
-            || Contains(name, "FLOA")
-            || Contains(name, "DOUB")
-                ? Real
-                : null
-    };
-
-    private static bool Contains(string haystack, string needle)
-        => haystack.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
 }
