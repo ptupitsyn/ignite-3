@@ -33,11 +33,14 @@ public class IgniteTestStore : RelationalTestStore
 
     public static string GetIgniteEndpoint() => "localhost:10942";
 
-    public static string GetConnectionString() => new IgniteDbConnectionStringBuilder
-    {
-        Endpoints = [GetIgniteEndpoint()],
-        LoggerFactory = typeof(IgniteTestLoggerFactory).AssemblyQualifiedName
-    }.ToString();
+    public static string GetConnectionString() => GetConnectionStringBuilder().ToString();
+
+    public static IgniteDbConnectionStringBuilder GetConnectionStringBuilder() =>
+        new()
+        {
+            Endpoints = [GetIgniteEndpoint()],
+            LoggerFactory = typeof(IgniteTestLoggerFactory).AssemblyQualifiedName
+        };
 
     public static void DropAllTables() => DropAllTablesAsync().GetAwaiter().GetResult();
 
@@ -64,7 +67,7 @@ public class IgniteTestStore : RelationalTestStore
     private static async Task DropAllTablesAsync()
     {
         // Drop all tables so that EnsureCreatedAsync works as expected and every test starts with a clean slate.
-        using var client = await IgniteClient.StartAsync(new(GetIgniteEndpoint()));
+        using var client = await IgniteClient.StartAsync(GetConnectionStringBuilder().ToIgniteClientConfiguration());
 
         var tables = await client.Tables.GetTablesAsync();
         var script = string.Join("\n", tables.Select(t => $"DROP TABLE {t.Name}; "));
