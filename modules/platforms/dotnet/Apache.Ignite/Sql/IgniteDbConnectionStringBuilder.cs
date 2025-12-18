@@ -22,6 +22,8 @@ using System.Collections.Generic;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
 /// Ignite connection string builder.
@@ -44,7 +46,8 @@ public sealed class IgniteDbConnectionStringBuilder : DbConnectionStringBuilder
         nameof(SslEnabled),
         nameof(Username),
         nameof(Password),
-        nameof(ReResolveAddressesInterval)
+        nameof(ReResolveAddressesInterval),
+        nameof(LoggerFactory)
     };
 
     /// <summary>
@@ -160,6 +163,15 @@ public sealed class IgniteDbConnectionStringBuilder : DbConnectionStringBuilder
         set => this[nameof(ReResolveAddressesInterval)] = value.ToString();
     }
 
+    /// <summary>
+    /// Gets or sets the logger factory type name. See <see cref="IgniteClientConfiguration.LoggerFactory"/> for more details.
+    /// </summary>
+    public string? LoggerFactory
+    {
+        get => GetString(nameof(LoggerFactory));
+        set => this[nameof(LoggerFactory)] = value;
+    }
+
     /// <inheritdoc />
     [AllowNull]
     public override object this[string keyword]
@@ -194,8 +206,23 @@ public sealed class IgniteDbConnectionStringBuilder : DbConnectionStringBuilder
                 Username = Username ?? string.Empty,
                 Password = Password ?? string.Empty
             },
-            ReResolveAddressesInterval = ReResolveAddressesInterval
+            ReResolveAddressesInterval = ReResolveAddressesInterval,
+            LoggerFactory = GetLoggerFactoryInstance()
         };
+    }
+
+    [SuppressMessage("Trimming", "IL2057", Justification = "User-defined logger factory type is expected to be available.")]
+    private ILoggerFactory GetLoggerFactoryInstance()
+    {
+        string? loggerFactoryTypeName = LoggerFactory;
+        if (loggerFactoryTypeName is null)
+        {
+            return NullLoggerFactory.Instance;
+        }
+
+        Type? loggerFactoryType = Type.GetType(loggerFactoryTypeName, throwOnError: true);
+
+        return (ILoggerFactory)Activator.CreateInstance(loggerFactoryType!)!;
     }
 
     private string? GetString(string key) => TryGetValue(key, out var s) ? (string?)s : null;
