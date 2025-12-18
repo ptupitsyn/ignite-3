@@ -306,10 +306,32 @@ internal sealed class IgniteMigrationsSqlGenerator : MigrationsSqlGenerator
         {
             var sqlBuilder = new StringBuilder();
 
-            SqlGenerator.AppendDeleteOperation(
-                sqlBuilder,
-                modificationCommand,
-                0);
+            switch (modificationCommand.EntityState)
+            {
+                case EntityState.Deleted:
+                    SqlGenerator.AppendDeleteOperation(
+                        sqlBuilder,
+                        modificationCommand,
+                        0);
+                    break;
+
+                case EntityState.Modified:
+                    SqlGenerator.AppendUpdateOperation(
+                        sqlBuilder,
+                        modificationCommand,
+                        0);
+                    break;
+
+                case EntityState.Added:
+                    SqlGenerator.AppendInsertOperation(
+                        sqlBuilder,
+                        modificationCommand,
+                        0);
+                    break;
+
+                default:
+                    throw new InvalidOperationException($"Unexpected EntityState: {modificationCommand.EntityState}");
+            }
 
             builder.Append(sqlBuilder.ToString());
 
