@@ -19,9 +19,15 @@ using Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.TestUtilities;
 using TestUtilities;
+using Xunit.Abstractions;
 
 public class SeedingIgniteTest : SeedingTestBase
 {
+    public SeedingIgniteTest(ITestOutputHelper testOutputHelper)
+    {
+        IgniteTestLoggerFactory.TestOutputHelper = testOutputHelper;
+    }
+
     protected override TestStore TestStore
         => IgniteTestStoreFactory.Instance.Create("SeedingTest");
 

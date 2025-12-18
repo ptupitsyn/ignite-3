@@ -16,13 +16,40 @@
 namespace Apache.Ignite.EntityFrameworkCore.FunctionalTests.TestUtilities;
 
 using Microsoft.Extensions.Logging;
-using Tests.Common;
+using Xunit.Abstractions;
 
-public class IgniteTestLoggerFactory : ConsoleLogger
+public class IgniteTestLoggerFactory : ILogger, ILoggerFactory
 {
-    public IgniteTestLoggerFactory()
-        : base(LogLevel.Trace)
+    public static ITestOutputHelper? TestOutputHelper { get; set; }
+
+    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
     {
-        AutoFlush = true;
+        var outputHelper = TestOutputHelper;
+
+        if (outputHelper == null)
+        {
+            return;
+        }
+
+        string message = formatter(state, exception);
+        outputHelper.WriteLine($"[{logLevel}] {message}");
+    }
+
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public IDisposable? BeginScope<TState>(TState state)
+        where TState : notnull =>
+        null;
+
+    public void Dispose()
+    {
+        // No-op.
+    }
+
+    public ILogger CreateLogger(string categoryName) => this;
+
+    public void AddProvider(ILoggerProvider provider)
+    {
+        // No-op.
     }
 }
