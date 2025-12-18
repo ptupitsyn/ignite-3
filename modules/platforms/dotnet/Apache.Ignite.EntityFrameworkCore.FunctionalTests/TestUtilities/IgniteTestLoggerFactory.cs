@@ -32,7 +32,15 @@ public class IgniteTestLoggerFactory : ILogger, ILoggerFactory
         }
 
         string message = formatter(state, exception);
-        outputHelper.WriteLine($"[{logLevel}] {message}");
+
+        try
+        {
+            outputHelper.WriteLine($"[{logLevel}] {message}");
+        }
+        catch (InvalidOperationException)
+        {
+            // Ignore "There is no currently active test."
+        }
     }
 
     public bool IsEnabled(LogLevel logLevel) => true;

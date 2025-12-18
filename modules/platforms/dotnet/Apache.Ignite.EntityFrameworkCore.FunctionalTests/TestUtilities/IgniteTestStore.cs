@@ -47,7 +47,11 @@ public class IgniteTestStore : RelationalTestStore
     public override DbContextOptionsBuilder AddProviderOptions(DbContextOptionsBuilder builder) =>
         builder.UseIgnite(ConnectionString);
 
-    public override void Clean(DbContext context) => DropAllTables();
+    public override void Clean(DbContext context)
+    {
+        DropAllTables();
+        context.Database.EnsureCreated();
+    }
 
     public override TestStore Initialize(
         IServiceProvider serviceProvider,
