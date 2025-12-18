@@ -32,28 +32,32 @@ public class NorthwindWhereQueryIgniteTest : NorthwindWhereQueryRelationalTestBa
         await AssertTranslationFailed(() => base.Where_compare_constructed_multi_value_equal(async));
     }
 
+    [ConditionalTheory(Skip = "Unordered query with ElementAt is unpredictable.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task ElementAt_over_custom_projection_compared_to_not_null(bool async)
     {
-        // Unordered query with ElementAt is unpredictable.
-        return Task.CompletedTask;
+        return base.ElementAt_over_custom_projection_compared_to_not_null(async);
     }
 
+    [ConditionalTheory(Skip = "Unordered query with ElementAt is unpredictable.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task ElementAtOrDefault_over_custom_projection_compared_to_null(bool async)
     {
-        // Unordered query with ElementAt is unpredictable.
-        return Task.CompletedTask;
+        return base.ElementAtOrDefault_over_custom_projection_compared_to_null(async);
     }
 
+    [ConditionalTheory(Skip = "Not supported.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_string_indexof(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_string_indexof(async);
     }
 
+    [ConditionalTheory(Skip = "Unordered query with ElementAt is unpredictable.")]
+    [MemberData(nameof(IsAsyncData))]
     public override Task Where_datetime_date_component(bool async)
     {
-        // Not supported.
-        return Task.CompletedTask;
+        return base.Where_datetime_date_component(async);
     }
 
     public override Task Where_date_add_year_constant_component(bool async)
