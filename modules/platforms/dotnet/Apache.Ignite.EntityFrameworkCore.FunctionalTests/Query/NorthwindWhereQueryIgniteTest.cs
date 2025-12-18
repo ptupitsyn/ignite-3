@@ -121,4 +121,22 @@ public class NorthwindWhereQueryIgniteTest : NorthwindWhereQueryRelationalTestBa
         // Not supported.
         return Task.CompletedTask;
     }
+
+    public override Task Where_bitwise_or(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_bitwise_and(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_bitwise_xor(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
 }
