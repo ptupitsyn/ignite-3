@@ -20,11 +20,19 @@ using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.TestModels.Northwind;
 using Microsoft.EntityFrameworkCore.TestUtilities;
 using TestModels.Northwind;
+using TestUtilities;
+using Xunit.Abstractions;
 
-public class NorthwindChangeTrackingQueryIgniteTest(NorthwindQueryIgniteFixture<NoopModelCustomizer> fixture)
-    : NorthwindChangeTrackingQueryTestBase<
-        NorthwindQueryIgniteFixture<NoopModelCustomizer>>(fixture)
+public class NorthwindChangeTrackingQueryIgniteTest : NorthwindChangeTrackingQueryTestBase<NorthwindQueryIgniteFixture<NoopModelCustomizer>>
 {
+    public NorthwindChangeTrackingQueryIgniteTest(
+        NorthwindQueryIgniteFixture<NoopModelCustomizer> fixture,
+        ITestOutputHelper testOutputHelper)
+        : base(fixture)
+    {
+        IgniteTestLoggerFactory.TestOutputHelper = testOutputHelper;
+    }
+
     protected override NorthwindContext CreateNoTrackingContext()
         => new NorthwindIgniteContext(
             new DbContextOptionsBuilder(Fixture.CreateOptions())
