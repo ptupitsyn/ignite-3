@@ -21,8 +21,6 @@ using Microsoft.EntityFrameworkCore.Storage.Json;
 
 public class IgniteStringTypeMapping : StringTypeMapping
 {
-    public static new IgniteStringTypeMapping Default { get; } = new(IgniteTypeMappingSource.TextTypeName);
-
     public IgniteStringTypeMapping(
         string storeType,
         DbType? dbType = null,
@@ -30,16 +28,23 @@ public class IgniteStringTypeMapping : StringTypeMapping
         int? size = null)
         : base(
             new RelationalTypeMappingParameters(
-                new CoreTypeMappingParameters(
-                    typeof(string), jsonValueReaderWriter: JsonStringReaderWriter.Instance), storeType, StoreTypePostfix.None, dbType,
-                unicode, size))
+                new CoreTypeMappingParameters(typeof(string), jsonValueReaderWriter: JsonStringReaderWriter.Instance),
+                storeType,
+                StoreTypePostfix.None,
+                dbType,
+                unicode,
+                size))
     {
+        // No-op.
     }
 
     protected IgniteStringTypeMapping(RelationalTypeMappingParameters parameters)
         : base(parameters)
     {
+        // No-op.
     }
+
+    public static new IgniteStringTypeMapping Default { get; } = new(IgniteTypeMappingSource.TextTypeName);
 
     protected override RelationalTypeMapping Clone(RelationalTypeMappingParameters parameters)
         => new IgniteStringTypeMapping(parameters);
