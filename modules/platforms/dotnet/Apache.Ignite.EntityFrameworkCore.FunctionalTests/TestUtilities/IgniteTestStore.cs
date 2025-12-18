@@ -33,7 +33,11 @@ public class IgniteTestStore : RelationalTestStore
 
     public static string GetIgniteEndpoint() => "localhost:10942";
 
-    public static string GetConnectionString() => $"Endpoints={GetIgniteEndpoint()}";
+    public static string GetConnectionString() => new IgniteDbConnectionStringBuilder
+    {
+        Endpoints = [GetIgniteEndpoint()],
+        LoggerFactory = typeof(IgniteTestLoggerFactory).AssemblyQualifiedName
+    }.ToString();
 
     public static void DropAllTables() => DropAllTablesAsync().GetAwaiter().GetResult();
 

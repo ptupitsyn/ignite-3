@@ -23,6 +23,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Apache.Ignite.EntityFrameworkCore\Apache.Ignite.EntityFrameworkCore.csproj" />
+        <ProjectReference Include="..\Apache.Ignite.Tests.Common\Apache.Ignite.Tests.Common.csproj" />
     </ItemGroup>
 
     <ItemGroup>
