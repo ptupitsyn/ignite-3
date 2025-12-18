@@ -21,7 +21,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 
 public class IgniteDateTimeTypeMapping : DateTimeTypeMapping
 {
-    private const string DateTimeFormatConst = @"'{0:yyyy\-MM\-dd HH\:mm\:ss.FFFFFFF}'";
+    private const string DateTimeFormatConst = @"timestamp '{0:yyyy\-MM\-dd HH\:mm\:ss.FFFFFFF}'";
 
     public static new IgniteDateTimeTypeMapping Default { get; } = new(IgniteTypeMappingSource.TextTypeName);
 
