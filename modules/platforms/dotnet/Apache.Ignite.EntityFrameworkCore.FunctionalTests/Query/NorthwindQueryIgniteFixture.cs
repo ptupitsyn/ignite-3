@@ -15,7 +15,6 @@
 
 namespace Apache.Ignite.EntityFrameworkCore.FunctionalTests.Query;
 
-using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.TestUtilities;
@@ -30,9 +29,4 @@ public class NorthwindQueryIgniteFixture<TModelCustomizer> : NorthwindQueryRelat
 
     protected override Type ContextType
         => typeof(NorthwindIgniteContext);
-
-    protected override void OnModelCreating(ModelBuilder modelBuilder, DbContext context)
-    {
-        base.OnModelCreating(modelBuilder, context);
-    }
 }

@@ -21,41 +21,45 @@ using Microsoft.EntityFrameworkCore.TestUtilities;
 public class NorthwindCompiledQueryIgniteTest(NorthwindQueryIgniteFixture<NoopModelCustomizer> fixture)
     : NorthwindCompiledQueryTestBase<NorthwindQueryIgniteFixture<NoopModelCustomizer>>(fixture)
 {
+    [ConditionalFact(Skip = "Not supported.")]
     public override void Keyless_query()
     {
-        // Keyless entities are not supported in Ignite.
+        base.Keyless_query();
     }
 
+    [ConditionalFact(Skip = "Not supported.")]
     public override void Keyless_query_first()
     {
-        // Keyless entities are not supported in Ignite.
+        base.Keyless_query_first();
     }
 
+    [ConditionalFact(Skip = "Not supported.")]
     public override Task Keyless_query_async()
     {
-        // Keyless entities are not supported in Ignite.
-        return Task.CompletedTask;
+        return base.Keyless_query_async();
     }
 
+    [ConditionalFact(Skip = "Not supported.")]
     public override Task Keyless_query_first_async()
     {
-        // Keyless entities are not supported in Ignite.
-        return Task.CompletedTask;
+        return base.Keyless_query_first_async();
     }
 
+    [ConditionalFact(Skip = "Not supported.")]
     public override void Compiled_query_when_using_member_on_context()
     {
-        // No-op.
+        base.Compiled_query_when_using_member_on_context();
     }
 
+    [ConditionalFact(Skip = "Not supported.")]
     public override void Query_with_array_parameter()
     {
-        // Array parameters are not supported in Ignite.
+        base.Query_with_array_parameter();
     }
 
+    [ConditionalFact(Skip = "Not supported.")]
     public override Task Query_with_array_parameter_async()
     {
-        // Array parameters are not supported in Ignite.
-        return Task.CompletedTask;
+        return base.Query_with_array_parameter_async();
     }
 }
