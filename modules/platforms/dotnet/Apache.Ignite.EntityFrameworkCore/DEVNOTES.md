@@ -1,5 +1,8 @@
 # Apache Ignite EF Core Provider Development Notes
 
+## Where to Look for Things
+* Migrations SQL generation: `IgniteMigrationsSqlGenerator`
+
 ## Known Issues
 * Auto-generated columns
   * Ignite only supports random UUIDs: `create table t1 (id uuid default rand_uuid primary key, val int)`
@@ -7,9 +10,6 @@
 * Tables without `PRIMARY KEY` are not supported
 
 ## To Be Implemented
-* Implement ADO.NET classes as a separate ticket (https://issues.apache.org/jira/browse/IGNITE-22131)
-* Parse connection string into `IgniteClientConfiguration` - is there a standard parser for this?
-* Consolidate tests into a single project
 * Fix all compiler warnings and enable all analyzers
 * Add test for all Ignite-specific column types
 * Bring in more specification tests (https://issues.apache.org/jira/browse/IGNITE-22134)
