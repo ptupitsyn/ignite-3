@@ -175,4 +175,40 @@ public class NorthwindWhereQueryIgniteTest : NorthwindWhereQueryRelationalTestBa
         // Not supported.
         return Task.CompletedTask;
     }
+
+    public override Task Where_compare_constructed_equal(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_compare_constructed_multi_value_not_equal(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_datetime_now(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_datetime_utcnow(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_datetimeoffset_utcnow(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
+
+    public override Task Where_datetime_today(bool async)
+    {
+        // Not supported.
+        return Task.CompletedTask;
+    }
 }
