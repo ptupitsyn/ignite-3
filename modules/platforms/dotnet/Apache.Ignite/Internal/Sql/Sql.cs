@@ -29,6 +29,7 @@ namespace Apache.Ignite.Internal.Sql
     using Ignite.Table;
     using Ignite.Transactions;
     using Linq;
+    using Microsoft.Extensions.Logging;
     using Proto;
     using Proto.BinaryTuple;
     using Proto.MsgPack;
@@ -48,6 +49,8 @@ namespace Apache.Ignite.Internal.Sql
         /** Underlying connection. */
         private readonly ClientFailoverSocket _socket;
 
+        private readonly ILogger<Sql> _logger;
+
         /// <summary>
         /// Initializes a new instance of the <see cref="Sql"/> class.
         /// </summary>
@@ -55,6 +58,7 @@ namespace Apache.Ignite.Internal.Sql
         public Sql(ClientFailoverSocket socket)
         {
             _socket = socket;
+            _logger = _socket.Configuration.Configuration.LoggerFactory.CreateLogger<Sql>();
         }
 
         /// <inheritdoc/>
@@ -106,6 +110,8 @@ namespace Apache.Ignite.Internal.Sql
             using var bufferWriter = ProtoCommon.GetMessageWriter();
             WriteStatement(bufferWriter, script, args);
 
+            _logger.LogExecutingSqlTrace("script", script.Query);
+
             try
             {
                 using var buf = await _socket.DoOutInOpAsync(
@@ -136,6 +142,8 @@ namespace Apache.Ignite.Internal.Sql
             WriteStatement(bufferWriter, statement, tx, writeTx: true);
             WriteBatchArgs(bufferWriter, args);
             bufferWriter.MessageWriter.Write(_socket.ObservableTimestamp);
+
+            _logger.LogExecutingSqlTrace("batch", statement.Query);
 
             try
             {
@@ -238,6 +246,8 @@ namespace Apache.Ignite.Internal.Sql
             WriteStatement(bufferWriter, statement, args, tx, writeTx: true);
 
             PooledBuffer? buf = null;
+
+            _logger.LogExecutingSqlTrace("query", statement.Query);
 
             try
             {

@@ -279,4 +279,10 @@ internal static partial class LogMessages
         Level = LogLevel.Trace,
         EventId = 1038)]
     internal static partial void LogEndpointListUpdatedTrace(this ILogger logger, string added, string removed);
+
+    [LoggerMessage(
+        Message = "Executing SQL [type={Type}, sql={Sql}]",
+        Level = LogLevel.Trace,
+        EventId = 1039)]
+    internal static partial void LogExecutingSqlTrace(this ILogger logger, string type, string sql);
 }
