@@ -24,6 +24,7 @@ using Apache.Ignite.EntityFrameworkCore.Migrations.Internal;
 using Apache.Ignite.EntityFrameworkCore.Query.Internal;
 using Apache.Ignite.EntityFrameworkCore.Storage.Internal;
 using Apache.Ignite.EntityFrameworkCore.Update.Internal;
+using Design.Internal;
 using Metadata.Conventions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
@@ -86,7 +87,7 @@ public static class IgniteServiceCollectionExtensions
         builder.TryAddCoreServices();
 
         // Register design-time services
-        serviceCollection.TryAddSingleton<IAnnotationCodeGenerator, IgniteAnnotationCodeGenerator>();
+        serviceCollection.TryAddSingleton<IAnnotationCodeGenerator, IgniteCSharpRuntimeAnnotationCodeGenerator>();
 
         return serviceCollection;
     }

@@ -13,11 +13,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-namespace Apache.Ignite.EntityFrameworkCore.Migrations;
-
 using Microsoft.EntityFrameworkCore.Design;
 
-public class IgniteAnnotationCodeGenerator(AnnotationCodeGeneratorDependencies dependencies) : AnnotationCodeGenerator(dependencies)
+[assembly: DesignTimeProviderServices("Apache.Ignite.EntityFrameworkCore.Design.Internal.IgniteDesignTimeServices")]
+
+namespace Apache.Ignite.EntityFrameworkCore.Design.Internal;
+
+using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.Extensions.DependencyInjection;
+
+/// <summary>
+/// Design-time services for Ignite provider.
+/// This class is discovered by EF Core design-time tools.
+/// </summary>
+public class IgniteDesignTimeServices : IDesignTimeServices
 {
-    // No-op.
+    /// <inheritdoc />
+    public void ConfigureDesignTimeServices(IServiceCollection serviceCollection)
+    {
+        serviceCollection.AddEntityFrameworkDesignTimeServices();
+        new EntityFrameworkRelationalDesignServicesBuilder(serviceCollection)
+            .TryAdd<IAnnotationCodeGenerator, IgniteCSharpRuntimeAnnotationCodeGenerator>();
+    }
 }
