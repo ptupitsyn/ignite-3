@@ -22,8 +22,6 @@ public class IgniteDateOnlyTypeMapping : DateOnlyTypeMapping
 {
     private const string DateOnlyFormatConst = @"'{0:yyyy\-MM\-dd}'";
 
-    public static new IgniteDateOnlyTypeMapping Default { get; } = new(IgniteTypeMappingSource.TextTypeName);
-
     public IgniteDateOnlyTypeMapping(
         string storeType,
         DbType? dbType = System.Data.DbType.Date)
@@ -36,9 +34,9 @@ public class IgniteDateOnlyTypeMapping : DateOnlyTypeMapping
     {
     }
 
-    protected override RelationalTypeMapping Clone(RelationalTypeMappingParameters parameters)
-        => new IgniteDateOnlyTypeMapping(parameters);
+    public static new IgniteDateOnlyTypeMapping Default { get; } = new(IgniteTypeMappingSource.TextTypeName);
 
-    protected override string SqlLiteralFormatString
-        => DateOnlyFormatConst;
+    protected override string SqlLiteralFormatString => DateOnlyFormatConst;
+
+    protected override RelationalTypeMapping Clone(RelationalTypeMappingParameters parameters) => new IgniteDateOnlyTypeMapping(parameters);
 }

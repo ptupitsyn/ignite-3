@@ -24,7 +24,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
 
-public class IgniteMathTranslator : IMethodCallTranslator
+public class IgniteMathTranslator(ISqlExpressionFactory sqlExpressionFactory) : IMethodCallTranslator
 {
     private static readonly Dictionary<MethodInfo, string> SupportedMethods = new()
     {
@@ -109,24 +109,17 @@ public class IgniteMathTranslator : IMethodCallTranslator
         { typeof(float).GetRuntimeMethod(nameof(float.RadiansToDegrees), new[] { typeof(float) })!, "degrees" }
     };
 
-    private static readonly List<MethodInfo> _roundWithDecimalMethods = new()
-    {
-        typeof(Math).GetMethod(nameof(Math.Round), new[] { typeof(double), typeof(int) })!,
-        typeof(MathF).GetMethod(nameof(MathF.Round), new[] { typeof(float), typeof(int) })!
-    };
+    private static readonly IReadOnlyList<MethodInfo> RoundWithDecimalMethods =
+    [
+        typeof(Math).GetMethod(nameof(Math.Round), [typeof(double), typeof(int)])!,
+        typeof(MathF).GetMethod(nameof(MathF.Round), [typeof(float), typeof(int)])!
+    ];
 
-    private static readonly List<MethodInfo> _logWithBaseMethods = new()
-    {
-        typeof(Math).GetMethod(nameof(Math.Log), new[] { typeof(double), typeof(double) })!,
-        typeof(MathF).GetMethod(nameof(MathF.Log), new[] { typeof(float), typeof(float) })!
-    };
-
-    private readonly ISqlExpressionFactory _sqlExpressionFactory;
-
-    public IgniteMathTranslator(ISqlExpressionFactory sqlExpressionFactory)
-    {
-        _sqlExpressionFactory = sqlExpressionFactory;
-    }
+    private static readonly IReadOnlyList<MethodInfo> LogWithBaseMethods =
+    [
+        typeof(Math).GetMethod(nameof(Math.Log), [typeof(double), typeof(double)])!,
+        typeof(MathF).GetMethod(nameof(MathF.Log), [typeof(float), typeof(float)])!
+    ];
 
     public virtual SqlExpression? Translate(
         SqlExpression? instance,
@@ -138,10 +131,10 @@ public class IgniteMathTranslator : IMethodCallTranslator
         {
             var typeMapping = ExpressionExtensions.InferTypeMapping(arguments.ToArray());
             var newArguments = arguments
-                .Select(a => _sqlExpressionFactory.ApplyTypeMapping(a, typeMapping))
+                .Select(a => sqlExpressionFactory.ApplyTypeMapping(a, typeMapping))
                 .ToList();
 
-            return _sqlExpressionFactory.Function(
+            return sqlExpressionFactory.Function(
                 sqlFunctionName,
                 newArguments,
                 nullable: true,
@@ -150,31 +143,30 @@ public class IgniteMathTranslator : IMethodCallTranslator
                 typeMapping);
         }
 
-        if (_roundWithDecimalMethods.Contains(method))
+        if (RoundWithDecimalMethods.Contains(method))
         {
-            return _sqlExpressionFactory.Function(
+            return sqlExpressionFactory.Function(
                 "round",
                 arguments,
                 nullable: true,
-                argumentsPropagateNullability: new[] { true, true },
+                argumentsPropagateNullability: [true, true],
                 method.ReturnType,
                 arguments[0].TypeMapping);
         }
 
-        if (_logWithBaseMethods.Contains(method))
+        if (LogWithBaseMethods.Contains(method))
         {
             var a = arguments[0];
             var newBase = arguments[1];
             var typeMapping = ExpressionExtensions.InferTypeMapping(a, newBase);
 
-            return _sqlExpressionFactory.Function(
+            return sqlExpressionFactory.Function(
                 "log",
-                new[]
-                {
-                    _sqlExpressionFactory.ApplyTypeMapping(newBase, typeMapping), _sqlExpressionFactory.ApplyTypeMapping(a, typeMapping)
-                },
+                [
+                    sqlExpressionFactory.ApplyTypeMapping(newBase, typeMapping), sqlExpressionFactory.ApplyTypeMapping(a, typeMapping)
+                ],
                 nullable: true,
-                argumentsPropagateNullability: new[] { true, true },
+                argumentsPropagateNullability: [true, true],
                 method.ReturnType,
                 typeMapping);
         }
