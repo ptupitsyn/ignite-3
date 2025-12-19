@@ -269,16 +269,7 @@ internal sealed class IgniteMigrationsSqlGenerator : MigrationsSqlGenerator
 
     protected override void PrimaryKeyConstraint(AddPrimaryKeyOperation operation, IModel? model, MigrationCommandListBuilder builder)
     {
-        // Ignite-specific: no constraints.
-        // if (operation.Name != null)
-        // {
-        //     builder
-        //         .Append("CONSTRAINT ")
-        //         .Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(operation.Name))
-        //         .Append(" ");
-        // }
-        builder
-            .Append("PRIMARY KEY ");
+        builder.Append("PRIMARY KEY ");
 
         IndexTraits(operation, model, builder);
 
@@ -778,6 +769,7 @@ internal sealed class IgniteMigrationsSqlGenerator : MigrationsSqlGenerator
     }
 
     [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:Fields should be private", Justification = "Private class.")]
+    [SuppressMessage("Design", "CA1051:Do not declare visible instance fields", Justification = "Private class.")]
     private sealed class RebuildContext
     {
         public readonly IDictionary<string, AlterColumnOperation> AlterColumnsDeferred = new Dictionary<string, AlterColumnOperation>();

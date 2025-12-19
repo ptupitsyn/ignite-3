@@ -43,7 +43,9 @@ public class IgniteSqlExpressionFactory : SqlExpressionFactory
         if (timestring is SqlFunctionExpression { Name: "rtrim" } rtrimFunction
             && rtrimFunction.Arguments!.Count == 2
             && rtrimFunction.Arguments[0] is SqlFunctionExpression { Name: "rtrim" } rtrimFunction2
+#pragma warning disable CA1508 // TODO: Remove method?
             && rtrimFunction2.Arguments!.Count == 2
+#pragma warning restore CA1508
             && rtrimFunction2.Arguments[0] is SqlFunctionExpression { Name: "strftime" } strftimeFunction
             && strftimeFunction.Arguments!.Count > 1)
         {
@@ -71,7 +73,7 @@ public class IgniteSqlExpressionFactory : SqlExpressionFactory
             typeMapping);
     }
 
-    public virtual SqlFunctionExpression Date(
+    public virtual SqlFunctionExpression DateX(
         Type returnType,
         SqlExpression timestring,
         IEnumerable<SqlExpression>? modifiers = null,

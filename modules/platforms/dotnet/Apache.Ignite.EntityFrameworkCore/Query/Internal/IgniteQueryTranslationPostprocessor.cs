@@ -44,23 +44,23 @@ public class IgniteQueryTranslationPostprocessor : RelationalQueryTranslationPos
 
     private sealed class ApplyValidatingVisitor : ExpressionVisitor
     {
-        protected override Expression VisitExtension(Expression extensionExpression)
+        protected override Expression VisitExtension(Expression node)
         {
-            if (extensionExpression is ShapedQueryExpression shapedQueryExpression)
+            if (node is ShapedQueryExpression shapedQueryExpression)
             {
                 Visit(shapedQueryExpression.QueryExpression);
                 Visit(shapedQueryExpression.ShaperExpression);
 
-                return extensionExpression;
+                return node;
             }
 
-            if (extensionExpression is SelectExpression selectExpression
+            if (node is SelectExpression selectExpression
                 && selectExpression.Tables.Any(t => t is CrossApplyExpression or OuterApplyExpression))
             {
                 throw new InvalidOperationException(IgniteStrings.ApplyNotSupported);
             }
 
-            return base.VisitExtension(extensionExpression);
+            return base.VisitExtension(node);
         }
     }
 }

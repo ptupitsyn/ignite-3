@@ -20,8 +20,6 @@ using Microsoft.EntityFrameworkCore.Storage;
 
 public class IgniteULongTypeMapping : ULongTypeMapping
 {
-    public static new IgniteULongTypeMapping Default { get; } = new(IgniteTypeMappingSource.IntegerTypeName);
-
     public IgniteULongTypeMapping(string storeType, DbType? dbType = System.Data.DbType.UInt64)
         : base(storeType, dbType)
     {
@@ -31,6 +29,8 @@ public class IgniteULongTypeMapping : ULongTypeMapping
         : base(parameters)
     {
     }
+
+    public static new IgniteULongTypeMapping Default { get; } = new(IgniteTypeMappingSource.IntegerTypeName);
 
     protected override RelationalTypeMapping Clone(RelationalTypeMappingParameters parameters)
         => new IgniteULongTypeMapping(parameters);
