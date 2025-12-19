@@ -81,13 +81,11 @@ public static class IgniteServiceCollectionExtensions
             .TryAdd<IUpdateSqlGenerator, IgniteUpdateSqlGenerator>()
             .TryAdd<ISqlExpressionFactory, IgniteSqlExpressionFactory>()
             .TryAdd<IRelationalTransactionFactory, IgniteRelationalTransactionFactory>()
+            .TryAdd<IAnnotationCodeGenerator, IgniteCSharpRuntimeAnnotationCodeGenerator>()
             .TryAddProviderSpecificServices(
                 b => b.TryAddScoped<IIgniteRelationalConnection, IgniteRelationalConnection>());
 
         builder.TryAddCoreServices();
-
-        // Register design-time services
-        serviceCollection.TryAddSingleton<IAnnotationCodeGenerator, IgniteCSharpRuntimeAnnotationCodeGenerator>();
 
         return serviceCollection;
     }
