@@ -37,6 +37,7 @@ public class IgniteDesignTimeServices : IDesignTimeServices
         // TODO: ??
         // serviceCollection.AddEntityFrameworkDesignTimeServices();
         new EntityFrameworkRelationalDesignServicesBuilder(serviceCollection)
-            .TryAdd<IAnnotationCodeGenerator, AnnotationCodeGenerator>();
+            .TryAdd<IAnnotationCodeGenerator, AnnotationCodeGenerator>()
+            .TryAddCoreServices();
     }
 }
