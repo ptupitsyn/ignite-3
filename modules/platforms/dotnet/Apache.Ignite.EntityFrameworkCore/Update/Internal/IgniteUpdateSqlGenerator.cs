@@ -20,19 +20,14 @@ using System.Text;
 using Common;
 using Microsoft.EntityFrameworkCore.Update;
 
-public class IgniteUpdateSqlGenerator : UpdateAndSelectSqlGenerator
+public class IgniteUpdateSqlGenerator(UpdateSqlGeneratorDependencies dependencies) : UpdateAndSelectSqlGenerator(dependencies)
 {
-    public IgniteUpdateSqlGenerator(UpdateSqlGeneratorDependencies dependencies)
-        : base(dependencies)
-    {
-    }
+    public override string GenerateNextSequenceValueOperation(string name, string? schema)
+        => throw new NotSupportedException(IgniteStrings.SequencesNotSupported);
 
     protected override void AppendIdentityWhereCondition(StringBuilder commandStringBuilder, IColumnModification columnModification)
     {
-        // SqlGenerationHelper.DelimitIdentifier(commandStringBuilder, "rowid");
-        // commandStringBuilder.Append(" = ").Append("last_insert_rowid()");
-
-        // TODO: This is needed to obtain the last inserted row ID for auto-increment columns.
+        // NOTE: This is needed to obtain the last inserted row ID for auto-increment columns. Not supported in Ignite.
         commandStringBuilder.Append("1 = 1");
     }
 
@@ -42,17 +37,13 @@ public class IgniteUpdateSqlGenerator : UpdateAndSelectSqlGenerator
         string? schema,
         int commandPosition)
     {
-        // Ignite-specific: no-op, affected rows in ResultSet.
+        // Ignite-specific: no-op, affected rows are in ResultSet.
         return ResultSetMapping.NoResults;
     }
 
     protected override void AppendRowsAffectedWhereCondition(StringBuilder commandStringBuilder, int expectedRowsAffected)
     {
-        // TODO: This is needed to obtain the last inserted row ID for auto-increment columns.
-        // TODO: See UseSqlReturningClause in sqlite provider.
+        // Ignite-specific: no-op, affected rows are in ResultSet.
         commandStringBuilder.Append("1 = 1");
     }
-
-    public override string GenerateNextSequenceValueOperation(string name, string? schema)
-        => throw new NotSupportedException(IgniteStrings.SequencesNotSupported);
 }
