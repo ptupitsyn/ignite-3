@@ -9,6 +9,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Apache.Ignite.EntityFrameworkCore.Tests.Migrations
 {
+    using Models;
+
     [DbContext(typeof(TestDbContext))]
     partial class TestDbContextModelSnapshot : ModelSnapshot
     {

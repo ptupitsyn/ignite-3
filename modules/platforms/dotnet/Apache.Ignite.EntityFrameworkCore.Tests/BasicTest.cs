@@ -20,6 +20,7 @@ namespace Apache.Ignite.EntityFrameworkCore.Tests;
 using Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Models;
 using NUnit.Framework;
 
 public class BasicTest

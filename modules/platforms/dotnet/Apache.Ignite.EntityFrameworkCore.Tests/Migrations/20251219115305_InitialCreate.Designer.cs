@@ -10,6 +10,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Apache.Ignite.EntityFrameworkCore.Tests.Migrations
 {
+    using Models;
+
     [DbContext(typeof(TestDbContext))]
     [Migration("20251219115305_InitialCreate")]
     partial class InitialCreate

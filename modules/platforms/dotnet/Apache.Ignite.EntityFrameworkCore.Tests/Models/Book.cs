@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-namespace Apache.Ignite.EntityFrameworkCore.Tests;
+namespace Apache.Ignite.EntityFrameworkCore.Tests.Models;
 
 public sealed record Book(Guid Id, string Name, int Year, Guid AuthorId)
 {

@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-namespace Apache.Ignite.EntityFrameworkCore.Tests;
+namespace Apache.Ignite.EntityFrameworkCore.Tests.Models;
 
-using Extensions;
+using Apache.Ignite.EntityFrameworkCore.Extensions;
 using Microsoft.EntityFrameworkCore;
 
 public class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(options)
