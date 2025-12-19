@@ -17,7 +17,7 @@ namespace Apache.Ignite.EntityFrameworkCore.Query.Internal;
 
 using Microsoft.EntityFrameworkCore.Query;
 
-public class IgniteMethodCallTranslatorProvider : RelationalMethodCallTranslatorProvider
+public sealed class IgniteMethodCallTranslatorProvider : RelationalMethodCallTranslatorProvider
 {
     public IgniteMethodCallTranslatorProvider(RelationalMethodCallTranslatorProviderDependencies dependencies)
         : base(dependencies)
@@ -25,12 +25,11 @@ public class IgniteMethodCallTranslatorProvider : RelationalMethodCallTranslator
         var sqlExpressionFactory = (IgniteSqlExpressionFactory)dependencies.SqlExpressionFactory;
 
         AddTranslators(
-            new IMethodCallTranslator[]
-            {
-                new IgniteCharMethodTranslator(sqlExpressionFactory),
-                new IgniteMathTranslator(sqlExpressionFactory),
-                new IgniteObjectToStringTranslator(sqlExpressionFactory),
-                new IgniteStringMethodTranslator(sqlExpressionFactory),
-            });
+        [
+            new IgniteCharMethodTranslator(sqlExpressionFactory),
+            new IgniteMathTranslator(sqlExpressionFactory),
+            new IgniteObjectToStringTranslator(sqlExpressionFactory),
+            new IgniteStringMethodTranslator(sqlExpressionFactory)
+        ]);
     }
 }

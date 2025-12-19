@@ -17,17 +17,13 @@ namespace Apache.Ignite.EntityFrameworkCore.Query.Internal;
 
 using Microsoft.EntityFrameworkCore.Query;
 
-public class IgniteMemberTranslatorProvider : RelationalMemberTranslatorProvider
+public sealed class IgniteMemberTranslatorProvider : RelationalMemberTranslatorProvider
 {
     public IgniteMemberTranslatorProvider(RelationalMemberTranslatorProviderDependencies dependencies)
         : base(dependencies)
     {
         var sqlExpressionFactory = (IgniteSqlExpressionFactory)dependencies.SqlExpressionFactory;
 
-        AddTranslators(
-            new IMemberTranslator[]
-            {
-                new IgniteStringLengthTranslator(sqlExpressionFactory),
-            });
+        AddTranslators([new IgniteStringLengthTranslator(sqlExpressionFactory)]);
     }
 }
