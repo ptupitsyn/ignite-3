@@ -19,6 +19,7 @@
         <PackageReference Include="Microsoft.EntityFrameworkCore" PrivateAssets="none" Version="8.0.17" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" PrivateAssets="none" Version="8.0.17" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Abstractions" PrivateAssets="none" Version="8.0.17" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="none" Version="8.0.17" />
         <PackageReference Include="Microsoft.Extensions.DependencyModel" PrivateAssets="none" Version="8.0.2" />
 
         <PackageReference Include="JetBrains.Annotations" Version="2023.3.0" PrivateAssets="all" />

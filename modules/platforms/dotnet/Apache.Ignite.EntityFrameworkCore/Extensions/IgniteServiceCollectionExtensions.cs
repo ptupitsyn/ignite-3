@@ -26,6 +26,7 @@ using Apache.Ignite.EntityFrameworkCore.Storage.Internal;
 using Apache.Ignite.EntityFrameworkCore.Update.Internal;
 using Metadata.Conventions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions.Infrastructure;
@@ -34,6 +35,7 @@ using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Update;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 /// <summary>
 /// Ignite-specific extension methods for <see cref="IServiceCollection" />.
@@ -82,6 +84,9 @@ public static class IgniteServiceCollectionExtensions
                 b => b.TryAddScoped<IIgniteRelationalConnection, IgniteRelationalConnection>());
 
         builder.TryAddCoreServices();
+
+        // Register design-time services
+        serviceCollection.TryAddSingleton<IAnnotationCodeGenerator, IgniteAnnotationCodeGenerator>();
 
         return serviceCollection;
     }
