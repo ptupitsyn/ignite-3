@@ -1,18 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-    <Sdk Name="Microsoft.DotNet.PackageValidation" Version="1.0.0-preview.7.21379.12" />
-
     <PropertyGroup>
         <TargetFramework>net8.0</TargetFramework>
         <IsPackable>true</IsPackable>
         <PackageReadmeFile>README.md</PackageReadmeFile>
 
-        <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <SignAssembly>true</SignAssembly>
         <AssemblyOriginatorKeyFile>Apache.Ignite.snk</AssemblyOriginatorKeyFile>
 
-        <PackageValidationBaselineVersion />
-        <GenerateCompatibilitySuppressionFile>false</GenerateCompatibilitySuppressionFile>
+        <!-- Major (8) matches EF Core major version, minor and patch match Ignite version -->
+        <Version>8.3.2</Version>
     </PropertyGroup>
 
     <ItemGroup>
