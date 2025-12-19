@@ -96,6 +96,7 @@ public class BasicTest
         using var client = await GetClient();
         var tables = await client.Tables.GetTablesAsync();
 
+        // TODO: "PUBLIC."__EFMigrationsHistory"" name is wrong, we prepend schema icorrectly somewhere.
         CollectionAssert.AreEquivalent(
             new[] { "Authors", "Books", "__EFMigrationsHistory" },
             tables.Select(t => t.Name));
