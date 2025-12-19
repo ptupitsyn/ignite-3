@@ -27,39 +27,30 @@ public class IgniteOptionsExtension : RelationalOptionsExtension
 
     public IgniteOptionsExtension()
     {
+        // No-op.
     }
 
     protected IgniteOptionsExtension(IgniteOptionsExtension copyFrom)
         : base(copyFrom)
     {
+        // No-op.
     }
 
     public override DbContextOptionsExtensionInfo Info
         => _info ??= new ExtensionInfo(this);
 
-    protected override RelationalOptionsExtension Clone()
-        => new IgniteOptionsExtension(this);
-
     public override void ApplyServices(IServiceCollection services)
         => services.AddEntityFrameworkIgnite();
 
-    private sealed class ExtensionInfo : RelationalExtensionInfo
+    protected override RelationalOptionsExtension Clone()
+        => new IgniteOptionsExtension(this);
+
+    private sealed class ExtensionInfo(IDbContextOptionsExtension extension) : RelationalExtensionInfo(extension)
     {
         private string? _logFragment;
 
-        public ExtensionInfo(IDbContextOptionsExtension extension)
-            : base(extension)
-        {
-        }
-
-        private new IgniteOptionsExtension Extension
-            => (IgniteOptionsExtension)base.Extension;
-
         public override bool IsDatabaseProvider
             => true;
-
-        public override bool ShouldUseSameServiceProvider(DbContextOptionsExtensionInfo other)
-            => other is ExtensionInfo;
 
         public override string LogFragment
         {
@@ -78,6 +69,10 @@ public class IgniteOptionsExtension : RelationalOptionsExtension
             }
         }
 
-        public override void PopulateDebugInfo(IDictionary<string, string> debugInfo) => debugInfo["Ignite"] = "1";
+        public override bool ShouldUseSameServiceProvider(DbContextOptionsExtensionInfo other) =>
+            other is ExtensionInfo;
+
+        public override void PopulateDebugInfo(IDictionary<string, string> debugInfo) =>
+            debugInfo["Ignite"] = "1";
     }
 }
