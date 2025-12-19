@@ -20,8 +20,6 @@ using Microsoft.EntityFrameworkCore.Storage;
 
 public class IgniteByteArrayTypeMapping : ByteArrayTypeMapping
 {
-    public static new IgniteByteArrayTypeMapping Default { get; } = new(IgniteTypeMappingSource.BlobTypeName);
-
     public IgniteByteArrayTypeMapping(string storeType, DbType? dbType = System.Data.DbType.Binary)
         : this(
             new RelationalTypeMappingParameters(
@@ -30,12 +28,16 @@ public class IgniteByteArrayTypeMapping : ByteArrayTypeMapping
                 storeType,
                 dbType: dbType))
     {
+        // No-op.
     }
 
     protected IgniteByteArrayTypeMapping(RelationalTypeMappingParameters parameters)
         : base(parameters)
     {
+        // No-op.
     }
+
+    public static new IgniteByteArrayTypeMapping Default { get; } = new(IgniteTypeMappingSource.BlobTypeName);
 
     protected override RelationalTypeMapping Clone(RelationalTypeMappingParameters parameters)
         => new IgniteByteArrayTypeMapping(parameters);
