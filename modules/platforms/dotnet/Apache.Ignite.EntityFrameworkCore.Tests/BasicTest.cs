@@ -99,7 +99,7 @@ public class BasicTest
         // TODO: Re-test "dotnet ef migrations add" and "dotnet ef database update" commands once migrations are supported.
         CollectionAssert.AreEquivalent(
             new[] { "Authors", "Books", "__EFMigrationsHistory" },
-            tables.Select(t => t.Name));
+            tables.Select(t => t.QualifiedName.ObjectName));
     }
 
     private static TestDbContext CreateDbContext()
