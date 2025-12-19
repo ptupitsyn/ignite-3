@@ -23,6 +23,7 @@ using Metadata.Conventions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Query;
@@ -78,6 +79,7 @@ public static class IgniteServiceCollectionExtensions
             .TryAdd<IUpdateSqlGenerator, IgniteUpdateSqlGenerator>()
             .TryAdd<ISqlExpressionFactory, IgniteSqlExpressionFactory>()
             .TryAdd<IRelationalTransactionFactory, IgniteRelationalTransactionFactory>()
+            .TryAdd<IRelationalAnnotationProvider, RelationalAnnotationProvider>()
             .TryAddProviderSpecificServices(
                 b => b.TryAddScoped<IIgniteRelationalConnection, IgniteRelationalConnection>());
 

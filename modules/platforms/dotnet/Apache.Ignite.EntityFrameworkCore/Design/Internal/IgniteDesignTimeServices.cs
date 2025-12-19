@@ -32,9 +32,11 @@ public class IgniteDesignTimeServices : IDesignTimeServices
     /// <inheritdoc />
     public void ConfigureDesignTimeServices(IServiceCollection serviceCollection)
     {
-        serviceCollection.AddEntityFrameworkDesignTimeServices();
         serviceCollection.AddEntityFrameworkIgnite();
+
+        // TODO: ??
+        // serviceCollection.AddEntityFrameworkDesignTimeServices();
         new EntityFrameworkRelationalDesignServicesBuilder(serviceCollection)
-            .TryAdd<IAnnotationCodeGenerator, IgniteCSharpRuntimeAnnotationCodeGenerator>();
+            .TryAdd<IAnnotationCodeGenerator, AnnotationCodeGenerator>();
     }
 }
