@@ -85,6 +85,14 @@ public class BasicTest
 
         var queryString = query.ToQueryString();
         Assert.AreEqual(expectedSql, queryString);
+
+        var authorRes = await ctx.Authors
+            .Where(a => a.Id == author.Id)
+            .Include(a => a.Books)
+            .FirstOrDefaultAsync();
+
+        Assert.NotNull(authorRes);
+        Assert.AreEqual(2, authorRes!.Books.Count);
     }
 
     [Test]
@@ -101,6 +109,13 @@ public class BasicTest
         CollectionAssert.AreEquivalent(
             new[] { "Authors", "Books", "__EFMigrationsHistory" },
             tables.Select(t => t.QualifiedName.ObjectName));
+    }
+
+    [Test]
+    public async Task TestAllColumnTypes()
+    {
+        await Task.Delay(1);
+        Assert.Fail("TODO");
     }
 
     private static TestDbContext CreateDbContext()
