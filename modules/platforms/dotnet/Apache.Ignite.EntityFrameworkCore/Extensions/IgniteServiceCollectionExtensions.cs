@@ -16,18 +16,11 @@
 namespace Apache.Ignite.EntityFrameworkCore.Extensions;
 
 using System;
-using Apache.Ignite.EntityFrameworkCore.Diagnostics.Internal;
-using Apache.Ignite.EntityFrameworkCore.Infrastructure;
-using Apache.Ignite.EntityFrameworkCore.Infrastructure.Internal;
-using Apache.Ignite.EntityFrameworkCore.Migrations;
-using Apache.Ignite.EntityFrameworkCore.Migrations.Internal;
-using Apache.Ignite.EntityFrameworkCore.Query.Internal;
-using Apache.Ignite.EntityFrameworkCore.Storage.Internal;
-using Apache.Ignite.EntityFrameworkCore.Update.Internal;
-using Design.Internal;
+using Diagnostics.Internal;
+using Infrastructure;
+using Infrastructure.Internal;
 using Metadata.Conventions;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions.Infrastructure;
@@ -36,7 +29,11 @@ using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Update;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
+using Migrations;
+using Migrations.Internal;
+using Query.Internal;
+using Storage.Internal;
+using Update.Internal;
 
 /// <summary>
 /// Ignite-specific extension methods for <see cref="IServiceCollection" />.
@@ -81,7 +78,6 @@ public static class IgniteServiceCollectionExtensions
             .TryAdd<IUpdateSqlGenerator, IgniteUpdateSqlGenerator>()
             .TryAdd<ISqlExpressionFactory, IgniteSqlExpressionFactory>()
             .TryAdd<IRelationalTransactionFactory, IgniteRelationalTransactionFactory>()
-            .TryAdd<IAnnotationCodeGenerator, IgniteCSharpRuntimeAnnotationCodeGenerator>()
             .TryAddProviderSpecificServices(
                 b => b.TryAddScoped<IIgniteRelationalConnection, IgniteRelationalConnection>());
 

@@ -19,6 +19,7 @@ using Microsoft.EntityFrameworkCore.Design;
 
 namespace Apache.Ignite.EntityFrameworkCore.Design.Internal;
 
+using Extensions;
 using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -32,6 +33,7 @@ public class IgniteDesignTimeServices : IDesignTimeServices
     public void ConfigureDesignTimeServices(IServiceCollection serviceCollection)
     {
         serviceCollection.AddEntityFrameworkDesignTimeServices();
+        serviceCollection.AddEntityFrameworkIgnite();
         new EntityFrameworkRelationalDesignServicesBuilder(serviceCollection)
             .TryAdd<IAnnotationCodeGenerator, IgniteCSharpRuntimeAnnotationCodeGenerator>();
     }
