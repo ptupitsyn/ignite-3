@@ -9,6 +9,7 @@
         <AssemblyOriginatorKeyFile>Apache.Ignite.snk</AssemblyOriginatorKeyFile>
 
         <!-- Major (8) matches EF Core major version, minor and patch match Ignite version -->
+        <!-- TODO this is overridden by GitVersioning - need version file? -->
         <Version>8.3.2</Version>
     </PropertyGroup>
 
@@ -29,6 +30,10 @@
 
     <ItemGroup>
       <ProjectReference Include="..\Apache.Ignite\Apache.Ignite.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="README.md" Pack="true" PackagePath="\" />
     </ItemGroup>
 
 </Project>
