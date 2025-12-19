@@ -28,7 +28,7 @@ public class BasicTest
     public async Task DropAllTables()
     {
         // Drop all tables so that EnsureCreatedAsync works as expected and every test starts with a clean slate.
-        using var client = await IgniteClient.StartAsync(new(GetIgniteEndpoint()));
+        using var client = await GetClient();
 
         var tables = await client.Tables.GetTablesAsync();
         var script = string.Join("\n", tables.Select(t => $"DROP TABLE {t.Name}; "));
@@ -92,6 +92,13 @@ public class BasicTest
         await using var ctx = CreateDbContext();
 
         await ctx.Database.MigrateAsync();
+
+        using var client = await GetClient();
+        var tables = await client.Tables.GetTablesAsync();
+
+        CollectionAssert.AreEquivalent(
+            new[] { "Authors", "Books", "__EFMigrationsHistory" },
+            tables.Select(t => t.Name));
     }
 
     private static TestDbContext CreateDbContext()
@@ -105,4 +112,7 @@ public class BasicTest
     }
 
     private static string GetIgniteEndpoint() => "localhost:10942";
+
+    private static async Task<IIgniteClient> GetClient() =>
+        await IgniteClient.StartAsync(new(GetIgniteEndpoint()));
 }

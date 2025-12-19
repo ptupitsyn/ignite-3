@@ -19,13 +19,8 @@ namespace Apache.Ignite.EntityFrameworkCore.Tests;
 
 using Microsoft.EntityFrameworkCore;
 
-public class TestDbContext : DbContext
+public class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(options)
 {
-    public TestDbContext(DbContextOptions<TestDbContext> options)
-        : base(options)
-    {
-    }
-
     public DbSet<Book> Books { get; set; } = null!;
 
     public DbSet<Author> Authors { get; set; } = null!;
