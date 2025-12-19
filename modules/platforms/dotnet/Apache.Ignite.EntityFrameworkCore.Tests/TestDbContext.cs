@@ -17,10 +17,18 @@
 
 namespace Apache.Ignite.EntityFrameworkCore.Tests;
 
+using Extensions;
 using Microsoft.EntityFrameworkCore;
 
 public class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(options)
 {
+    public const string DefaultIgniteEndpoint = "localhost:10942";
+
+    public TestDbContext()
+        : this(new DbContextOptionsBuilder<TestDbContext>().UseIgnite(DefaultIgniteEndpoint).Options)
+    {
+    }
+
     public DbSet<Book> Books { get; set; } = null!;
 
     public DbSet<Author> Authors { get; set; } = null!;

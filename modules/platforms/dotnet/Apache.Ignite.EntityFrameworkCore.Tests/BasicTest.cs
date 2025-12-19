@@ -107,13 +107,11 @@ public class BasicTest
         var contextOptionsBuilder = new DbContextOptionsBuilder<TestDbContext>(
             new DbContextOptions<TestDbContext>(new Dictionary<Type, IDbContextOptionsExtension>()));
 
-        contextOptionsBuilder.UseIgnite( $"Endpoints={GetIgniteEndpoint()}");
+        contextOptionsBuilder.UseIgnite( $"Endpoints={TestDbContext.DefaultIgniteEndpoint}");
 
         return new TestDbContext(contextOptionsBuilder.Options);
     }
 
-    private static string GetIgniteEndpoint() => "localhost:10942";
-
     private static async Task<IIgniteClient> GetClient() =>
-        await IgniteClient.StartAsync(new(GetIgniteEndpoint()));
+        await IgniteClient.StartAsync(new(TestDbContext.DefaultIgniteEndpoint));
 }
