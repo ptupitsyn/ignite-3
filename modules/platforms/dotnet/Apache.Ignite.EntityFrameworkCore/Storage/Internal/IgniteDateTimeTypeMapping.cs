@@ -23,8 +23,6 @@ public class IgniteDateTimeTypeMapping : DateTimeTypeMapping
 {
     private const string DateTimeFormatConst = @"timestamp '{0:yyyy\-MM\-dd HH\:mm\:ss.FFFFFFF}'";
 
-    public static new IgniteDateTimeTypeMapping Default { get; } = new(IgniteTypeMappingSource.TextTypeName);
-
     public IgniteDateTimeTypeMapping(
         string storeType,
         DbType? dbType = System.Data.DbType.DateTime)
@@ -41,9 +39,9 @@ public class IgniteDateTimeTypeMapping : DateTimeTypeMapping
     {
     }
 
-    protected override RelationalTypeMapping Clone(RelationalTypeMappingParameters parameters)
-        => new IgniteDateTimeTypeMapping(parameters);
+    public static new IgniteDateTimeTypeMapping Default { get; } = new(IgniteTypeMappingSource.TextTypeName);
 
-    protected override string SqlLiteralFormatString
-        => DateTimeFormatConst;
+    protected override string SqlLiteralFormatString => DateTimeFormatConst;
+
+    protected override RelationalTypeMapping Clone(RelationalTypeMappingParameters parameters) => new IgniteDateTimeTypeMapping(parameters);
 }

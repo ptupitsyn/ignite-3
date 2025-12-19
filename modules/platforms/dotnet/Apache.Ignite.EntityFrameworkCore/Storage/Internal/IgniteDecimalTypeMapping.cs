@@ -20,8 +20,6 @@ using Microsoft.EntityFrameworkCore.Storage;
 
 public class IgniteDecimalTypeMapping : DecimalTypeMapping
 {
-    public static new IgniteDecimalTypeMapping Default { get; } = new(IgniteTypeMappingSource.TextTypeName);
-
     public IgniteDecimalTypeMapping(string storeType, DbType? dbType = System.Data.DbType.Decimal)
         : this(
             new RelationalTypeMappingParameters(
@@ -37,9 +35,9 @@ public class IgniteDecimalTypeMapping : DecimalTypeMapping
     {
     }
 
-    protected override RelationalTypeMapping Clone(RelationalTypeMappingParameters parameters)
-        => new IgniteDecimalTypeMapping(parameters);
+    public static new IgniteDecimalTypeMapping Default { get; } = new(IgniteTypeMappingSource.TextTypeName);
 
-    protected override string SqlLiteralFormatString
-        => "'" + base.SqlLiteralFormatString + "'";
+    protected override string SqlLiteralFormatString => "'" + base.SqlLiteralFormatString + "'";
+
+    protected override RelationalTypeMapping Clone(RelationalTypeMappingParameters parameters) => new IgniteDecimalTypeMapping(parameters);
 }
