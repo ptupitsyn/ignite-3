@@ -1177,6 +1177,7 @@ public class ClientInboundMessageHandler
         } else if (cause instanceof OutOfMemoryError) {
             // TODO: Check inbound message size and log better error?
             ClientMessageDecoder decoder = ctx.pipeline().get(ClientMessageDecoder.class);
+            long lastFrameLength = decoder != null ? decoder.lastFrameLength() : -1;
         }
 
         if (logWarn) {

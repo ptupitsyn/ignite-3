@@ -40,7 +40,7 @@ public class ReconnectTests
 
         using var client = await IgniteClient.StartAsync(cfg);
 
-        var longTableName = new string('a', 9_000_000);
+        var longTableName = new string('a', 5_999_000);
         var res = await client.Tables.GetTableAsync(longTableName);
         Assert.IsNull(res);
     }

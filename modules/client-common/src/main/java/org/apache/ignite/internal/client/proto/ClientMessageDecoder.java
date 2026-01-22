@@ -25,6 +25,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.util.CharsetUtil;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 import org.apache.ignite.lang.IgniteException;
 
@@ -38,11 +39,24 @@ public class ClientMessageDecoder extends LengthFieldBasedFrameDecoder {
     /** Magic decoding failed flag. */
     private boolean magicFailed;
 
+    private long currentFrameLength;
+
+    @Override
+    protected long getUnadjustedFrameLength(ByteBuf buf, int offset, int length, ByteOrder order) {
+        currentFrameLength = super.getUnadjustedFrameLength(buf, offset, length, order);
+
+        return currentFrameLength;
+    }
+
     /**
      * Constructor.
      */
     public ClientMessageDecoder() {
         super(Integer.MAX_VALUE - HEADER_SIZE, 0, HEADER_SIZE, 0, HEADER_SIZE, true);
+    }
+
+    public long lastFrameLength() {
+        return currentFrameLength;
     }
 
     /** {@inheritDoc} */
