@@ -31,7 +31,7 @@ import org.apache.ignite.lang.IgniteException;
 /**
  * Decodes full client messages: 1. MAGIC for first message. 2. Payload length (4 bytes). 3. Payload (N bytes).
  */
-public final class ClientMessageDecoder extends LengthFieldBasedFrameDecoder {
+public class ClientMessageDecoder extends LengthFieldBasedFrameDecoder {
     /** Magic decoded flag. */
     private boolean magicDecoded;
 
@@ -43,8 +43,6 @@ public final class ClientMessageDecoder extends LengthFieldBasedFrameDecoder {
      */
     public ClientMessageDecoder() {
         super(Integer.MAX_VALUE - HEADER_SIZE, 0, HEADER_SIZE, 0, HEADER_SIZE, true);
-
-        setCumulator(COMPOSITE_CUMULATOR);
     }
 
     /** {@inheritDoc} */
