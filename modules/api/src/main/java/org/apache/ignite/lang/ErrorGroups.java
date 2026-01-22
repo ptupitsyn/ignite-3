@@ -285,6 +285,9 @@ public class ErrorGroups {
 
         /** Client operation timeout. */
         public static final int OPERATION_TIMEOUT_ERR = CLIENT_ERR_GROUP.registerErrorCode((short) 11);
+
+        /** Not enough memory to decode or process a client request. */
+        public static final int OUT_OF_MEMORY_ERR = CLIENT_ERR_GROUP.registerErrorCode((short) 12);
     }
 
     /** SQL error group. */
