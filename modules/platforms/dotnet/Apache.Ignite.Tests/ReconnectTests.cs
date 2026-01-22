@@ -31,6 +31,21 @@ using NUnit.Framework;
 public class ReconnectTests
 {
     [Test]
+    public async Task TestMemDelme()
+    {
+        var cfg = new IgniteClientConfiguration("localhost:10942")
+        {
+            RetryPolicy = new RetryNonePolicy()
+        };
+
+        using var client = await IgniteClient.StartAsync(cfg);
+
+        var longTableName = new string('a', 99_000_000);
+        var res = await client.Tables.GetTableAsync(longTableName);
+        Assert.IsNull(res);
+    }
+
+    [Test]
     public void TestInvalidMagicThrowsException()
     {
         using var server = new FakeServer { SendInvalidMagic = true };

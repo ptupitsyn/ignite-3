@@ -126,6 +126,7 @@ import org.apache.ignite.internal.catalog.CatalogService;
 import org.apache.ignite.internal.client.proto.ClientComputeJobPacker;
 import org.apache.ignite.internal.client.proto.ClientComputeJobUnpacker;
 import org.apache.ignite.internal.client.proto.ClientMessageCommon;
+import org.apache.ignite.internal.client.proto.ClientMessageDecoder;
 import org.apache.ignite.internal.client.proto.ClientMessagePacker;
 import org.apache.ignite.internal.client.proto.ClientMessageUnpacker;
 import org.apache.ignite.internal.client.proto.ClientOp;
@@ -1173,6 +1174,9 @@ public class ClientInboundMessageHandler
         } else if (cause instanceof SocketException) {
             // SocketExceptions seem to well known and have a nice messages. If a stranger exception happens we can always enable debug.
             logThrowable = false;
+        } else if (cause instanceof OutOfMemoryError) {
+            // TODO: Check inbound message size and log better error?
+            ClientMessageDecoder decoder = ctx.pipeline().get(ClientMessageDecoder.class);
         }
 
         if (logWarn) {
