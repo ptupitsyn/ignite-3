@@ -152,7 +152,7 @@ public class SqlApiExample {
 
             System.out.println("\nAll accounts:");
 
-            try (ResultSet<SqlRow> rs = client.sql().execute(
+            try (ResultSet<SqlRow> rs = client.sql().execute(null,
                     "SELECT a.FIRST_NAME, a.LAST_NAME, c.NAME FROM ACCOUNTS a "
                             + "INNER JOIN CITIES c on c.ID = a.CITY_ID ORDER BY a.ACCOUNT_ID")) {
                 while (rs.hasNext()) {
@@ -219,7 +219,7 @@ public class SqlApiExample {
 
             System.out.println("\nDeleting one of the accounts...");
 
-            try (ResultSet<SqlRow> rs = client.sql().execute( "DELETE FROM ACCOUNTS WHERE ACCOUNT_ID = ?", 1)) {
+            try (ResultSet<SqlRow> rs = client.sql().execute(null, "DELETE FROM ACCOUNTS WHERE ACCOUNT_ID = ?", 1)) {
                 System.out.println("\n Removed accounts: " + rs.affectedRows());
             }
 

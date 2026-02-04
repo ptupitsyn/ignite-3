@@ -83,18 +83,18 @@ public class ItLimitOffsetTest extends BaseSqlIntegrationTest {
 
         assertThrowsSqlException(Sql.STMT_PARSE_ERR,
                 "Failed to parse query: Encountered \"-\"",
-                () -> igniteSql().execute("SELECT * FROM test OFFSET -1 ROWS FETCH FIRST -1 ROWS ONLY"));
+                () -> igniteSql().execute(null, "SELECT * FROM test OFFSET -1 ROWS FETCH FIRST -1 ROWS ONLY"));
 
         assertThrowsSqlException(Sql.STMT_PARSE_ERR,
                 "Failed to parse query: Encountered \"-\"",
-                () -> igniteSql().execute("SELECT * FROM test OFFSET -1 ROWS"));
+                () -> igniteSql().execute(null, "SELECT * FROM test OFFSET -1 ROWS"));
 
         assertThrowsSqlException(Sql.STMT_PARSE_ERR, "Failed to parse query: Encountered \"-\"",
-                () -> igniteSql().execute("SELECT * FROM test FETCH FIRST -1 ROWS ONLY"));
+                () -> igniteSql().execute(null, "SELECT * FROM test FETCH FIRST -1 ROWS ONLY"));
 
         assertThrowsSqlException(Sql.STMT_PARSE_ERR,
                 "Failed to parse query: Encountered \"+\"",
-                () -> igniteSql().execute("SELECT * FROM test OFFSET 2+1 ROWS"));
+                () -> igniteSql().execute(null, "SELECT * FROM test OFFSET 2+1 ROWS"));
     }
 
     /**

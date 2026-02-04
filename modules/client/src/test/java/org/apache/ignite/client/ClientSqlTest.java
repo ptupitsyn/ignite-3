@@ -72,7 +72,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 public class ClientSqlTest extends AbstractClientTableTest {
     @Test
     public void testExecuteAsync() {
-        AsyncResultSet<SqlRow> resultSet =  client.sql().executeAsync("SELECT 1").join();
+        AsyncResultSet<SqlRow> resultSet =  client.sql().executeAsync(null, "SELECT 1").join();
 
         assertTrue(resultSet.hasRowSet());
         assertFalse(resultSet.wasApplied());
@@ -84,7 +84,7 @@ public class ClientSqlTest extends AbstractClientTableTest {
 
     @Test
     public void testExecute() {
-        ResultSet<SqlRow> resultSet =  client.sql().execute("SELECT 1");
+        ResultSet<SqlRow> resultSet =  client.sql().execute(null, "SELECT 1");
 
         assertTrue(resultSet.hasRowSet());
         assertFalse(resultSet.wasApplied());
@@ -116,7 +116,7 @@ public class ClientSqlTest extends AbstractClientTableTest {
 
     @Test
     public void testMetadata() {
-        ResultSet<SqlRow> resultSet =  client.sql().execute("SELECT META");
+        ResultSet<SqlRow> resultSet =  client.sql().execute(null, "SELECT META");
         ResultSetMetadata meta = resultSet.metadata();
         SqlRow row = resultSet.next();
 
@@ -197,7 +197,7 @@ public class ClientSqlTest extends AbstractClientTableTest {
 
         sql.executeScript("foo");
 
-        ResultSet<SqlRow> resultSet = sql.execute("SELECT LAST SCRIPT");
+        ResultSet<SqlRow> resultSet = sql.execute(null, "SELECT LAST SCRIPT");
         SqlRow row = resultSet.next();
 
         assertEquals(
@@ -211,7 +211,7 @@ public class ClientSqlTest extends AbstractClientTableTest {
 
         sql.executeScript("do bar baz", "arg1", null, 2);
 
-        ResultSet<SqlRow> resultSet = sql.execute("SELECT LAST SCRIPT");
+        ResultSet<SqlRow> resultSet = sql.execute(null, "SELECT LAST SCRIPT");
         SqlRow row = resultSet.next();
 
         assertEquals(
