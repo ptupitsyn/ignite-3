@@ -33,7 +33,7 @@ public final class Column implements Criteria {
      * @param name A column name.
      */
     Column(String name) {
-        this.name = parseIdentifier(name);
+        this.name = name;
     }
 
     /**
