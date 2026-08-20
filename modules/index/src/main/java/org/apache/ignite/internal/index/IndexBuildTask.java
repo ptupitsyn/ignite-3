@@ -19,11 +19,12 @@ package org.apache.ignite.internal.index;
 
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.concurrent.CompletableFuture.failedFuture;
-import static java.util.concurrent.CompletableFuture.supplyAsync;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toUnmodifiableSet;
+import static org.apache.ignite.internal.hlc.HybridTimestamp.hybridTimestamp;
 import static org.apache.ignite.internal.replicator.message.ReplicaMessageUtils.toZonePartitionIdMessage;
+import static org.apache.ignite.internal.util.CollectionUtils.last;
 import static org.apache.ignite.internal.util.CompletableFutures.nullCompletedFuture;
 import static org.apache.ignite.internal.util.ExceptionUtils.hasCause;
 import static org.apache.ignite.internal.util.ExceptionUtils.unwrapCause;
@@ -48,6 +49,7 @@ import org.apache.ignite.internal.lang.NodeStoppingException;
 import org.apache.ignite.internal.logger.IgniteLogger;
 import org.apache.ignite.internal.logger.Loggers;
 import org.apache.ignite.internal.network.InternalClusterNode;
+import org.apache.ignite.internal.partition.replicator.index.MetaIndexStatusChange;
 import org.apache.ignite.internal.partition.replicator.network.PartitionReplicationMessagesFactory;
 import org.apache.ignite.internal.partition.replicator.network.replication.BuildIndexReplicaRequest;
 import org.apache.ignite.internal.raft.GroupOverloadedException;
@@ -66,6 +68,7 @@ import org.apache.ignite.internal.tx.TransactionIds;
 import org.apache.ignite.internal.tx.TxState;
 import org.apache.ignite.internal.util.CompletableFutures;
 import org.apache.ignite.internal.util.IgniteSpinBusyLock;
+import org.apache.ignite.internal.util.PendingComparableValuesTracker;
 import org.apache.ignite.internal.util.TrackerClosedException;
 import org.jetbrains.annotations.Nullable;
 
@@ -80,13 +83,17 @@ class IndexBuildTask {
 
     private final IndexBuildTaskId taskId;
 
-    private final HybridTimestamp indexCreationActivationTs;
+    private final MetaIndexStatusChange indexCreationInfo;
+
+    private final HybridTimestamp indexBuildingStateActivationTimestamp;
 
     private final IndexStorage indexStorage;
 
     private final MvPartitionStorage partitionStorage;
 
     private final ReplicaService replicaService;
+
+    private final PendingComparableValuesTracker<HybridTimestamp, Void> safeTime;
 
     private final FailureProcessor failureProcessor;
 
@@ -118,12 +125,26 @@ class IndexBuildTask {
 
     private final IndexBuilderMetricSource indexBuilderMetricSource;
 
+    /**
+     * Base {@link RowId} value to start the batch in {@link #createBatchToIndex(RowId)}. Assigned only in the beginning of the task or
+     * after a successful processing of a build index request, in which case it is assigned with the value of {@link #newNextRowIdToBuild}.
+     */
+    private @Nullable RowId nextRowIdToBuild;
+
+    /**
+     * Candidate value for {@link #nextRowIdToBuild}, chosen before sending build index request. Will only be used if the request is
+     * successfully processed by a primary replica.
+     */
+    private @Nullable RowId newNextRowIdToBuild;
+
     IndexBuildTask(
             IndexBuildTaskId taskId,
-            HybridTimestamp indexCreationActivationTs,
+            MetaIndexStatusChange indexCreationInfo,
+            HybridTimestamp indexBuildingStateActivationTimestamp,
             IndexStorage indexStorage,
             MvPartitionStorage partitionStorage,
             ReplicaService replicaService,
+            PendingComparableValuesTracker<HybridTimestamp, Void> safeTime,
             FailureProcessor failureProcessor,
             FinalTransactionStateResolver finalTransactionStateResolver,
             Executor executor,
@@ -137,10 +158,12 @@ class IndexBuildTask {
             IndexBuilderMetricSource indexBuilderMetricSource
     ) {
         this.taskId = taskId;
-        this.indexCreationActivationTs = indexCreationActivationTs;
+        this.indexCreationInfo = indexCreationInfo;
+        this.indexBuildingStateActivationTimestamp = indexBuildingStateActivationTimestamp;
         this.indexStorage = indexStorage;
         this.partitionStorage = partitionStorage;
         this.replicaService = replicaService;
+        this.safeTime = safeTime;
         this.failureProcessor = failureProcessor;
         this.finalTransactionStateResolver = finalTransactionStateResolver;
         this.executor = executor;
@@ -173,10 +196,14 @@ class IndexBuildTask {
             LOG.info("Start building the index [{}]", indexInfo);
         }
 
-        try {
-            statisticsLoggingListener.onIndexBuildStarted();
+        nextRowIdToBuild = indexStorage.getNextRowIdToBuild();
 
-            supplyAsync(partitionStorage::highestRowId, executor)
+        try {
+            // This wait is necessary to make sure that all writes made before the index has switched to the BUILDING state
+            // are visible to the index build process.
+            safeTime.waitFor(indexBuildingStateActivationTimestamp)
+                    .thenRun(statisticsLoggingListener::onIndexBuildStarted)
+                    .thenApplyAsync(unused -> partitionStorage.highestRowId(), executor)
                     .thenApplyAsync(this::handleNextBatch, executor)
                     .thenCompose(Function.identity())
                     .whenComplete((unused, throwable) -> {
@@ -254,13 +281,15 @@ class IndexBuildTask {
                             if (!(cause instanceof ReplicationTimeoutException || cause instanceof GroupOverloadedException)) {
                                 return CompletableFuture.<Void>failedFuture(cause);
                             }
-                        } else if (indexStorage.getNextRowIdToBuild() == null) {
+                        } else if (newNextRowIdToBuild == null) {
                             // Index has been built.
                             LOG.info("Index build completed [{}]", createCommonIndexInfo());
 
                             notifyBuildCompletionListeners(taskId);
 
                             return CompletableFutures.<Void>nullCompletedFuture();
+                        } else {
+                            nextRowIdToBuild = newNextRowIdToBuild;
                         }
 
                         return handleNextBatch(highestRowId);
@@ -280,10 +309,8 @@ class IndexBuildTask {
             return completedFuture(new BatchToIndex(List.of(), Set.of()));
         }
 
-        RowId nextRowIdToBuild = indexStorage.getNextRowIdToBuild();
-
         List<RowId> rowIds = new ArrayList<>(batchSize);
-        Map<UUID, CommitPartitionId> transactionsToResolve = new HashMap<>();
+        Map<UUID, WriteIntentInfo> transactionsToResolve = new HashMap<>();
 
         List<RowMeta> rows = nextRowIdToBuild == null ? List.of()
                 : partitionStorage.rowsStartingWith(nextRowIdToBuild, highestRowId, batchSize);
@@ -296,10 +323,12 @@ class IndexBuildTask {
                 assert transactionId != null;
 
                 // We only care about transactions which began after index creation.
-                if (TransactionIds.beginTimestamp(transactionId).compareTo(indexCreationActivationTs) < 0) {
+                HybridTimestamp txBeginTs = TransactionIds.beginTimestamp(transactionId);
+                HybridTimestamp indexCreationTs = hybridTimestamp(indexCreationInfo.activationTimestamp());
+                if (txBeginTs.compareTo(indexCreationTs) < 0) {
                     transactionsToResolve.put(
                             row.transactionId(),
-                            new CommitPartitionId(row.commitZoneId(), row.commitPartitionId())
+                            new WriteIntentInfo(row.commitZoneId(), row.commitPartitionId(), row.newestCommitTimestamp(), row.rowId())
                     );
                 }
             }
@@ -322,12 +351,19 @@ class IndexBuildTask {
                 });
     }
 
-    private CompletableFuture<TxState> resolveFinalTxStateIfNeeded(UUID transactionId, CommitPartitionId commitPartitionId) {
-        assert commitPartitionId.commitZoneId != null;
+    private CompletableFuture<TxState> resolveFinalTxStateIfNeeded(UUID transactionId, WriteIntentInfo writeIntentInfo) {
+        assert writeIntentInfo.commitZoneId != null;
 
-        ZonePartitionId commitGroupId = new ZonePartitionId(commitPartitionId.commitZoneId, commitPartitionId.commitPartitionId);
+        ZonePartitionId commitGroupId = new ZonePartitionId(writeIntentInfo.commitZoneId, writeIntentInfo.commitPartitionId);
+        ZonePartitionId senderGroupId = new ZonePartitionId(taskId.getZoneId(), taskId.getPartitionId());
 
-        return finalTransactionStateResolver.resolveFinalTxState(transactionId, commitGroupId)
+        return finalTransactionStateResolver.resolveFinalTxState(
+                        transactionId,
+                        commitGroupId,
+                        senderGroupId,
+                        writeIntentInfo.rowId,
+                        writeIntentInfo.newestCommitTimestamp
+                )
                 .thenApply(statisticsLoggingListener::onWriteIntentResolved);
     }
 
@@ -353,6 +389,12 @@ class IndexBuildTask {
 
         ZonePartitionIdMessage groupIdMessage =
                 toZonePartitionIdMessage(REPLICA_MESSAGES_FACTORY, new ZonePartitionId(taskId.getZoneId(), taskId.getPartitionId()));
+
+        if (finish) {
+            newNextRowIdToBuild = null;
+        } else {
+            newNextRowIdToBuild = last(rowIds).increment();
+        }
 
         return PARTITION_REPLICATION_MESSAGES_FACTORY.buildIndexReplicaRequest()
                 .groupId(groupIdMessage)
@@ -401,13 +443,22 @@ class IndexBuildTask {
         }
     }
 
-    private static class CommitPartitionId {
+    private static class WriteIntentInfo {
         private final @Nullable Integer commitZoneId;
         private final int commitPartitionId;
+        private final @Nullable HybridTimestamp newestCommitTimestamp;
+        private final RowId rowId;
 
-        private CommitPartitionId(@Nullable Integer commitZoneId, int commitPartitionId) {
+        private WriteIntentInfo(
+                @Nullable Integer commitZoneId,
+                int commitPartitionId,
+                @Nullable HybridTimestamp newestCommitTimestamp,
+                RowId rowId
+        ) {
             this.commitZoneId = commitZoneId;
             this.commitPartitionId = commitPartitionId;
+            this.newestCommitTimestamp = newestCommitTimestamp;
+            this.rowId = rowId;
         }
     }
 }

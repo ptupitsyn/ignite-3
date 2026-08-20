@@ -17,8 +17,13 @@
 
 package org.apache.ignite.internal.network;
 
+import static java.util.concurrent.CompletableFuture.delayedExecutor;
 import static java.util.concurrent.CompletableFuture.failedFuture;
+import static java.util.concurrent.CompletableFuture.supplyAsync;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.function.Function.identity;
 import static org.apache.ignite.internal.lang.IgniteSystemProperties.LONG_HANDLING_LOGGING_ENABLED;
+import static org.apache.ignite.internal.metrics.sources.ThreadPoolMetricSource.THREAD_POOLS_METRICS_SOURCE_NAME;
 import static org.apache.ignite.internal.network.NettyBootstrapFactory.isInNetworkThread;
 import static org.apache.ignite.internal.network.serialization.PerSessionSerializationService.createClassDescriptorsMessages;
 import static org.apache.ignite.internal.thread.ThreadOperation.NOTHING_ALLOWED;
@@ -34,7 +39,10 @@ import static org.apache.ignite.lang.ErrorGroups.Common.INTERNAL_ERR;
 
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
+import java.io.IOException;
+import java.net.ConnectException;
 import java.net.InetSocketAddress;
+import java.net.NoRouteToHostException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -45,18 +53,22 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiPredicate;
-import java.util.function.Function;
 import org.apache.ignite.internal.failure.FailureContext;
 import org.apache.ignite.internal.failure.FailureProcessor;
+import org.apache.ignite.internal.future.OrderingFuture;
 import org.apache.ignite.internal.future.timeout.TimeoutObject;
 import org.apache.ignite.internal.future.timeout.TimeoutWorker;
 import org.apache.ignite.internal.lang.IgniteSystemProperties;
 import org.apache.ignite.internal.lang.NodeStoppingException;
 import org.apache.ignite.internal.logger.IgniteLogger;
 import org.apache.ignite.internal.logger.Loggers;
+import org.apache.ignite.internal.metrics.MetricManager;
+import org.apache.ignite.internal.network.handshake.BrokenHandshakeException;
 import org.apache.ignite.internal.network.handshake.CriticalHandshakeException;
+import org.apache.ignite.internal.network.handshake.HandshakeException;
 import org.apache.ignite.internal.network.message.ClassDescriptorMessage;
 import org.apache.ignite.internal.network.message.InvokeRequest;
 import org.apache.ignite.internal.network.message.InvokeResponse;
@@ -80,6 +92,14 @@ import org.jetbrains.annotations.TestOnly;
 public class DefaultMessagingService extends AbstractMessagingService {
     private static final IgniteLogger LOG = Loggers.forClass(DefaultMessagingService.class);
 
+    private static final long NO_TIMEOUT = -1;
+
+    private static final TerminalIoErrorRetryStrategy NEVER_RETRY = new NeverRetryStrategy();
+
+    private static final TerminalIoErrorRetryStrategy BY_EPHEMERAL_ID = new ByEphemeralIdRetryStrategy();
+
+    private static final long CONNECTION_RETRY_DELAY_MS = 100;
+
     private final boolean longHandlingLoggingEnabled = IgniteSystemProperties.getBoolean(LONG_HANDLING_LOGGING_ENABLED, false);
 
     /** Network messages factory. */
@@ -87,6 +107,8 @@ public class DefaultMessagingService extends AbstractMessagingService {
 
     /** Topology service. */
     private final TopologyService topologyService;
+
+    private final InternalClusterNode localNode;
 
     private final StaleIdDetector staleIdDetector;
 
@@ -100,8 +122,14 @@ public class DefaultMessagingService extends AbstractMessagingService {
 
     private final FailureProcessor failureProcessor;
 
+    private final MetricManager metricManager;
+
+    private final MessagingServiceMetricSource metricSource = new MessagingServiceMetricSource();
+
+    private final MessagingServiceMetrics metrics = new MessagingServiceMetrics(metricSource);
+
     /** Connection manager that provides access to {@link NettySender}. */
-    private volatile ConnectionManager connectionManager;
+    private final ConnectionManager connectionManager;
 
     /** Collection that maps correlation id to the future for an invocation request. */
     private final ConcurrentMap<Long, TimeoutObjectImpl> requestsMap = new ConcurrentHashMap<>();
@@ -132,48 +160,67 @@ public class DefaultMessagingService extends AbstractMessagingService {
      */
     private final Map<UUID, RecipientInetAddress> recipientInetAddrByNodeId = new ConcurrentHashMap<>();
 
+    private final Executor connectionRetryExecutor;
+
+    private final TerminalIoErrorRetryStrategy byConsistentId;
+
     /**
      * Constructor.
      *
      * @param nodeName Consistent ID (aka name) of the local node associated with the service to create.
      * @param factory Network messages factory.
      * @param topologyService Topology service.
+     * @param localNode Local cluster node.
      * @param staleIdDetector Used to detect stale node IDs.
      * @param classDescriptorRegistry Descriptor registry.
      * @param marshaller Marshaller.
      * @param criticalWorkerRegistry Used to register critical threads managed by the new service and its components.
      * @param failureProcessor Failure processor.
+     * @param metricManager The metrics manager.
      * @param channelTypeRegistry {@link ChannelType} registry.
      */
     public DefaultMessagingService(
             String nodeName,
             NetworkMessagesFactory factory,
             TopologyService topologyService,
+            InternalClusterNode localNode,
             StaleIdDetector staleIdDetector,
             ClassDescriptorRegistry classDescriptorRegistry,
             UserObjectMarshaller marshaller,
             CriticalWorkerRegistry criticalWorkerRegistry,
             FailureProcessor failureProcessor,
+            ConnectionManager connectionManager,
+            MetricManager metricManager,
             ChannelTypeRegistry channelTypeRegistry
     ) {
         this.factory = factory;
         this.topologyService = topologyService;
+        this.localNode = localNode;
         this.staleIdDetector = staleIdDetector;
         this.classDescriptorRegistry = classDescriptorRegistry;
         this.marshaller = marshaller;
         this.criticalWorkerRegistry = criticalWorkerRegistry;
         this.failureProcessor = failureProcessor;
+        this.metricManager = metricManager;
+
+        this.connectionManager = connectionManager;
+        connectionManager.addListener(this::handleMessageFromNetwork);
 
         outboundExecutor = new CriticalSingleThreadExecutor(
                 IgniteMessageServiceThreadFactory.create(nodeName, "MessagingService-outbound", LOG, NOTHING_ALLOWED)
         );
+        outboundExecutor.initMetricSource(metricManager, THREAD_POOLS_METRICS_SOURCE_NAME + "messaging.outbound",
+                "Outbound message executor metrics");
 
         inboundExecutors = new CriticalStripedExecutors(
                 nodeName,
                 "MessagingService-inbound",
                 criticalWorkerRegistry,
                 channelTypeRegistry,
-                LOG
+                LOG,
+                metricManager,
+                THREAD_POOLS_METRICS_SOURCE_NAME + "striped.messaging.inbound",
+                "Inbound message executor metrics"
         );
 
         timeoutWorker = new TimeoutWorker(
@@ -183,16 +230,10 @@ public class DefaultMessagingService extends AbstractMessagingService {
                 requestsMap,
                 failureProcessor
         );
-    }
 
-    /**
-     * Resolves cyclic dependency and sets up the connection manager.
-     *
-     * @param connectionManager Connection manager.
-     */
-    public void setConnectionManager(ConnectionManager connectionManager) {
-        this.connectionManager = connectionManager;
-        connectionManager.addListener(this::handleMessageFromNetwork);
+        connectionRetryExecutor = delayedExecutor(CONNECTION_RETRY_DELAY_MS, MILLISECONDS, outboundExecutor);
+
+        byConsistentId = new ByConsistentIdRetryStrategy(topologyService);
     }
 
     @Override
@@ -202,7 +243,7 @@ public class DefaultMessagingService extends AbstractMessagingService {
 
     @Override
     public CompletableFuture<Void> send(InternalClusterNode recipient, ChannelType channelType, NetworkMessage msg) {
-        return send0(recipient, channelType, msg, null, true);
+        return send0(recipient, channelType, msg, null, true, BY_EPHEMERAL_ID);
     }
 
     @Override
@@ -210,12 +251,14 @@ public class DefaultMessagingService extends AbstractMessagingService {
         InternalClusterNode recipient = topologyService.getByConsistentId(recipientConsistentId);
 
         if (recipient == null) {
+            metrics.incrementMessageRecipientNotFound();
+
             return failedFuture(
                     new UnresolvableConsistentIdException("Recipient consistent ID cannot be resolved: " + recipientConsistentId)
             );
         }
 
-        return send0(recipient, channelType, msg, null, false);
+        return send0(recipient, channelType, msg, null, false, byConsistentId);
     }
 
     @Override
@@ -227,12 +270,12 @@ public class DefaultMessagingService extends AbstractMessagingService {
             recipient = new ClusterNodeImpl(null, null, recipientNetworkAddress);
         }
 
-        return send0(recipient, channelType, msg, null, false);
+        return send0(recipient, channelType, msg, null, false, NEVER_RETRY);
     }
 
     @Override
     public CompletableFuture<Void> respond(InternalClusterNode recipient, ChannelType type, NetworkMessage msg, long correlationId) {
-        return send0(recipient, type, msg, correlationId, true);
+        return send0(recipient, type, msg, correlationId, true, BY_EPHEMERAL_ID);
     }
 
     @Override
@@ -240,17 +283,19 @@ public class DefaultMessagingService extends AbstractMessagingService {
         InternalClusterNode recipient = topologyService.getByConsistentId(recipientConsistentId);
 
         if (recipient == null) {
+            metrics.incrementMessageRecipientNotFound();
+
             return failedFuture(
                     new UnresolvableConsistentIdException("Recipient consistent ID cannot be resolved: " + recipientConsistentId)
             );
         }
 
-        return send0(recipient, type, msg, correlationId, false);
+        return send0(recipient, type, msg, correlationId, false, byConsistentId);
     }
 
     @Override
     public CompletableFuture<NetworkMessage> invoke(InternalClusterNode recipient, ChannelType type, NetworkMessage msg, long timeout) {
-        return invoke0(recipient, type, msg, timeout, true);
+        return invoke0(recipient, type, msg, timeout, true, BY_EPHEMERAL_ID);
     }
 
     /** {@inheritDoc} */
@@ -259,12 +304,14 @@ public class DefaultMessagingService extends AbstractMessagingService {
         InternalClusterNode recipient = topologyService.getByConsistentId(recipientConsistentId);
 
         if (recipient == null) {
+            metrics.incrementMessageRecipientNotFound();
+
             return failedFuture(
                     new UnresolvableConsistentIdException("Recipient consistent ID cannot be resolved: " + recipientConsistentId)
             );
         }
 
-        return invoke0(recipient, type, msg, timeout, false);
+        return invoke0(recipient, type, msg, timeout, false, byConsistentId);
     }
 
     /**
@@ -275,6 +322,7 @@ public class DefaultMessagingService extends AbstractMessagingService {
      * @param correlationId Correlation id. Not null iff the message is a response to a {@link #invoke} request.
      * @param strictIdCheck Whether {@link RecipientLeftException} is to be thrown if the node at the other side of the channel
      *     actually has ID different from the ID in the recipient object (that is, that the recipient has been restarted).
+     * @param retryStrategy Retry strategy.
      * @return Future of the send operation.
      */
     private CompletableFuture<Void> send0(
@@ -282,14 +330,23 @@ public class DefaultMessagingService extends AbstractMessagingService {
             ChannelType type,
             NetworkMessage msg,
             @Nullable Long correlationId,
-            boolean strictIdCheck
+            boolean strictIdCheck,
+            TerminalIoErrorRetryStrategy retryStrategy
     ) {
         if (connectionManager.isStopped()) {
             return failedFuture(new NodeStoppingException());
         }
 
+        boolean shouldDropMessage;
+
+        try {
+            shouldDropMessage = shouldDropMessage(recipient, msg);
+        } catch (Exception e) {
+            return failedFuture(e);
+        }
+
         // TODO: IGNITE-18493 - remove/move this
-        if (shouldDropMessage(recipient, msg)) {
+        if (shouldDropMessage) {
             return nullCompletedFuture();
         }
 
@@ -305,9 +362,21 @@ public class DefaultMessagingService extends AbstractMessagingService {
             return nullCompletedFuture();
         }
 
+        if (strictIdCheck && staleIdDetector.isIdStale(recipient.id())) {
+            return recipientIsStaleFuture(recipient);
+        }
+
         NetworkMessage message = correlationId != null ? responseFromMessage(msg, correlationId) : msg;
 
-        return sendViaNetwork(recipient.id(), type, recipientAddress, message, strictIdCheck);
+        return sendViaNetwork(recipient.id(), type, recipientAddress, message, strictIdCheck, retryStrategy, recipient.name(), NO_TIMEOUT);
+    }
+
+    private <U> CompletableFuture<U> recipientIsStaleFuture(InternalClusterNode recipient) {
+        metrics.incrementMessageRecipientNotFound();
+
+        return failedFuture(
+                new RecipientLeftException("Recipient is stale [name=" + recipient.name() + ", id=" + recipient.id() + "]")
+        );
     }
 
     private boolean shouldDropMessage(InternalClusterNode recipient, NetworkMessage msg) {
@@ -324,6 +393,7 @@ public class DefaultMessagingService extends AbstractMessagingService {
      * @param timeout Invocation timeout.
      * @param strictIdCheck Whether {@link RecipientLeftException} is to be thrown if the node at the other side of the channel
      *     actually has ID different from the ID in the recipient object (that is, that the recipient has been restarted).
+     * @param retryStrategy Retry strategy.
      * @return A future holding the response or error if the expected response was not received.
      */
     private CompletableFuture<NetworkMessage> invoke0(
@@ -331,22 +401,34 @@ public class DefaultMessagingService extends AbstractMessagingService {
             ChannelType type,
             NetworkMessage msg,
             long timeout,
-            boolean strictIdCheck
+            boolean strictIdCheck,
+            TerminalIoErrorRetryStrategy retryStrategy
     ) {
         if (connectionManager.isStopped()) {
             return failedFuture(new NodeStoppingException());
         }
 
+        boolean shouldDropMessage;
+
+        try {
+            shouldDropMessage = shouldDropMessage(recipient, msg);
+        } catch (Exception e) {
+            return failedFuture(e);
+        }
+
         // TODO: IGNITE-18493 - remove/move this
-        if (shouldDropMessage(recipient, msg)) {
-            return new CompletableFuture<NetworkMessage>().orTimeout(10, TimeUnit.MILLISECONDS);
+        if (shouldDropMessage) {
+            return new CompletableFuture<NetworkMessage>().orTimeout(10, MILLISECONDS);
         }
 
         long correlationId = createCorrelationId();
 
         CompletableFuture<NetworkMessage> responseFuture = new CompletableFuture<>();
 
-        requestsMap.put(correlationId, new TimeoutObjectImpl(timeout > 0 ? coarseCurrentTimeMillis() + timeout : 0, responseFuture, msg));
+        requestsMap.put(
+                correlationId,
+                new TimeoutObjectImpl(timeoutDefined(timeout) ? coarseCurrentTimeMillis() + timeout : 0, responseFuture, msg)
+        );
 
         InetSocketAddress recipientAddress = resolveRecipientAddress(recipient);
 
@@ -356,33 +438,48 @@ public class DefaultMessagingService extends AbstractMessagingService {
             return responseFuture;
         }
 
+        if (strictIdCheck && staleIdDetector.isIdStale(recipient.id())) {
+            return recipientIsStaleFuture(recipient);
+        }
+
         InvokeRequest message = requestFromMessage(msg, correlationId);
 
-        return sendViaNetwork(recipient.id(), type, recipientAddress, message, strictIdCheck)
+        return sendViaNetwork(recipient.id(), type, recipientAddress, message, strictIdCheck, retryStrategy, recipient.name(), timeout)
                 .thenCompose(unused -> responseFuture);
+    }
+
+    private static boolean timeoutDefined(long timeout) {
+        return timeout > 0;
     }
 
     /**
      * Sends network object.
      *
-     * @param nodeId Target node ID.
+     * @param nodeId Target node ID (only {@code null} if sending by address).
      * @param type Channel type for send.
      * @param addr Target address.
      * @param message Message.
      * @param strictIdCheck Whether {@link RecipientLeftException} is to be thrown if the node at the other side of the channel
      *     actually has ID different from the ID in the recipient object (that is, that the recipient has been restarted).
+     * @param retryStrategy Retry strategy.
+     * @param consistentId Consistent ID of the recipient (if known).
+     * @param channelTimeoutMillis Timeout for channel creation in milliseconds. If -1, then no timeout.
      * @return Future of the send operation.
      */
     private CompletableFuture<Void> sendViaNetwork(
-            UUID nodeId,
+            @Nullable UUID nodeId,
             ChannelType type,
             InetSocketAddress addr,
             NetworkMessage message,
-            boolean strictIdCheck
+            boolean strictIdCheck,
+            TerminalIoErrorRetryStrategy retryStrategy,
+            @Nullable String consistentId,
+            long channelTimeoutMillis
     ) {
         if (isInNetworkThread()) {
-            return CompletableFuture.supplyAsync(() -> sendViaNetwork(nodeId, type, addr, message, strictIdCheck), outboundExecutor)
-                    .thenCompose(Function.identity());
+            return supplyAsync(() -> {
+                return sendViaNetwork(nodeId, type, addr, message, strictIdCheck, retryStrategy, consistentId, channelTimeoutMillis);
+            }, outboundExecutor).thenCompose(identity());
         }
 
         List<ClassDescriptorMessage> descriptors;
@@ -393,29 +490,189 @@ public class DefaultMessagingService extends AbstractMessagingService {
             return failedFuture(new IgniteException(INTERNAL_ERR, "Failed to marshal message: " + e.getMessage(), e));
         }
 
-        return connectionManager.channel(nodeId, type, addr)
+        OrderingFuture<NettySender> channelFuture = openChannelWithRetries(
+                nodeId,
+                type,
+                addr,
+                strictIdCheck,
+                retryStrategy,
+                consistentId,
+                channelTimeoutMillis
+        );
+
+        channelFuture.whenComplete((sender, ex) -> maybeLogHandshakeError(ex, nodeId, type, addr));
+
+        return channelFuture
                 .thenComposeToCompletable(sender -> {
                     if (strictIdCheck && nodeId != null && !sender.launchId().equals(nodeId)) {
                         // The destination node has been rebooted, so it's a different node instance.
+                        metrics.incrementMessageRecipientNotFound();
+
                         throw new RecipientLeftException("Target node ID is " + nodeId + ", but " + sender.launchId() + " responded");
                     }
 
                     return sender.send(
                             new OutNetworkObject(message, descriptors),
-                            () -> triggerChannelCreation(nodeId, type, addr)
+                            () -> triggerChannelCreation(
+                                    nodeId,
+                                    type,
+                                    addr,
+                                    strictIdCheck,
+                                    retryStrategy,
+                                    consistentId,
+                                    channelTimeoutMillis
+                            )
                     );
-                })
-                .whenComplete((res, ex) -> handleHandshakeError(ex, nodeId, type, addr));
+                });
     }
 
-    private void handleHandshakeError(Throwable ex, UUID nodeId, ChannelType type, InetSocketAddress addr) {
+    private OrderingFuture<NettySender> openChannelWithRetries(
+            @Nullable UUID nodeId,
+            ChannelType type,
+            InetSocketAddress addr,
+            boolean strictIdCheck,
+            TerminalIoErrorRetryStrategy retryStrategy,
+            @Nullable String consistentId,
+            long timeoutMillis
+    ) {
+        Long deadlineMillis = timeoutMillis == NO_TIMEOUT || !timeoutDefined(timeoutMillis) ? null
+                : coarseCurrentTimeMillis() + timeoutMillis;
+        if (deadlineMillis != null && deadlineMillis < 0) {
+            deadlineMillis = Long.MAX_VALUE;
+        }
+
+        return openChannelWithRetriesInternal(nodeId, type, addr, strictIdCheck, retryStrategy, consistentId, deadlineMillis, 0);
+    }
+
+    private OrderingFuture<NettySender> openChannelWithRetriesInternal(
+            @Nullable UUID nodeId,
+            ChannelType type,
+            InetSocketAddress addr,
+            boolean strictIdCheck,
+            TerminalIoErrorRetryStrategy retryStrategy,
+            @Nullable String consistentId,
+            @Nullable Long deadlineMillis,
+            int attemptOrdinal
+    ) {
+        if (attemptOrdinal >= 1000) {
+            return OrderingFuture.failedFuture(new IllegalStateException(
+                    "Too many channel creation attempts [attempts=" + attemptOrdinal + ", nodeId=" + nodeId + "]."
+            ));
+        }
+
+        return connectionManager.channel(nodeId, type, addr)
+                .handle((res, ex) -> {
+                    if (ex == null) {
+                        return OrderingFuture.completedFuture(res);
+                    }
+
+                    // Only I/O exceptions and BrokenHandshakeException are retriable.
+                    if (!causedByIoException(ex) && !hasCause(ex, BrokenHandshakeException.class)) {
+                        return OrderingFuture.<NettySender>failedFuture(ex);
+                    }
+
+                    if (strictIdCheck && nodeId != null && staleIdDetector.isIdStale(nodeId)) {
+                        metrics.incrementMessageRecipientNotFound();
+
+                        return OrderingFuture.<NettySender>failedFuture(
+                                new RecipientLeftException("Recipient is stale [id=" + nodeId + "]")
+                        );
+                    }
+
+                    // We always retry 'temporary I/O failures' (those that are not ConnectException or NoRouteToHostException).
+                    boolean temporaryFailure = !recipientIsNotThere(ex);
+
+                    if (!temporaryFailure && !retryStrategy.stillRetriable(nodeId, consistentId)) {
+                        Throwable exToReturn = retryStrategy.retriesExhaustedMeansRecipientLeft()
+                                ? new RecipientLeftException("Recipient left [id=" + nodeId + "].") : ex;
+                        return OrderingFuture.<NettySender>failedFuture(exToReturn);
+                    }
+
+                    if (deadlineReached(deadlineMillis)) {
+                        return OrderingFuture.<NettySender>failedFuture(
+                                new TimeoutException("Channel creation timed out [id=" + nodeId + "].")
+                        );
+                    }
+
+                    return attemptToOpenChannelAfterDelay(
+                            nodeId,
+                            type,
+                            addr,
+                            strictIdCheck,
+                            retryStrategy,
+                            consistentId,
+                            deadlineMillis,
+                            attemptOrdinal + 1
+                    );
+                })
+                .thenCompose(identity());
+    }
+
+    private static boolean causedByIoException(Throwable ex) {
+        return hasCause(ex, IOException.class);
+    }
+
+    private static boolean recipientIsNotThere(Throwable ex) {
+        return hasCause(ex, ConnectException.class, NoRouteToHostException.class);
+    }
+
+    private static boolean deadlineReached(@Nullable Long deadlineMillis) {
+        return deadlineMillis != null && coarseCurrentTimeMillis() >= deadlineMillis;
+    }
+
+    private OrderingFuture<NettySender> attemptToOpenChannelAfterDelay(
+            @Nullable UUID nodeId,
+            ChannelType type,
+            InetSocketAddress addr,
+            boolean strictIdCheck,
+            TerminalIoErrorRetryStrategy retryStrategy,
+            @Nullable String consistentId,
+            @Nullable Long deadlineMillis,
+            int attemptOrdinal
+    ) {
+        OrderingFuture<NettySender> nextAttemptFuture = new OrderingFuture<>();
+
+        // Formally, we break ordering guarantees here, but it's not a problem as we are only concerned about order of messages,
+        // and the corresponding callbacks will be added to a future we return from here, so ordering of message sends will be maintained.
+
+        connectionRetryExecutor.execute(() -> {
+            try {
+                openChannelWithRetriesInternal(
+                        nodeId,
+                        type,
+                        addr,
+                        strictIdCheck,
+                        retryStrategy,
+                        consistentId,
+                        deadlineMillis,
+                        attemptOrdinal
+                ).whenComplete((nextRes, nextEx) -> {
+                    if (nextEx != null) {
+                        nextAttemptFuture.completeExceptionally(nextEx);
+                    } else {
+                        nextAttemptFuture.complete(nextRes);
+                    }
+                });
+            } catch (Throwable e) {
+                nextAttemptFuture.completeExceptionally(e);
+
+                if (e instanceof Error) {
+                    throw e;
+                }
+            }
+        });
+
+        return nextAttemptFuture;
+    }
+
+    private void maybeLogHandshakeError(Throwable ex, @Nullable UUID nodeId, ChannelType type, InetSocketAddress addr) {
         if (ex != null) {
             if (hasCause(ex, CriticalHandshakeException.class)) {
                 LOG.error(
                         "Handshake failed [destNodeId={}, channelType={}, destAddr={}, localBindAddr={}]", ex,
                         nodeId, type, addr, connectionManager.localBindAddress()
                 );
-            } else if (!hasCause(ex, NodeStoppingException.class) && LOG.isInfoEnabled()) {
+            } else if (LOG.isInfoEnabled() && hasCause(ex, HandshakeException.class) && !hasCause(ex, IOException.class)) {
                 // TODO IGNITE-25802 Detect a LOOP rejection reason and retry the connection.
                 LOG.info(
                         "Handshake failed [message={}, destNodeId={}, channelType={}, destAddr={}, localBindAddr={}]",
@@ -425,8 +682,16 @@ public class DefaultMessagingService extends AbstractMessagingService {
         }
     }
 
-    private void triggerChannelCreation(UUID nodeId, ChannelType type, InetSocketAddress addr) {
-        connectionManager.channel(nodeId, type, addr);
+    private void triggerChannelCreation(
+            @Nullable UUID nodeId,
+            ChannelType type,
+            InetSocketAddress addr,
+            boolean strictIdCheck,
+            TerminalIoErrorRetryStrategy retryStrategy,
+            @Nullable String consistentId,
+            long timeoutMillis
+    ) {
+        openChannelWithRetries(nodeId, type, addr, strictIdCheck, retryStrategy, consistentId, timeoutMillis);
     }
 
     private List<ClassDescriptorMessage> prepareMarshal(NetworkMessage msg) throws Exception {
@@ -447,11 +712,12 @@ public class DefaultMessagingService extends AbstractMessagingService {
         List<HandlerContext> handlerContexts = getHandlerContexts(message.groupType());
 
         // Specially made by a classic loop for optimization.
+        //noinspection ForLoopReplaceableByForEach
         for (int i = 0; i < handlerContexts.size(); i++) {
             HandlerContext handlerContext = handlerContexts.get(i);
 
             // Invoking on the same thread, ignoring the executor chooser registered with the handler.
-            handlerContext.handler().onReceived(message, topologyService.localMember(), correlationId);
+            handlerContext.handler().onReceived(message, localNode, correlationId);
         }
     }
 
@@ -497,17 +763,21 @@ public class DefaultMessagingService extends AbstractMessagingService {
 
         Long finalCorrelationId = correlationId;
         firstHandlerExecutor.execute(() -> {
-            long startedNanos = longHandlingLoggingEnabled ? System.nanoTime() : 0;
+            long startedNanos = System.nanoTime();
 
             try {
                 handleStartingWithFirstHandler(payload, finalCorrelationId, inNetworkObject, firstHandlerContext, handlerContexts);
             } catch (Throwable e) {
+                metrics.incrementMessageHandlingFailures();
+
                 handleAndRethrowIfError(inNetworkObject, e);
             } finally {
-                if (longHandlingLoggingEnabled && LOG.isWarnEnabled()) {
-                    long tookMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos);
+                long tookMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos);
 
-                    if (tookMillis > 100) {
+                if (tookMillis > 100) {
+                    metrics.incrementSlowResponses();
+
+                    if (longHandlingLoggingEnabled && LOG.isWarnEnabled()) {
                         LOG.warn(
                                 "Processing of {} from {} took {} ms",
                                 LOG.isDebugEnabled() && includeSensitive() ? message : message.toStringForLightLogging(),
@@ -647,7 +917,14 @@ public class DefaultMessagingService extends AbstractMessagingService {
         TimeoutObjectImpl responseFuture = requestsMap.remove(correlationId);
 
         if (responseFuture != null) {
-            responseFuture.future().complete(response);
+            var fut = responseFuture.future();
+
+            fut.complete(response);
+
+            // Check if it was already completed exceptionally by the timeout worker.
+            if (fut.isCompletedExceptionally()) {
+                metrics.incrementInvokeTimeouts();
+            }
         }
     }
 
@@ -698,12 +975,17 @@ public class DefaultMessagingService extends AbstractMessagingService {
                 recipientInetAddrByNodeId.remove(member.id());
             }
         });
+
+        metricManager.registerSource(metricSource);
+        metricManager.enable(metricSource);
     }
 
     /**
      * Stops the messaging service.
      */
     public void stop() throws Exception {
+        metricManager.unregisterSource(metricSource);
+
         var exception = new NodeStoppingException();
 
         requestsMap.values().forEach(fut -> fut.future().completeExceptionally(exception));
@@ -722,6 +1004,7 @@ public class DefaultMessagingService extends AbstractMessagingService {
     }
 
     // TODO: IGNITE-18493 - remove/move this
+
     /**
      * Installs a predicate, it will be consulted with for each message being sent; when it returns {@code true}, the
      * message will be dropped (it will not be sent; the corresponding future will time out soon for {@code invoke()} methods
@@ -763,7 +1046,7 @@ public class DefaultMessagingService extends AbstractMessagingService {
     /**
      * Timeout object wrapper for the completable future.
      */
-    private static class TimeoutObjectImpl implements TimeoutObject<CompletableFuture<NetworkMessage>> {
+    private static class TimeoutObjectImpl implements TimeoutObject<NetworkMessage> {
         /** End time (milliseconds since Unix epoch). */
         private final long endTime;
 
@@ -837,5 +1120,56 @@ public class DefaultMessagingService extends AbstractMessagingService {
         }
 
         return address.address();
+    }
+
+    private interface TerminalIoErrorRetryStrategy {
+        boolean stillRetriable(@Nullable UUID id, @Nullable String consistentId);
+
+        boolean retriesExhaustedMeansRecipientLeft();
+    }
+
+    private static class ByEphemeralIdRetryStrategy implements TerminalIoErrorRetryStrategy {
+        @Override
+        public boolean stillRetriable(@Nullable UUID id, @Nullable String consistentId) {
+            // TODO: https://issues.apache.org/jira/browse/IGNITE-28225 - make retriable.
+            return false;
+        }
+
+        @Override
+        public boolean retriesExhaustedMeansRecipientLeft() {
+            return false;
+        }
+    }
+
+    private static class ByConsistentIdRetryStrategy implements TerminalIoErrorRetryStrategy {
+        private final TopologyService topologyService;
+
+        private ByConsistentIdRetryStrategy(TopologyService topologyService) {
+            this.topologyService = topologyService;
+        }
+
+        @Override
+        public boolean stillRetriable(@Nullable UUID id, @Nullable String consistentId) {
+            assert consistentId != null;
+
+            return topologyService.getByConsistentId(consistentId) != null;
+        }
+
+        @Override
+        public boolean retriesExhaustedMeansRecipientLeft() {
+            return true;
+        }
+    }
+
+    private static class NeverRetryStrategy implements TerminalIoErrorRetryStrategy {
+        @Override
+        public boolean stillRetriable(@Nullable UUID id, @Nullable String consistentId) {
+            return false;
+        }
+
+        @Override
+        public boolean retriesExhaustedMeansRecipientLeft() {
+            return false;
+        }
     }
 }

@@ -1,4 +1,3 @@
-package org.apache.ignite.example.streaming;
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements. See the NOTICE file distributed with
@@ -15,6 +14,8 @@ package org.apache.ignite.example.streaming;
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+package org.apache.ignite.example.streaming;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -36,14 +37,19 @@ public class SingleTableDataStreamerExample {
 
     private static final int ACCOUNTS_COUNT = 10;
 
-    /* Assuming table Accounts exists */
+    /**
+     * Runs the SingleTableDataStreamerExample.
+     *
+     * @param arg The command line arguments.
+     */
     public static void main(String[] arg) {
 
         try (IgniteClient client = IgniteClient.builder()
                 .addresses("127.0.0.1:10800")
                 .build()) {
             System.out.println("Creating Accounts table");
-            client.sql().execute(null, "CREATE TABLE IF NOT EXISTS ACCOUNTS (id INT PRIMARY KEY, name VARCHAR(255), balance BIGINT, active BOOLEAN);");
+            client.sql().execute(
+                    "CREATE TABLE IF NOT EXISTS ACCOUNTS (id INT PRIMARY KEY, name VARCHAR(255), balance BIGINT, active BOOLEAN);");
 
             RecordView<Account> view = client.tables().table("Accounts").recordView(Account.class);
 
@@ -60,7 +66,7 @@ public class SingleTableDataStreamerExample {
             verifyRemove(view);
 
             System.out.println("Dropping Accounts table.");
-            client.sql().execute(null, "DROP TABLE IF EXISTS ACCOUNTS;");
+            client.sql().execute("DROP TABLE IF EXISTS ACCOUNTS;");
 
         }
     }
@@ -111,12 +117,12 @@ public class SingleTableDataStreamerExample {
         streamerFut.join();
     }
 
-    private static void verifyPut(RecordView view) {
+    private static void verifyPut(RecordView<Account> view) {
         System.out.println("=== Table data after PUT ===");
         for (int i = 0; i < ACCOUNTS_COUNT; i++) {
             Account keyRec = new Account(i);
-            if (view.contains(null, keyRec)) {
-                Account record = (Account) view.get(null, keyRec);
+            if (view.contains(keyRec)) {
+                Account record = view.get(keyRec);
                 System.out.printf("Found: id=%d, name=%s, balance=%d, active=%b%n",
                         record.getId(), record.getName(), record.getBalance(), record.isActive());
             } else {
@@ -130,7 +136,7 @@ public class SingleTableDataStreamerExample {
         List<Account> keys = IntStream.range(0, ACCOUNTS_COUNT)
                 .mapToObj(Account::new)
                 .collect(Collectors.toList());
-        List<Account> records = view.getAll(null, keys);
+        List<Account> records = view.getAll(keys);
         for (int i = 0; i < records.size(); i++) {
             System.out.printf("id=%d exists? %b%n", i, records.get(i) != null);
         }

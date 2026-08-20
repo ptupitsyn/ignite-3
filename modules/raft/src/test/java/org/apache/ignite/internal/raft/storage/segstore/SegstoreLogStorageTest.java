@@ -26,6 +26,7 @@ import org.apache.ignite.internal.configuration.testframework.ConfigurationExten
 import org.apache.ignite.internal.configuration.testframework.InjectConfiguration;
 import org.apache.ignite.internal.failure.NoOpFailureManager;
 import org.apache.ignite.internal.raft.configuration.LogStorageConfiguration;
+import org.apache.ignite.internal.raft.configuration.RaftConfiguration;
 import org.apache.ignite.raft.jraft.storage.LogStorage;
 import org.apache.ignite.raft.jraft.storage.impl.BaseLogStorageTest;
 import org.apache.ignite.raft.jraft.test.TestUtils;
@@ -44,6 +45,9 @@ class SegstoreLogStorageTest extends BaseLogStorageTest {
 
     private SegmentFileManager segmentFileManager;
 
+    @InjectConfiguration
+    private RaftConfiguration raftConfiguration;
+
     @InjectConfiguration("mock.segmentFileSizeBytes=" + SEGMENT_SIZE)
     private LogStorageConfiguration storageConfiguration;
 
@@ -57,9 +61,11 @@ class SegstoreLogStorageTest extends BaseLogStorageTest {
         try {
             segmentFileManager = new SegmentFileManager(
                     NODE_NAME,
+                    NODE_NAME,
                     path,
                     1,
                     new NoOpFailureManager(),
+                    raftConfiguration.fsync().value(),
                     storageConfiguration
             );
 

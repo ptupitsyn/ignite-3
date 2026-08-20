@@ -61,6 +61,7 @@ import org.apache.ignite.internal.sql.SqlCommon;
 import org.apache.ignite.internal.sql.configuration.distributed.CreateTableDefaultsView;
 import org.apache.ignite.internal.sql.configuration.distributed.SqlDistributedConfiguration;
 import org.apache.ignite.internal.sql.configuration.local.SqlLocalConfiguration;
+import org.apache.ignite.internal.sql.engine.api.expressions.ExpressionFactory;
 import org.apache.ignite.internal.sql.engine.api.kill.CancellableOperationType;
 import org.apache.ignite.internal.sql.engine.api.kill.OperationKillHandler;
 import org.apache.ignite.internal.sql.engine.exec.ExchangeServiceImpl;
@@ -74,7 +75,8 @@ import org.apache.ignite.internal.sql.engine.exec.QueryTaskExecutorImpl;
 import org.apache.ignite.internal.sql.engine.exec.SqlRowHandler;
 import org.apache.ignite.internal.sql.engine.exec.TransactionalOperationTracker;
 import org.apache.ignite.internal.sql.engine.exec.ddl.DdlCommandHandler;
-import org.apache.ignite.internal.sql.engine.exec.exp.ExpressionFactoryImpl;
+import org.apache.ignite.internal.sql.engine.exec.exp.SqlExpressionFactory;
+import org.apache.ignite.internal.sql.engine.exec.exp.SqlExpressionFactoryImpl;
 import org.apache.ignite.internal.sql.engine.exec.exp.func.TableFunctionRegistryImpl;
 import org.apache.ignite.internal.sql.engine.exec.fsm.ExecutionPhase;
 import org.apache.ignite.internal.sql.engine.exec.fsm.QueryExecutor;
@@ -83,6 +85,7 @@ import org.apache.ignite.internal.sql.engine.exec.fsm.QueryInfo;
 import org.apache.ignite.internal.sql.engine.exec.kill.KillCommandHandler;
 import org.apache.ignite.internal.sql.engine.exec.mapping.ExecutionDistributionProviderImpl;
 import org.apache.ignite.internal.sql.engine.exec.mapping.MappingServiceImpl;
+import org.apache.ignite.internal.sql.engine.expressions.SqlExpressionFactoryAdapter;
 import org.apache.ignite.internal.sql.engine.message.MessageServiceImpl;
 import org.apache.ignite.internal.sql.engine.prepare.PrepareService;
 import org.apache.ignite.internal.sql.engine.prepare.PrepareServiceImpl;
@@ -107,7 +110,6 @@ import org.apache.ignite.internal.sql.engine.util.cache.CacheFactory;
 import org.apache.ignite.internal.sql.engine.util.cache.CaffeineCacheFactory;
 import org.apache.ignite.internal.sql.metrics.SqlClientMetricSource;
 import org.apache.ignite.internal.sql.metrics.SqlQueryMetricSource;
-import org.apache.ignite.internal.storage.DataStorageManager;
 import org.apache.ignite.internal.systemview.api.SystemView;
 import org.apache.ignite.internal.systemview.api.SystemViewManager;
 import org.apache.ignite.internal.systemview.api.SystemViewProvider;
@@ -154,8 +156,6 @@ public class SqlQueryProcessor implements QueryProcessor, SystemViewProvider {
     private final TableManager tableManager;
 
     private final SchemaManager schemaManager;
-
-    private final DataStorageManager dataStorageManager;
 
     /** Busy lock for stop synchronisation. */
     private final IgniteSpinBusyLock busyLock = new IgniteSpinBusyLock();
@@ -207,13 +207,14 @@ public class SqlQueryProcessor implements QueryProcessor, SystemViewProvider {
 
     private final EventLog eventLog;
 
+    private final SqlExpressionFactory expressionFactory;
+
     /** Constructor. */
     public SqlQueryProcessor(
             ClusterService clusterSrvc,
             LogicalTopologyService logicalTopologyService,
             TableManager tableManager,
             SchemaManager schemaManager,
-            DataStorageManager dataStorageManager,
             ReplicaService replicaService,
             ClockService clockService,
             SchemaSyncService schemaSyncService,
@@ -235,7 +236,7 @@ public class SqlQueryProcessor implements QueryProcessor, SystemViewProvider {
         this.logicalTopologyService = logicalTopologyService;
         this.tableManager = tableManager;
         this.schemaManager = schemaManager;
-        this.dataStorageManager = dataStorageManager;
+
         this.replicaService = replicaService;
         this.clockService = clockService;
         this.schemaSyncService = schemaSyncService;
@@ -246,7 +247,7 @@ public class SqlQueryProcessor implements QueryProcessor, SystemViewProvider {
         this.placementDriver = placementDriver;
         this.clusterCfg = clusterCfg;
         this.nodeCfg = nodeCfg;
-        this.txTracker = new InflightTransactionalOperationTracker(transactionInflights);
+        this.txTracker = new InflightTransactionalOperationTracker(transactionInflights, txManager);
         this.txManager = txManager;
         this.commonScheduler = commonScheduler;
         this.killCommandHandler = killCommandHandler;
@@ -270,12 +271,16 @@ public class SqlQueryProcessor implements QueryProcessor, SystemViewProvider {
                 CACHE_FACTORY,
                 SCHEMA_CACHE_SIZE
         );
+
+        expressionFactory = new SqlExpressionFactoryImpl(
+                Commons.typeFactory(), COMPILED_EXPRESSIONS_CACHE_SIZE, CACHE_FACTORY
+        );
     }
 
     /** {@inheritDoc} */
     @Override
     public synchronized CompletableFuture<Void> startAsync(ComponentContext componentContext) {
-        InternalClusterNode localNode = clusterSrvc.topologyService().localMember();
+        InternalClusterNode localNode = clusterSrvc.staticLocalNode();
         String nodeName = localNode.name();
 
         taskExecutor = registerService(new QueryTaskExecutorImpl(
@@ -309,7 +314,6 @@ public class SqlQueryProcessor implements QueryProcessor, SystemViewProvider {
         var prepareSvc = registerService(PrepareServiceImpl.create(
                 nodeName,
                 CACHE_FACTORY,
-                dataStorageManager,
                 metricManager,
                 clusterCfg,
                 nodeCfg,
@@ -371,7 +375,7 @@ public class SqlQueryProcessor implements QueryProcessor, SystemViewProvider {
         // placementDriver.listen(PrimaryReplicaEvent.ASSIGNMENTS_CHANGED, mappingService::onPrimaryReplicaAssignment);
 
         var executionSrvc = registerService(ExecutionServiceImpl.create(
-                clusterSrvc.topologyService(),
+                localNode,
                 msgSrvc,
                 sqlSchemaManager,
                 ddlCommandHandler,
@@ -386,14 +390,13 @@ public class SqlQueryProcessor implements QueryProcessor, SystemViewProvider {
                 tableFunctionRegistry,
                 clockService,
                 killCommandHandler,
-                new ExpressionFactoryImpl(
-                        Commons.typeFactory(), COMPILED_EXPRESSIONS_CACHE_SIZE, CACHE_FACTORY
-                ),
-                EXECUTION_SERVICE_SHUTDOWN_TIMEOUT
+                expressionFactory,
+                EXECUTION_SERVICE_SHUTDOWN_TIMEOUT,
+                SqlPlanToTxSchemaVersionValidator.create(schemaSyncService, catalogManager)
         ));
 
         queryExecutor = registerService(new QueryExecutor(
-                clusterSrvc.topologyService().localMember().name(),
+                nodeName,
                 CACHE_FACTORY,
                 PARSED_RESULT_CACHE_SIZE,
                 new ParserServiceImpl(),
@@ -635,6 +638,11 @@ public class SqlQueryProcessor implements QueryProcessor, SystemViewProvider {
     @Override
     public CompletableFuture<Void> invalidatePlannerCache(Set<String> tableNames) {
         return prepareSvc.invalidateCache(tableNames);
+    }
+
+    /** Returns an expression factory to create executable expressions. */
+    public ExpressionFactory expressionFactory() {
+        return new SqlExpressionFactoryAdapter(expressionFactory);
     }
 
     /** Completes the provided future when the callback is called. */

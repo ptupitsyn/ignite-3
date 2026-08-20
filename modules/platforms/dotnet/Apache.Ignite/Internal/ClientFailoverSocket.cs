@@ -49,6 +49,9 @@ namespace Apache.Ignite.Internal
         /** Logger. */
         private readonly ILogger _logger;
 
+        /** Observable timestamp. */
+        private readonly HybridTimestampTracker _observableTimestamp;
+
         /** Cluster node unique name to endpoint map. */
         private readonly ConcurrentDictionary<string, SocketEndpoint> _endpointsByName = new();
 
@@ -82,9 +85,6 @@ namespace Apache.Ignite.Internal
         /** Local index for round-robin balancing within this FailoverSocket. */
         private long _endPointIndex = Interlocked.Increment(ref _globalEndPointIndex);
 
-        /** Observable timestamp. */
-        private long _observableTimestamp;
-
         /// <summary>
         /// Initializes a new instance of the <see cref="ClientFailoverSocket"/> class.
         /// </summary>
@@ -104,6 +104,8 @@ namespace Apache.Ignite.Internal
             ClientId = Guid.NewGuid();
             ClientIdString = ClientId.ToString();
             Configuration = configuration;
+
+            _observableTimestamp = configuration.ObservableTimestamp;
         }
 
         /// <summary>
@@ -119,7 +121,7 @@ namespace Apache.Ignite.Internal
         /// <summary>
         /// Gets the observable timestamp.
         /// </summary>
-        public long ObservableTimestamp => Interlocked.Read(ref _observableTimestamp);
+        public long ObservableTimestamp => _observableTimestamp.Value;
 
         /// <summary>
         /// Gets the client ID.
@@ -206,10 +208,42 @@ namespace Apache.Ignite.Internal
         /// <param name="expectNotifications">Whether to expect notifications as a result of the operation.</param>
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>Response data and socket.</returns>
-        public async Task<(PooledBuffer Buffer, ClientSocket Socket)> DoOutInOpAndGetSocketAsync(
+        public async Task<ClientResponse> DoOutInOpAndGetSocketAsync(
             ClientOp clientOp,
             Transaction? tx = null,
             PooledArrayBuffer? request = null,
+            PreferredNode preferredNode = default,
+            IRetryPolicy? retryPolicyOverride = null,
+            bool expectNotifications = false,
+            CancellationToken cancellationToken = default) =>
+            await DoOutInOpAndGetSocketAsync(
+                clientOp,
+                tx,
+                request,
+                static (_, request0) => request0,
+                preferredNode,
+                retryPolicyOverride,
+                expectNotifications,
+                cancellationToken).ConfigureAwait(false);
+
+        /// <summary>
+        /// Performs an in-out operation and returns the socket along with the response.
+        /// </summary>
+        /// <param name="clientOp">Operation.</param>
+        /// <param name="tx">Transaction.</param>
+        /// <param name="arg">Argument.</param>
+        /// <param name="requestWriter">Request writer.</param>
+        /// <param name="preferredNode">Preferred node.</param>
+        /// <param name="retryPolicyOverride">Retry policy.</param>
+        /// <param name="expectNotifications">Whether to expect notifications as a result of the operation.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <typeparam name="TArg">Arg type.</typeparam>
+        /// <returns>Response data and socket.</returns>
+        public async Task<ClientResponse> DoOutInOpAndGetSocketAsync<TArg>(
+            ClientOp clientOp,
+            Transaction? tx,
+            TArg arg,
+            Func<ClientSocket, TArg, PooledArrayBuffer?> requestWriter,
             PreferredNode preferredNode = default,
             IRetryPolicy? retryPolicyOverride = null,
             bool expectNotifications = false,
@@ -223,19 +257,23 @@ namespace Apache.Ignite.Internal
                 }
 
                 // Use tx-specific socket without retry and failover.
+                using var request = requestWriter(tx.Socket, arg);
                 var buffer = await tx.Socket.DoOutInOpAsync(clientOp, request, expectNotifications, cancellationToken).ConfigureAwait(false);
-                return (buffer, tx.Socket);
+                return new ClientResponse(buffer, tx.Socket);
             }
 
             return await DoWithRetryAsync(
-                (clientOp, request, expectNotifications, cancellationToken),
+                (clientOp, requestWriter, arg, expectNotifications, cancellationToken),
                 static (_, arg) => arg.clientOp,
                 async static (socket, arg) =>
                 {
                     PooledBuffer res = await socket.DoOutInOpAsync(
-                        arg.clientOp, arg.request, arg.expectNotifications, arg.cancellationToken).ConfigureAwait(false);
+                        clientOp: arg.clientOp,
+                        request: arg.requestWriter(socket, arg.arg),
+                        expectNotifications: arg.expectNotifications,
+                        cancellationToken: arg.cancellationToken).ConfigureAwait(false);
 
-                    return (Buffer: res, Socket: socket);
+                    return new ClientResponse(Buffer: res, Socket: socket);
                 },
                 preferredNode,
                 retryPolicyOverride)
@@ -370,20 +408,10 @@ namespace Apache.Ignite.Internal
         /// <inheritdoc/>
         void IClientSocketEventListener.OnObservableTimestampChanged(long timestamp)
         {
-            // Atomically update the observable timestamp to max(newTs, curTs).
-            while (true)
+            var prevVal = _observableTimestamp.GetAndUpdate(timestamp);
+            if (prevVal < timestamp)
             {
-                var current = Interlocked.Read(ref _observableTimestamp);
-                if (current >= timestamp)
-                {
-                    return;
-                }
-
-                if (Interlocked.CompareExchange(ref _observableTimestamp, timestamp, current) == current)
-                {
-                    _logger.LogObservableTsUpdatedTrace(prev: current, current: timestamp);
-                    return;
-                }
+                _logger.LogObservableTsUpdatedTrace(prev: prevVal, current: timestamp);
             }
         }
 
@@ -750,9 +778,23 @@ namespace Apache.Ignite.Internal
                         $"Cluster ID mismatch: expected={_clusterId}, actual={socket.ConnectionContext.ClusterIds.StringJoin()}");
                 }
 
-                endpoint.Socket = socket;
+                // Check if another endpoint already connected to this node.
+                var nodeName = socket.ConnectionContext.ClusterNode.Name;
+                if (_endpointsByName.TryGetValue(nodeName, out var existingEndpoint) && existingEndpoint != endpoint)
+                {
+                    _logger.LogMultipleEndpointsSameNodeWarn(
+                        nodeName,
+                        socket.ConnectionContext.ClusterNode.Id,
+                        existingEndpoint.EndPoint,
+                        endpoint.EndPoint);
+                }
 
-                _endpointsByName[socket.ConnectionContext.ClusterNode.Name] = endpoint;
+                // First update mapping, then set socket:
+                // - GetConnections does not lock and should not return connections that are not in the map.
+                // - GetSocketAsync uses a lock and will not see a null/old socket.
+                _endpointsByName[nodeName] = endpoint;
+
+                endpoint.Socket = socket;
 
                 return socket;
             }
@@ -836,6 +878,12 @@ namespace Apache.Ignite.Internal
             if (e == null)
             {
                 // Only retry connection errors.
+                return false;
+            }
+
+            if (e is IgniteException { GroupCode: ErrorGroups.Authentication.GroupCode })
+            {
+                // Authentication errors should not be retried.
                 return false;
             }
 

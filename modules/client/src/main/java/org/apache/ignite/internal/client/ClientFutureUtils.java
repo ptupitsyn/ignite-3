@@ -17,7 +17,10 @@
 
 package org.apache.ignite.internal.client;
 
+import static org.apache.ignite.internal.util.ExceptionUtils.existingCauseOrSuppressed;
+
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -74,8 +77,15 @@ class ClientFutureUtils {
                     } else {
                         resErr = ctx.errors.get(0);
 
+                        HashSet<Throwable> dejaVu = new HashSet<>();
+                        existingCauseOrSuppressed(resErr, dejaVu); // Seed dejaVu.
+
                         for (int i = 1; i < ctx.errors.size(); i++) {
-                            resErr.addSuppressed(ctx.errors.get(i));
+                            Throwable e = ctx.errors.get(i);
+
+                            if (!existingCauseOrSuppressed(e, dejaVu)) {
+                                resErr.addSuppressed(e);
+                            }
                         }
                     }
                 }

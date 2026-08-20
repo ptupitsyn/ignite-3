@@ -39,90 +39,12 @@ import org.apache.ignite.internal.rest.constants.MediaType;
  * Disaster recovery controller.
  */
 @Controller("/management/v1/recovery")
-@Tag(name = "recovery")
+@Tag(name = "disasterRecovery")
 public interface DisasterRecoveryApi {
-    @Get("state/local")
-    @Operation(operationId = "getLocalPartitionStates", description = "Returns local partition states.")
-    @ApiResponse(responseCode = "200", description = "Partition states returned.")
-    @ApiResponse(responseCode = "500", description = "Internal error.",
-            content = @Content(mediaType = MediaType.PROBLEM_JSON, schema = @Schema(implementation = Problem.class)))
-    @ApiResponse(responseCode = "400", description = "Bad request.",
-            content = @Content(mediaType = MediaType.PROBLEM_JSON, schema = @Schema(implementation = Problem.class)))
-    @Produces(MediaType.APPLICATION_JSON)
-    CompletableFuture<LocalPartitionStatesResponse> getLocalPartitionStates(
-            @QueryValue
-            @Schema(description = "Names specifying zones to get partition states from. Case-sensitive, all zones if empty.")
-            Optional<Set<String>> zoneNames,
-            @QueryValue
-            @Schema(description = "Names specifying nodes to get partition states from. Case-sensitive, all nodes if empty.")
-            Optional<Set<String>> nodeNames,
-            @QueryValue
-            @Schema(description = "IDs of partitions to get states. All partitions if empty.") Optional<Set<Integer>> partitionIds
-    );
-
-    @Get("state/global")
-    @Operation(operationId = "getGlobalPartitionStates", description = "Returns global partition states.")
-    @ApiResponse(responseCode = "200", description = "Partition states returned.")
-    @ApiResponse(responseCode = "500", description = "Internal error.",
-            content = @Content(mediaType = MediaType.PROBLEM_JSON, schema = @Schema(implementation = Problem.class)))
-    @ApiResponse(responseCode = "400", description = "Bad request.",
-            content = @Content(mediaType = MediaType.PROBLEM_JSON, schema = @Schema(implementation = Problem.class)))
-    @Produces(MediaType.APPLICATION_JSON)
-    CompletableFuture<GlobalPartitionStatesResponse> getGlobalPartitionStates(
-            @QueryValue
-            @Schema(description = "Names specifying zones to get partition states from. Case-sensitive, all zones if empty.")
-            Optional<Set<String>> zoneNames,
-            @QueryValue
-            @Schema(description = "IDs of partitions to get states of. All partitions if empty.")
-            Optional<Set<Integer>> partitionIds
-    );
-
-    @Post("partitions/reset")
-    @Operation(
-            operationId = "resetPartitions",
-            description = "Updates assignments of partitions in a forced manner, allowing for the recovery of raft groups with "
-                    + "lost majorities."
-    )
-    @ApiResponse(responseCode = "200", description = "Partition states reset.")
-    @ApiResponse(responseCode = "500", description = "Internal error.",
-            content = @Content(mediaType = MediaType.PROBLEM_JSON, schema = @Schema(implementation = Problem.class)))
-    @ApiResponse(responseCode = "400", description = "Bad request.",
-            content = @Content(mediaType = MediaType.PROBLEM_JSON, schema = @Schema(implementation = Problem.class)))
-    @Consumes(MediaType.APPLICATION_JSON)
-    @Produces(MediaType.PROBLEM_JSON)
-    CompletableFuture<Void> resetPartitions(@Body ResetPartitionsRequest command);
-
-    @Post("partitions/restart")
-    @Operation(
-            operationId = "restartPartitions",
-            description = "Restarts replica service and raft group of passed partitions."
-    )
-    @ApiResponse(responseCode = "200", description = "Partitions restarted.")
-    @ApiResponse(responseCode = "500", description = "Internal error.",
-            content = @Content(mediaType = MediaType.PROBLEM_JSON, schema = @Schema(implementation = Problem.class)))
-    @ApiResponse(responseCode = "400", description = "Bad request.",
-            content = @Content(mediaType = MediaType.PROBLEM_JSON, schema = @Schema(implementation = Problem.class)))
-    @Consumes(MediaType.APPLICATION_JSON)
-    @Produces(MediaType.PROBLEM_JSON)
-    CompletableFuture<Void> restartPartitions(@Body RestartPartitionsRequest command);
-
-    @Post("partitions/restartWithCleanup")
-    @Operation(
-            operationId = "restartPartitionsWithCleanup",
-            description = "Restarts replica service and raft group of passed partitions with cleaning up of the storage."
-    )
-    @ApiResponse(responseCode = "200", description = "Partitions restarted.")
-    @ApiResponse(responseCode = "500", description = "Internal error.",
-            content = @Content(mediaType = MediaType.PROBLEM_JSON, schema = @Schema(implementation = Problem.class)))
-    @ApiResponse(responseCode = "400", description = "Bad request.",
-            content = @Content(mediaType = MediaType.PROBLEM_JSON, schema = @Schema(implementation = Problem.class)))
-    @Consumes(MediaType.APPLICATION_JSON)
-    @Produces(MediaType.PROBLEM_JSON)
-    CompletableFuture<Void> restartPartitionsWithCleanup(@Body RestartPartitionsRequest command);
-
     @Post("zone/partitions/reset")
     @Operation(
             operationId = "resetZonePartitions",
+            summary = "Reset zone partitions",
             description = "Updates assignments of zone's partitions in a forced manner, allowing for the recovery of raft groups with "
                     + "lost majorities."
     )
@@ -138,6 +60,7 @@ public interface DisasterRecoveryApi {
     @Post("zone/partitions/restart")
     @Operation(
             operationId = "restartZonePartitions",
+            summary = "Restart zone partitions",
             description = "Restarts replica service and raft group of passed zone partitions."
     )
     @ApiResponse(responseCode = "200", description = "Zone partitions restarted.")
@@ -152,6 +75,7 @@ public interface DisasterRecoveryApi {
     @Post("zone/partitions/restartWithCleanup")
     @Operation(
             operationId = "restartZonePartitionsWithCleanup",
+            summary = "Restart zone partitions with cleanup",
             description = "Restarts replica service and raft group of passed zone partitions with cleaning up of the storage."
     )
     @ApiResponse(responseCode = "200", description = "Zone partitions restarted.")
@@ -164,7 +88,11 @@ public interface DisasterRecoveryApi {
     CompletableFuture<Void> restartZonePartitionsWithCleanup(@Body RestartZonePartitionsRequest command);
 
     @Get("zone/state/local")
-    @Operation(operationId = "getZoneLocalPartitionStates", description = "Returns local zone partition states.")
+    @Operation(
+            operationId = "getZoneLocalPartitionStates",
+            summary = "Get local zone partition states",
+            description = "Returns local zone partition states."
+    )
     @ApiResponse(responseCode = "200", description = "Zone partition states returned.")
     @ApiResponse(responseCode = "500", description = "Internal error.",
             content = @Content(mediaType = MediaType.PROBLEM_JSON, schema = @Schema(implementation = Problem.class)))
@@ -183,7 +111,11 @@ public interface DisasterRecoveryApi {
     );
 
     @Get("zone/state/global")
-    @Operation(operationId = "getZoneGlobalPartitionStates", description = "Returns global zone partition states.")
+    @Operation(
+            operationId = "getZoneGlobalPartitionStates",
+            summary = "Get global zone partition states",
+            description = "Returns global zone partition states."
+    )
     @ApiResponse(responseCode = "200", description = "Zone partition states returned.")
     @ApiResponse(responseCode = "500", description = "Internal error.",
             content = @Content(mediaType = MediaType.PROBLEM_JSON, schema = @Schema(implementation = Problem.class)))

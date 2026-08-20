@@ -23,21 +23,23 @@ import static org.apache.ignite.internal.storage.index.SortedIndexStorage.GREATE
 import static org.apache.ignite.internal.storage.index.SortedIndexStorage.LESS;
 import static org.apache.ignite.internal.storage.index.SortedIndexStorage.LESS_OR_EQUAL;
 
-import java.util.List;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow.Publisher;
+import org.apache.ignite.internal.binarytuple.BinaryTuple;
+import org.apache.ignite.internal.binarytuple.BinaryTuplePrefix;
 import org.apache.ignite.internal.hlc.HybridTimestamp;
 import org.apache.ignite.internal.replicator.ZonePartitionId;
 import org.apache.ignite.internal.schema.BinaryRow;
 import org.apache.ignite.internal.schema.BinaryRowEx;
-import org.apache.ignite.internal.schema.BinaryTuple;
-import org.apache.ignite.internal.schema.BinaryTuplePrefix;
+import org.apache.ignite.internal.sql.engine.api.expressions.RowFactory;
 import org.apache.ignite.internal.sql.engine.exec.exp.RangeCondition;
 import org.apache.ignite.internal.table.IndexScanCriteria;
 import org.apache.ignite.internal.table.InternalTable;
 import org.apache.ignite.internal.table.OperationContext;
 import org.apache.ignite.internal.table.TxContext;
 import org.apache.ignite.internal.tx.InternalTransaction;
+import org.apache.ignite.internal.util.IgniteUtils;
 import org.apache.ignite.internal.util.subscription.TransformingPublisher;
 import org.jetbrains.annotations.Nullable;
 
@@ -48,11 +50,18 @@ public class ScannableTableImpl implements ScannableTable {
 
     private final InternalTable internalTable;
 
+    private final Int2ObjectMap<IndexMeta> indexMeta;
+
     private final TableRowConverterFactory converterFactory;
 
     /** Constructor. */
-    public ScannableTableImpl(InternalTable internalTable, TableRowConverterFactory converterFactory) {
+    public ScannableTableImpl(
+            InternalTable internalTable,
+            Int2ObjectMap<IndexMeta> indexMeta,
+            TableRowConverterFactory converterFactory
+    ) {
         this.internalTable = internalTable;
+        this.indexMeta = indexMeta;
         this.converterFactory = converterFactory;
     }
 
@@ -82,7 +91,6 @@ public class ScannableTableImpl implements ScannableTable {
             PartitionWithConsistencyToken partWithConsistencyToken,
             RowFactory<RowT> rowFactory,
             int indexId,
-            List<String> columns,
             @Nullable RangeCondition<RowT> cond,
             int @Nullable [] requiredColumns
     ) {
@@ -93,6 +101,14 @@ public class ScannableTableImpl implements ScannableTable {
         BinaryTuplePrefix lower;
         BinaryTuplePrefix upper;
 
+        IndexMeta meta = indexMeta.get(indexId);
+
+        if (meta == null) {
+            throw new IllegalStateException(format("Index metadata not found [tableId={}, tableName={}, indexId={}].",
+                    internalTable.tableId(), internalTable.name(), indexId));
+        }
+
+        int indexKeySize = meta.indexKeySize;
         int flags = 0;
 
         if (cond == null) {
@@ -100,8 +116,8 @@ public class ScannableTableImpl implements ScannableTable {
             lower = null;
             upper = null;
         } else {
-            lower = toBinaryTuplePrefix(columns.size(), handler, cond.lower());
-            upper = toBinaryTuplePrefix(columns.size(), handler, cond.upper());
+            lower = toBinaryTuplePrefix(indexKeySize, handler, cond.lower());
+            upper = toBinaryTuplePrefix(indexKeySize, handler, cond.upper());
 
             flags |= (cond.lowerInclude()) ? GREATER_OR_EQUAL : GREATER;
             flags |= (cond.upperInclude()) ? LESS_OR_EQUAL : LESS;
@@ -129,7 +145,6 @@ public class ScannableTableImpl implements ScannableTable {
             PartitionWithConsistencyToken partWithConsistencyToken,
             RowFactory<RowT> rowFactory,
             int indexId,
-            List<String> columns,
             RowT key,
             int @Nullable [] requiredColumns
     ) {
@@ -139,8 +154,19 @@ public class ScannableTableImpl implements ScannableTable {
 
         BinaryTuple keyTuple = handler.toBinaryTuple(key);
 
-        assert keyTuple.elementCount() == columns.size()
-                : format("Key should contain exactly {} fields, but was {}", columns.size(), handler.toString(key));
+        if (IgniteUtils.assertionsEnabled()) {
+            IndexMeta meta = indexMeta.get(indexId);
+
+            if (meta == null) {
+                throw new IllegalStateException(format("Index metadata not found [tableId={}, tableName={}, indexId={}].",
+                        internalTable.tableId(), internalTable.name(), indexId));
+            }
+
+            int indexKeySize = meta.indexKeySize;
+
+            assert keyTuple.elementCount() == indexKeySize
+                    : format("Key should contain exactly {} fields, but was {}", indexKeySize, handler.toString(key));
+        }
 
         int partId = partWithConsistencyToken.partId();
 
@@ -222,5 +248,14 @@ public class ScannableTableImpl implements ScannableTable {
         assert commitPartition != null;
 
         return TxContext.readWrite(txAttributes.id(), txAttributes.coordinatorId(), commitPartition, enlistmentConsistencyToken);
+    }
+
+    /** Metadata required to process scan over particular index. */
+    public static class IndexMeta {
+        private final int indexKeySize;
+
+        IndexMeta(int indexKeySize) {
+            this.indexKeySize = indexKeySize;
+        }
     }
 }

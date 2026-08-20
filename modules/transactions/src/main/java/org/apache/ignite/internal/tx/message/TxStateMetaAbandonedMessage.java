@@ -35,7 +35,10 @@ public interface TxStateMetaAbandonedMessage extends TxStateMetaMessage {
         return new TxStateMetaAbandoned(
                 txCoordinatorId(),
                 commitPartitionId == null ? null : commitPartitionId.asReplicationGroupId(),
-                txLabel()
+                null,
+                txLabel(),
+                null,
+                exceptionErrorCode()
         );
     }
 

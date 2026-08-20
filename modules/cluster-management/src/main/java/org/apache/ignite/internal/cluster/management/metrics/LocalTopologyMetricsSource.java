@@ -20,10 +20,11 @@ package org.apache.ignite.internal.cluster.management.metrics;
 import java.util.List;
 import java.util.UUID;
 import org.apache.ignite.internal.metrics.AbstractMetricSource;
+import org.apache.ignite.internal.metrics.IntGauge;
 import org.apache.ignite.internal.metrics.Metric;
 import org.apache.ignite.internal.metrics.StringGauge;
 import org.apache.ignite.internal.metrics.UuidGauge;
-import org.apache.ignite.internal.network.TopologyService;
+import org.apache.ignite.internal.network.InternalClusterNode;
 import org.apache.ignite.internal.properties.IgniteProductVersion;
 import org.jetbrains.annotations.Nullable;
 
@@ -34,18 +35,15 @@ public class LocalTopologyMetricsSource extends AbstractMetricSource<LocalTopolo
     /** Source name. */
     static final String SOURCE_NAME = "topology.local";
 
-    /** Physical topology. */
-    private final TopologyService physicalTopology;
+    private final InternalClusterNode localNode;
 
     /**
      * Creates a new instance of the local node metrics source.
-     *
-     * @param physicalTopology Physical topology.
      */
-    public LocalTopologyMetricsSource(TopologyService physicalTopology) {
+    public LocalTopologyMetricsSource(InternalClusterNode localNode) {
         super(SOURCE_NAME, "Local topology metrics.", "topology");
 
-        this.physicalTopology = physicalTopology;
+        this.localNode = localNode;
     }
 
     @Override
@@ -109,14 +107,24 @@ public class LocalTopologyMetricsSource extends AbstractMetricSource<LocalTopolo
         private final UuidGauge localNodeId = new UuidGauge(
                 "NodeId",
                 "Unique identifier of the local node",
-                () -> physicalTopology.localMember().id());
+                localNode::id);
 
         private final StringGauge localNodeName = new StringGauge(
                 "NodeName",
                 "Unique name of the local node",
-                () -> physicalTopology.localMember().name());
+                localNode::name);
 
-        private final List<Metric> metrics = List.of(localNodeName, localNodeId, localNodeVersion);
+        private final StringGauge networkAddress = new StringGauge(
+                "NetworkAddress",
+                "Network address of the local node",
+                () -> localNode.address().host());
+
+        private final IntGauge networkPort = new IntGauge(
+                "NetworkPort",
+                "Network port of the local node",
+                () -> localNode.address().port());
+
+        private final List<Metric> metrics = List.of(localNodeName, localNodeId, localNodeVersion, networkAddress, networkPort);
 
         @Override
         public Iterable<Metric> metrics() {

@@ -55,6 +55,7 @@ import org.apache.ignite.lang.ErrorGroups.Sql;
 import org.apache.ignite.lang.IgniteException;
 import org.apache.ignite.tx.Transaction;
 import org.apache.ignite.tx.TransactionOptions;
+import org.hamcrest.Matchers;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Disabled;
@@ -565,22 +566,22 @@ public class ItDmlTest extends BaseSqlIntegrationTest {
         sql("CREATE TABLE test (id int primary key, val int)");
 
         Transaction olderTx = CLUSTER.aliveNode().transactions().begin();
-        Transaction tx = CLUSTER.aliveNode().transactions().begin();
+        Transaction newerTx = CLUSTER.aliveNode().transactions().begin();
 
-        sql(tx, "INSERT INTO test VALUES (0, 0)");
+        sql(olderTx, "INSERT INTO test VALUES (0, 0)");
 
         // just inserted row should be visible within the same transaction
-        assertEquals(1, sql(tx, "select * from test").size());
+        assertEquals(1, sql(olderTx, "select * from test").size());
 
         // just inserted row should not be visible until related transaction is committed
         assertEquals(0,
                 sql(CLUSTER.aliveNode().transactions().begin(new TransactionOptions().readOnly(true)), "select * from test").size());
 
-        CompletableFuture<Integer> selectFut = runAsync(() -> sql(olderTx, "select * from test").size());
+        CompletableFuture<Integer> selectFut = runAsync(() -> sql(newerTx, "select * from test").size());
 
         assertFalse(selectFut.isDone());
 
-        tx.commit();
+        olderTx.commit();
 
         assertThat(selectFut, willCompleteSuccessfully());
 
@@ -589,7 +590,7 @@ public class ItDmlTest extends BaseSqlIntegrationTest {
         assertEquals(1,
                 sql(CLUSTER.aliveNode().transactions().begin(new TransactionOptions().readOnly(true)), "select * from test").size());
 
-        olderTx.commit();
+        newerTx.commit();
     }
 
     @Test
@@ -797,8 +798,6 @@ public class ItDmlTest extends BaseSqlIntegrationTest {
             try {
                 sql(format("CREATE TABLE test (id INT PRIMARY KEY, val {} DEFAULT {})", arg.sqlType, arg.sqlVal));
                 sql("INSERT INTO test (id) VALUES (1)");
-                assertQuery("SELECT val FROM test WHERE id = 1").returns(arg.expectedVal).check();
-
                 sql("ALTER TABLE test ALTER COLUMN val DROP DEFAULT");
 
                 if (arg.sqlType.endsWith("NOT NULL")) {
@@ -808,6 +807,8 @@ public class ItDmlTest extends BaseSqlIntegrationTest {
                     sql("INSERT INTO test (id) VALUES (2)");
                     assertQuery("SELECT val FROM test WHERE id = 2").returns(null).check();
                 }
+
+                assertQuery("SELECT val FROM test WHERE id = 1").returns(arg.expectedVal).check();
             } finally {
                 sql("DROP TABLE IF EXISTS test");
             }
@@ -1147,6 +1148,46 @@ public class ItDmlTest extends BaseSqlIntegrationTest {
                 .returns(1, 1.0F)
                 .returns(2, null)
                 .returns(3, 3.0F)
+                .check();
+    }
+
+    @Test
+    public void rejectInvalidColumnNumberOnInsert() {
+        sql("CREATE TABLE test1(id INT PRIMARY KEY, val INT);");
+
+        assertThrowsSqlException(
+                Sql.STMT_VALIDATION_ERR,
+                "Number of INSERT target columns (2) does not equal number of source items (1)",
+                () -> sql("INSERT INTO test1 VALUES (1)")
+        );
+
+        assertThrowsSqlException(
+                Sql.STMT_VALIDATION_ERR,
+                "Number of INSERT target columns (2) does not equal number of source items (3)",
+                () -> sql("INSERT INTO test1 VALUES (1, 2, 3)")
+        );
+
+        assertThrowsSqlException(
+                Sql.STMT_VALIDATION_ERR,
+                "Number of INSERT target columns (1) does not equal number of source items (2)",
+                () -> sql("INSERT INTO test1(val) VALUES (1, 2)")
+        );
+
+        assertThrowsSqlException(
+                Sql.STMT_VALIDATION_ERR,
+                "Number of INSERT target columns (2) does not equal number of source items (3)",
+                () -> sql("INSERT INTO test1(id, val) VALUES (1, 2, 3)")
+        );
+    }
+
+    @Test
+    public void insertFromSelectWithAlwaysFalseCondition() {
+        sql("CREATE TABLE test (id INT PRIMARY KEY, val REAL)");
+        sql("CREATE TABLE test2 (id INT PRIMARY KEY, val REAL)");
+
+        assertQuery("INSERT INTO test2 SELECT id, val FROM test WHERE val > 1 AND val < 0")
+                .matches(Matchers.not(containsSubPlan("TableModify")))
+                .returns(0L)
                 .check();
     }
 

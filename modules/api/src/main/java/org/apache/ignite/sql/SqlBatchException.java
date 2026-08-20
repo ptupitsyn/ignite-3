@@ -45,7 +45,7 @@ public class SqlBatchException extends SqlException {
      * @param message Detailed message.
      * @param cause Optional cause.
      */
-    public SqlBatchException(UUID traceId, int code, long[] updCntrs, String message, @Nullable Throwable cause) {
+    public SqlBatchException(UUID traceId, int code, long @Nullable [] updCntrs, String message, @Nullable Throwable cause) {
         super(traceId, code, message, cause);
 
         this.updCntrs = updCntrs != null ? updCntrs : LONG_EMPTY_ARRAY;
@@ -76,5 +76,16 @@ public class SqlBatchException extends SqlException {
      */
     public long[] updateCounters() {
         return updCntrs;
+    }
+
+    /**
+     * Copy the exception.
+     *
+     * @param src Exception to copy.
+     * @return new copied exception.
+     */
+    @SuppressWarnings("PMD.UnusedPrivateMethod")
+    private static SqlBatchException copy(SqlBatchException src) {
+        return new SqlBatchException(src.traceId(), src.code(), src.updateCounters(), src.getMessage(), src.getCause());
     }
 }

@@ -34,8 +34,8 @@ import java.util.List;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.ignite.internal.lang.IgniteStringBuilder;
 import org.apache.ignite.internal.lang.RunnableX;
+import org.apache.ignite.internal.sql.engine.api.expressions.RowFactoryFactory;
 import org.apache.ignite.internal.sql.engine.exec.ExecutionContext;
-import org.apache.ignite.internal.sql.engine.exec.RowFactoryFactory;
 import org.apache.ignite.internal.sql.engine.exec.RowHandler;
 import org.apache.ignite.internal.sql.engine.framework.ArrayRowHandler;
 import org.apache.ignite.internal.sql.engine.type.IgniteTypeFactory;
@@ -426,6 +426,11 @@ public class ExecutionTest extends AbstractExecutionTest<Object[]> {
         @Override
         public void dumpState(IgniteStringBuilder writer, String indent) {
             writer.app(indent).app("class=").app(getClass().getSimpleName()).nl();
+        }
+
+        @Override
+        public void dumpNodeMetrics(IgniteStringBuilder writer, String indent) {
+            writer.app(indent).app(getClass().getSimpleName()).nl();
         }
     }
 

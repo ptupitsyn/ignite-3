@@ -27,8 +27,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import org.apache.ignite.internal.lang.IgniteStringBuilder;
+import org.apache.ignite.internal.sql.engine.api.expressions.RowFactory;
 import org.apache.ignite.internal.sql.engine.exec.ExecutionContext;
-import org.apache.ignite.internal.sql.engine.exec.RowFactory;
 import org.apache.ignite.internal.sql.engine.exec.RowHandler;
 import org.apache.ignite.internal.sql.engine.exec.exp.agg.AggregateType;
 import org.apache.ignite.internal.sql.engine.exec.exp.agg.GroupKey;
@@ -50,8 +50,7 @@ public abstract class AbstractSetOpNode<RowT> extends AbstractNode<RowT> {
 
     private boolean inLoop;
 
-    protected AbstractSetOpNode(ExecutionContext<RowT> ctx, AggregateType type, boolean all,
-            RowFactory<RowT> rowFactory, Grouping<RowT> grouping) {
+    protected AbstractSetOpNode(ExecutionContext<RowT> ctx, AggregateType type, Grouping<RowT> grouping) {
         super(ctx);
 
         this.type = type;
@@ -64,6 +63,8 @@ public abstract class AbstractSetOpNode<RowT> extends AbstractNode<RowT> {
         assert !nullOrEmpty(sources());
         assert rowsCnt > 0 && requested == 0;
         assert waiting <= 0;
+
+        onRequestReceived();
 
         requested = rowsCnt;
 
@@ -132,6 +133,8 @@ public abstract class AbstractSetOpNode<RowT> extends AbstractNode<RowT> {
         return new Downstream<>() {
             @Override
             public void push(RowT row) throws Exception {
+                onRowReceived();
+
                 AbstractSetOpNode.this.push(row, idx);
             }
 

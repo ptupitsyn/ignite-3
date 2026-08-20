@@ -139,6 +139,9 @@ enum class code : underlying_t {
     TX_STALE_READ_ONLY_OPERATION = 0x7000f,
     TX_ALREADY_FINISHED_WITH_TIMEOUT = 0x70010,
     TX_DELAYED_ACK = 0x70011,
+    TX_KILLED = 0x70012,
+    TX_ALREADY_FINISHED_WITH_EXCEPTION = 0x70013,
+    TX_ABORTED_DUE_TO_RECOVERY = 0x70014,
 
     // Replicator group. Group code: 8
     REPLICA_COMMON = 0x80001,
@@ -150,6 +153,8 @@ enum class code : underlying_t {
     CURSOR_CLOSE = 0x80007,
     REPLICA_STOPPING = 0x80008,
     GROUP_OVERLOADED = 0x80009,
+    GROUP_UNAVAILABLE = 0x8000a,
+    REPLICA_ABSENT = 0x8000b,
 
     // Storage group. Group code: 9
     INDEX_NOT_BUILT = 0x90001,
@@ -182,6 +187,7 @@ enum class code : underlying_t {
     UNIT_UNAVAILABLE = 0xd0004,
     UNIT_ZIP = 0xd0005,
     UNIT_WRITE = 0xd0006,
+    UNIT_NON_UNIQUE_FILENAMES = 0xd0007,
 
     // GarbageCollector group. Group code: 14
     CLOSED = 0xe0001,
@@ -228,6 +234,7 @@ enum class code : underlying_t {
     NOT_ENOUGH_ALIVE_NODES = 0x140005,
     ILLEGAL_NODES_SET = 0x140006,
     REQUEST_FORWARD = 0x140007,
+    REMOTE_NODE = 0x140008,
 
     // Embedded group. Group code: 21
     CLUSTER_NOT_INITIALIZED = 0x150001,

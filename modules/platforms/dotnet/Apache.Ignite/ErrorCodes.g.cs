@@ -54,7 +54,7 @@ namespace Apache.Ignite
             Rest.GroupCode => Rest.GroupName,
             CommonConfiguration.GroupCode => CommonConfiguration.GroupName,
 
-            _ => UnknownGroupName
+            _ => UnknownGroupName + groupCode
         };
 
         /// <summary>
@@ -211,7 +211,7 @@ namespace Apache.Ignite
             /// <summary> ResourceNotFound error. </summary>
             public const int ResourceNotFound = (GroupCode << 16) | (10 & 0xFFFF);
 
-            /// <summary> Client operation timeout. </summary>
+            /// <summary> OperationTimeout error. </summary>
             public const int OperationTimeout = (GroupCode << 16) | (11 & 0xFFFF);
         }
 
@@ -370,6 +370,15 @@ namespace Apache.Ignite
 
             /// <summary> TxDelayedAck error. </summary>
             public const int TxDelayedAck = (GroupCode << 16) | (17 & 0xFFFF);
+
+            /// <summary> TxKilled error. </summary>
+            public const int TxKilled = (GroupCode << 16) | (18 & 0xFFFF);
+
+            /// <summary> TxAlreadyFinishedWithException error. </summary>
+            public const int TxAlreadyFinishedWithException = (GroupCode << 16) | (19 & 0xFFFF);
+
+            /// <summary> TxAbortedDueToRecovery error. </summary>
+            public const int TxAbortedDueToRecovery = (GroupCode << 16) | (20 & 0xFFFF);
         }
 
         /// <summary> Replicator errors. </summary>
@@ -410,6 +419,12 @@ namespace Apache.Ignite
 
             /// <summary> GroupOverloaded error. </summary>
             public const int GroupOverloaded = (GroupCode << 16) | (9 & 0xFFFF);
+
+            /// <summary> GroupUnavailable error. </summary>
+            public const int GroupUnavailable = (GroupCode << 16) | (10 & 0xFFFF);
+
+            /// <summary> ReplicaAbsent error. </summary>
+            public const int ReplicaAbsent = (GroupCode << 16) | (11 & 0xFFFF);
         }
 
         /// <summary> Storage errors. </summary>
@@ -542,6 +557,9 @@ namespace Apache.Ignite
 
             /// <summary> UnitWrite error. </summary>
             public const int UnitWrite = (GroupCode << 16) | (6 & 0xFFFF);
+
+            /// <summary> UnitNonUniqueFilenames error. </summary>
+            public const int UnitNonUniqueFilenames = (GroupCode << 16) | (7 & 0xFFFF);
         }
 
         /// <summary> GarbageCollector errors. </summary>
@@ -729,6 +747,9 @@ namespace Apache.Ignite
 
             /// <summary> RequestForward error. </summary>
             public const int RequestForward = (GroupCode << 16) | (7 & 0xFFFF);
+
+            /// <summary> RemoteNode error. </summary>
+            public const int RemoteNode = (GroupCode << 16) | (8 & 0xFFFF);
         }
 
         /// <summary> Embedded errors. </summary>

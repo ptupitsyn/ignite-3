@@ -56,9 +56,9 @@ import java.util.stream.IntStream;
 import org.apache.ignite.InitParametersBuilder;
 import org.apache.ignite.internal.TestWrappers;
 import org.apache.ignite.internal.app.IgniteImpl;
+import org.apache.ignite.internal.binarytuple.BinaryTuple;
 import org.apache.ignite.internal.binarytuple.BinaryTupleBuilder;
-import org.apache.ignite.internal.catalog.Catalog;
-import org.apache.ignite.internal.catalog.CatalogManager;
+import org.apache.ignite.internal.binarytuple.BinaryTuplePrefix;
 import org.apache.ignite.internal.catalog.descriptors.CatalogObjectDescriptor;
 import org.apache.ignite.internal.lang.IgniteStringFormatter;
 import org.apache.ignite.internal.lang.RunnableX;
@@ -69,8 +69,6 @@ import org.apache.ignite.internal.placementdriver.PlacementDriver;
 import org.apache.ignite.internal.placementdriver.ReplicaMeta;
 import org.apache.ignite.internal.replicator.ZonePartitionId;
 import org.apache.ignite.internal.schema.BinaryRow;
-import org.apache.ignite.internal.schema.BinaryTuple;
-import org.apache.ignite.internal.schema.BinaryTuplePrefix;
 import org.apache.ignite.internal.schema.SchemaDescriptor;
 import org.apache.ignite.internal.schema.row.Row;
 import org.apache.ignite.internal.schema.row.RowAssembler;
@@ -208,11 +206,7 @@ public class ItTableScanTest extends BaseSqlIntegrationTest {
      * @return Index id.
      */
     private int getIndexId(IgniteImpl ignite, String idxName) {
-        CatalogManager catalogManager = ignite.catalogManager();
-
-        Catalog catalog = catalogManager.catalog(catalogManager.latestCatalogVersion());
-
-        return catalog.indexes().stream()
+        return ignite.catalogManager().latestCatalog().indexes().stream()
                 .filter(index -> {
                     log.info("Scanned idx " + index.name());
 
@@ -227,25 +221,36 @@ public class ItTableScanTest extends BaseSqlIntegrationTest {
     public void testInsertWaitScanComplete() throws Exception {
         IgniteTransactions transactions = igniteTx();
 
-        InternalTransaction tx0 = (InternalTransaction) transactions.begin();
-        InternalTransaction tx1 = startTxWithEnlistedPartition(PART_ID, false);
+        IgniteImpl ignite = unwrapIgniteImpl(CLUSTER.aliveNode());
+        boolean invertedWaitOrder = ignite.txManager().lockManager().policy().invertedWaitOrder();
+
+        InternalTransaction waiterTx;
+        InternalTransaction lockerTx;
+
+        if (invertedWaitOrder) {
+            waiterTx = (InternalTransaction) transactions.begin();
+            lockerTx = startTxWithEnlistedPartition(PART_ID, false);
+        } else {
+            lockerTx = startTxWithEnlistedPartition(PART_ID, false);
+            waiterTx = (InternalTransaction) transactions.begin();
+        }
 
         int sortedIndexId = getSortedIndexId();
 
         List<BinaryRow> scannedRows = new ArrayList<>();
 
         ZonePartitionId replicationGroupId = replicationGroup(PART_ID);
-        PendingTxPartitionEnlistment enlistment = tx1.enlistedPartition(replicationGroupId);
+        PendingTxPartitionEnlistment enlistment = lockerTx.enlistedPartition(replicationGroupId);
         InternalClusterNode recipient = getNodeByConsistentId(enlistment.primaryNodeConsistentId());
 
         Publisher<BinaryRow> publisher = new RollbackTxOnErrorPublisher<>(
-                tx1,
+                lockerTx,
                 internalTable.scan(
                         PART_ID,
                         recipient,
                         sortedIndexId,
                         IndexScanCriteria.unbounded(),
-                        OperationContext.create(TxContext.readWrite(tx1, enlistment.consistencyToken()))
+                        OperationContext.create(TxContext.readWrite(lockerTx, enlistment.consistencyToken()))
                 )
         );
 
@@ -260,7 +265,7 @@ public class ItTableScanTest extends BaseSqlIntegrationTest {
         assertFalse(scanned.isDone());
 
         CompletableFuture<Void> updateKey2Fut = table.keyValueView()
-                .putAsync(tx0, Tuple.create().set("key", 2), Tuple.create().set("valInt", 2).set("valStr", "New_2"));
+                .putAsync(waiterTx, Tuple.create().set("key", 2), Tuple.create().set("valInt", 2).set("valStr", "New_2"));
 
         assertFalse(updateKey2Fut.isDone());
 
@@ -269,7 +274,7 @@ public class ItTableScanTest extends BaseSqlIntegrationTest {
         assertThat(scanned, willCompleteSuccessfully());
 
         CompletableFuture<Void> insertKey99Fut = table.keyValueView()
-                .putAsync(tx0, Tuple.create().set("key", 99), Tuple.create().set("valInt", 99).set("valStr", "New_99"));
+                .putAsync(waiterTx, Tuple.create().set("key", 99), Tuple.create().set("valInt", 99).set("valStr", "New_99"));
 
         assertFalse(insertKey99Fut.isDone());
 
@@ -277,12 +282,12 @@ public class ItTableScanTest extends BaseSqlIntegrationTest {
 
         assertEquals(ROW_IDS.size(), scannedRows.size());
 
-        tx1.commit();
+        lockerTx.commit();
 
         assertThat(updateKey2Fut, willCompleteSuccessfully());
         assertThat(insertKey99Fut, willCompleteSuccessfully());
 
-        tx0.commit();
+        waiterTx.commit();
     }
 
     @Test
@@ -543,9 +548,14 @@ public class ItTableScanTest extends BaseSqlIntegrationTest {
 
         assertFalse(scanned.isDone());
 
-        assertPossibleDeadLockExceptionOnReadWriteSingleRowOperation(
-                () -> kvView.put(null, Tuple.create().set("key", 3), Tuple.create().set("valInt", 3).set("valStr", "New_3"))
-        );
+        IgniteImpl ignite = unwrapIgniteImpl(CLUSTER.aliveNode());
+        boolean invertedWaitOrder = ignite.txManager().lockManager().policy().invertedWaitOrder();
+
+        if (invertedWaitOrder) {
+            assertPossibleDeadLockExceptionOnReadWriteSingleRowOperation(
+                    () -> kvView.put(null, Tuple.create().set("key", 3), Tuple.create().set("valInt", 3).set("valStr", "New_3"))
+            );
+        }
 
         kvView.put(null, Tuple.create().set("key", 8), Tuple.create().set("valInt", 8).set("valStr", "New_8"));
 
@@ -614,13 +624,18 @@ public class ItTableScanTest extends BaseSqlIntegrationTest {
 
         assertEquals(3, scannedRows.size());
 
-        assertPossibleDeadLockExceptionOnReadWriteSingleRowOperation(
-                () -> kvView.put(null, Tuple.create().set("key", 8), Tuple.create().set("valInt", 8).set("valStr", "New_8"))
-        );
+        IgniteImpl ignite = unwrapIgniteImpl(CLUSTER.aliveNode());
+        boolean invertedWaitOrder = ignite.txManager().lockManager().policy().invertedWaitOrder();
 
-        assertPossibleDeadLockExceptionOnReadWriteSingleRowOperation(
-                () -> kvView.put(null, Tuple.create().set("key", 9), Tuple.create().set("valInt", 9).set("valStr", "New_9"))
-        );
+        if (invertedWaitOrder) {
+            assertPossibleDeadLockExceptionOnReadWriteSingleRowOperation(
+                    () -> kvView.put(null, Tuple.create().set("key", 8), Tuple.create().set("valInt", 8).set("valStr", "New_8"))
+            );
+
+            assertPossibleDeadLockExceptionOnReadWriteSingleRowOperation(
+                    () -> kvView.put(null, Tuple.create().set("key", 9), Tuple.create().set("valInt", 9).set("valStr", "New_9"))
+            );
+        }
 
         Publisher<BinaryRow> publisher1 = new RollbackTxOnErrorPublisher<>(
                 tx,
@@ -944,11 +959,7 @@ public class ItTableScanTest extends BaseSqlIntegrationTest {
      * Gets an index id.
      */
     private static int getSortedIndexId() {
-        CatalogManager catalogManager = unwrapIgniteImpl(CLUSTER.aliveNode()).catalogManager();
-
-        Catalog catalog = catalogManager.catalog(catalogManager.latestCatalogVersion());
-
-        return catalog.indexes().stream()
+        return unwrapIgniteImpl(CLUSTER.aliveNode()).catalogManager().latestCatalog().indexes().stream()
                 .filter(index -> SORTED_IDX.equalsIgnoreCase(index.name()))
                 .mapToInt(CatalogObjectDescriptor::id)
                 .findFirst()
@@ -1083,7 +1094,7 @@ public class ItTableScanTest extends BaseSqlIntegrationTest {
                 TransactionException.class,
                 Transactions.ACQUIRE_LOCK_ERR,
                 operation,
-                "Lock acquiring failed during request handling"
+                "Failed to acquire a lock during request handling"
         );
 
         Throwable rootCause = unwrapRootCause(transactionException);

@@ -31,7 +31,7 @@ import org.apache.ignite.internal.lang.IgniteInternalCheckedException;
 import org.apache.ignite.internal.logger.IgniteLogger;
 import org.apache.ignite.internal.logger.Loggers;
 import org.apache.ignite.internal.pagememory.PageIdAllocator;
-import org.apache.ignite.internal.pagememory.PageMemory;
+import org.apache.ignite.internal.pagememory.PartitionPageMemory;
 import org.apache.ignite.internal.pagememory.Storable;
 import org.apache.ignite.internal.pagememory.io.DataPageIo;
 import org.apache.ignite.internal.pagememory.io.PageIo;
@@ -330,7 +330,7 @@ public class FreeListImpl extends PagesList implements FreeList, ReuseList {
             String freeListNamePrefix,
             int grpId,
             int partId,
-            PageMemory pageMem,
+            PartitionPageMemory pageMem,
             long metaPageId,
             boolean initNew,
             @Nullable AtomicLong pageListCacheLimit
@@ -357,9 +357,8 @@ public class FreeListImpl extends PagesList implements FreeList, ReuseList {
         assert isPow2(BUCKETS);
         assert BUCKETS <= pageSize : pageSize;
 
-        // TODO: https://issues.apache.org/jira/browse/IGNITE-16350
-        // TODO: this constant is used because currently we cannot reuse data pages as index pages
-        // TODO: and vice-versa. It should be removed when data storage format is finalized.
+        // TODO: https://issues.apache.org/jira/browse/IGNITE-16350 this constant is used because currently we cannot reuse data pages
+        //  as index pages and vice-versa. It should be removed when data storage format is finalized.
         minSizeForDataPage = pageSize - DataPageIo.MIN_DATA_PAGE_OVERHEAD;
 
         int shift = 0;

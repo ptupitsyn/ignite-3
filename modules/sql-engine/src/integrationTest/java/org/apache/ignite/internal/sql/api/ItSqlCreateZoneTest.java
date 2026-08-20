@@ -17,10 +17,8 @@
 
 package org.apache.ignite.internal.sql.api;
 
-import static org.apache.ignite.internal.TestDefaultProfilesNames.DEFAULT_AIMEM_PROFILE_NAME;
-import static org.apache.ignite.internal.TestDefaultProfilesNames.DEFAULT_AIPERSIST_PROFILE_NAME;
-import static org.apache.ignite.internal.TestDefaultProfilesNames.DEFAULT_ROCKSDB_PROFILE_NAME;
-import static org.apache.ignite.internal.TestDefaultProfilesNames.DEFAULT_TEST_PROFILE_NAME;
+import static org.apache.ignite.internal.ConfigTemplates.DEFAULT_PROFILES;
+import static org.apache.ignite.internal.ConfigTemplates.renderConfigTemplate;
 import static org.apache.ignite.internal.TestWrappers.unwrapIgniteImpl;
 import static org.apache.ignite.internal.catalog.CatalogService.DEFAULT_STORAGE_PROFILE;
 import static org.apache.ignite.internal.lang.IgniteStringFormatter.format;
@@ -53,26 +51,19 @@ class ItSqlCreateZoneTest extends ClusterPerTestIntegrationTest {
     private static final String NOT_EXISTED_PROFILE_NAME = "not-existed-profile";
     private static final String EXTRA_PROFILE_NAME = "extra-profile";
     /** Nodes bootstrap configuration pattern. */
-    private static final String NODE_BOOTSTRAP_CFG_TEMPLATE_WITH_EXTRA_PROFILE = "ignite {\n"
-            + "  network: {\n"
-            + "    port: {},\n"
-            + "    nodeFinder.netClusterNodes: [ {} ]\n"
-            + "  },\n"
-            + "  storage.profiles: {"
-            + "        " + DEFAULT_TEST_PROFILE_NAME + ".engine: test, "
-            + "        " + DEFAULT_AIPERSIST_PROFILE_NAME + ".engine: aipersist, "
-            + "        " + DEFAULT_AIMEM_PROFILE_NAME + ".engine: aimem, "
-            + "        " + EXTRA_PROFILE_NAME + ".engine: aipersist, "
-            + "        " + DEFAULT_ROCKSDB_PROFILE_NAME + ".engine: rocksdb"
-            + "  },\n"
-            + "  clientConnector.port: {},\n"
-            + "  rest.port: {},\n"
-            + "  failureHandler.dumpThreadsOnFailure: false\n"
-            + "}";
+    private static final String NODE_BOOTSTRAP_CFG_TEMPLATE_WITH_EXTRA_PROFILE = renderConfigTemplate(
+            DEFAULT_PROFILES
+            + "storage.profiles." + EXTRA_PROFILE_NAME + ".engine: aipersist,\n"
+    );
 
     @Override
     protected int initialNodes() {
         return 1;
+    }
+
+    @Override
+    protected boolean shouldCreateDefaultZone() {
+        return false;
     }
 
     @Test
@@ -160,7 +151,7 @@ class ItSqlCreateZoneTest extends ClusterPerTestIntegrationTest {
         IgniteImpl node = unwrapIgniteImpl(node(0));
 
         CatalogManager catalogManager = node.catalogManager();
-        assertNull(catalogManager.catalog(catalogManager.latestCatalogVersion()).defaultZone());
+        assertNull(catalogManager.latestCatalog().defaultZone());
 
         assertDoesNotThrow(() -> createZoneQuery(0, DEFAULT_STORAGE_PROFILE));
 
@@ -169,11 +160,11 @@ class ItSqlCreateZoneTest extends ClusterPerTestIntegrationTest {
         String testTableWithoutZoneName = "test_table_without_zone";
         assertDoesNotThrow(() -> createTableWithoutZoneQuery(0, testTableWithoutZoneName));
 
-        CatalogZoneDescriptor defaultZoneDesc = catalogManager.catalog(catalogManager.latestCatalogVersion()).defaultZone();
+        CatalogZoneDescriptor defaultZoneDesc = catalogManager.latestCatalog().defaultZone();
         assertNotNull(defaultZoneDesc);
 
         CatalogTableDescriptor tableWithDefaultZoneDescriptor = catalogManager
-                .catalog(catalogManager.latestCatalogVersion())
+                .latestCatalog()
                 .table(DEFAULT_SCHEMA_NAME, testTableWithoutZoneName);
         assertNotNull(tableWithDefaultZoneDescriptor);
         assertEquals(defaultZoneDesc.id(), tableWithDefaultZoneDescriptor.zoneId());

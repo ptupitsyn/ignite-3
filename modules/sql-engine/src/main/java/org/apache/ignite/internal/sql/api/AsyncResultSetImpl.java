@@ -17,6 +17,8 @@
 
 package org.apache.ignite.internal.sql.api;
 
+import static org.apache.ignite.internal.lang.IgniteStringFormatter.format;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -33,7 +35,9 @@ import org.apache.ignite.internal.sql.engine.SqlQueryType;
 import org.apache.ignite.internal.sql.engine.prepare.partitionawareness.PartitionAwarenessMetadata;
 import org.apache.ignite.internal.tostring.S;
 import org.apache.ignite.internal.util.AsyncCursor.BatchedResult;
+import org.apache.ignite.internal.util.IgniteUtils;
 import org.apache.ignite.internal.util.TransformingIterator;
+import org.apache.ignite.internal.util.TupleTypeCastUtils;
 import org.apache.ignite.sql.NoRowSetExpectedException;
 import org.apache.ignite.sql.ResultSetMetadata;
 import org.apache.ignite.sql.SqlRow;
@@ -172,7 +176,7 @@ public class AsyncResultSetImpl<T> implements AsyncResultSet<T> {
         }
     }
 
-    private static class SqlRowImpl implements SqlRow, BinaryTupleContainer {
+    static class SqlRowImpl implements SqlRow, BinaryTupleContainer {
         private final InternalSqlRow row;
 
         private final ResultSetMetadata meta;
@@ -213,9 +217,13 @@ public class AsyncResultSetImpl<T> implements AsyncResultSet<T> {
         /** {@inheritDoc} */
         @Override
         public <T> T valueOrDefault(String columnName, T defaultValue) {
-            T ret = (T) row.get(columnIndexChecked(columnName));
+            int columnIndex = columnIndex(columnName);
 
-            return ret != null ? ret : defaultValue;
+            if (columnIndex == -1) {
+                return defaultValue;
+            }
+
+            return (T) row.get(columnIndex);
         }
 
         /** {@inheritDoc} */
@@ -239,85 +247,109 @@ public class AsyncResultSetImpl<T> implements AsyncResultSet<T> {
         /** {@inheritDoc} */
         @Override
         public boolean booleanValue(String columnName) {
-            return (boolean) row.get(columnIndexChecked(columnName));
+            return (boolean) getValueNotNull(columnName);
         }
 
         /** {@inheritDoc} */
         @Override
         public boolean booleanValue(int columnIndex) {
-            return (boolean) row.get(columnIndex);
+            return (boolean) getValueNotNull(columnIndex);
         }
 
         /** {@inheritDoc} */
         @Override
         public byte byteValue(String columnName) {
-            return (byte) row.get(columnIndexChecked(columnName));
+            Object number = getValueNotNull(columnName);
+
+            return TupleTypeCastUtils.castToByte(number);
         }
 
         /** {@inheritDoc} */
         @Override
         public byte byteValue(int columnIndex) {
-            return (byte) row.get(columnIndex);
+            Object number = getValueNotNull(columnIndex);
+
+            return TupleTypeCastUtils.castToByte(number);
         }
 
         /** {@inheritDoc} */
         @Override
         public short shortValue(String columnName) {
-            return (short) row.get(columnIndexChecked(columnName));
+            Object number = getValueNotNull(columnName);
+
+            return TupleTypeCastUtils.castToShort(number);
         }
 
         /** {@inheritDoc} */
         @Override
         public short shortValue(int columnIndex) {
-            return (short) row.get(columnIndex);
+            Object number = getValueNotNull(columnIndex);
+
+            return TupleTypeCastUtils.castToShort(number);
         }
 
         /** {@inheritDoc} */
         @Override
         public int intValue(String columnName) {
-            return (int) row.get(columnIndexChecked(columnName));
+            Object number = getValueNotNull(columnName);
+
+            return TupleTypeCastUtils.castToInt(number);
         }
 
         /** {@inheritDoc} */
         @Override
         public int intValue(int columnIndex) {
-            return (int) row.get(columnIndex);
+            Object number = getValueNotNull(columnIndex);
+
+            return TupleTypeCastUtils.castToInt(number);
         }
 
         /** {@inheritDoc} */
         @Override
         public long longValue(String columnName) {
-            return (long) row.get(columnIndexChecked(columnName));
+            Object number = getValueNotNull(columnName);
+
+            return TupleTypeCastUtils.castToLong(number);
         }
 
         /** {@inheritDoc} */
         @Override
         public long longValue(int columnIndex) {
-            return (long) row.get(columnIndex);
+            Object number = getValueNotNull(columnIndex);
+
+            return TupleTypeCastUtils.castToLong(number);
         }
 
         /** {@inheritDoc} */
         @Override
         public float floatValue(String columnName) {
-            return (float) row.get(columnIndexChecked(columnName));
+            Object number = getValueNotNull(columnName);
+
+            return TupleTypeCastUtils.castToFloat(number);
         }
 
         /** {@inheritDoc} */
         @Override
         public float floatValue(int columnIndex) {
-            return (float) row.get(columnIndex);
+            Object number = getValueNotNull(columnIndex);
+
+            return TupleTypeCastUtils.castToFloat(number);
         }
 
         /** {@inheritDoc} */
         @Override
         public double doubleValue(String columnName) {
-            return (double) row.get(columnIndexChecked(columnName));
+            Object number = getValueNotNull(columnName);
+
+            return TupleTypeCastUtils.castToDouble(number);
         }
 
         /** {@inheritDoc} */
         @Override
         public double doubleValue(int columnIndex) {
-            return (double) row.get(columnIndex);
+            Object number = getValueNotNull(columnIndex);
+
+            return TupleTypeCastUtils.castToDouble(number);
         }
 
         /** {@inheritDoc} */
@@ -425,6 +457,47 @@ public class AsyncResultSetImpl<T> implements AsyncResultSet<T> {
         @Override
         public BinaryTupleReader binaryTuple() {
             return row.asBinaryTuple();
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public int hashCode() {
+            return Tuple.hashCode(this);
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+
+            //noinspection SimplifiableIfStatement
+            if (obj instanceof Tuple) {
+                return Tuple.equals(this, (Tuple) obj);
+            }
+
+            return false;
+        }
+
+        private <T> T getValueNotNull(int columnIndex) {
+            Object value = row.get(columnIndex);
+
+            if (value == null) {
+                throw new NullPointerException(format(IgniteUtils.NULL_TO_PRIMITIVE_ERROR_MESSAGE, columnIndex));
+            }
+
+            return (T) value;
+        }
+
+        private <T> T getValueNotNull(String columnName) {
+            Object value = row.get(columnIndexChecked(columnName));
+
+            if (value == null) {
+                throw new NullPointerException(format(IgniteUtils.NULL_TO_PRIMITIVE_NAMED_ERROR_MESSAGE, columnName));
+            }
+
+            return (T) value;
         }
 
         /** {@inheritDoc} */

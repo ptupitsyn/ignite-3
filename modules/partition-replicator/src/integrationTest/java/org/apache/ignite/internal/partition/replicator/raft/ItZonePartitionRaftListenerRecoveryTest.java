@@ -66,6 +66,7 @@ import org.apache.ignite.internal.hlc.ClockService;
 import org.apache.ignite.internal.hlc.HybridClock;
 import org.apache.ignite.internal.hlc.HybridClockImpl;
 import org.apache.ignite.internal.hlc.HybridTimestamp;
+import org.apache.ignite.internal.hlc.TestClockService;
 import org.apache.ignite.internal.lang.IgniteInternalException;
 import org.apache.ignite.internal.lang.NodeStoppingException;
 import org.apache.ignite.internal.manager.ComponentContext;
@@ -78,11 +79,12 @@ import org.apache.ignite.internal.partition.replicator.network.PartitionReplicat
 import org.apache.ignite.internal.partition.replicator.network.command.TimedBinaryRowMessage;
 import org.apache.ignite.internal.partition.replicator.network.command.UpdateCommand;
 import org.apache.ignite.internal.partition.replicator.raft.snapshot.LogStorageAccessImpl;
+import org.apache.ignite.internal.partition.replicator.raft.snapshot.PartitionKey;
 import org.apache.ignite.internal.partition.replicator.raft.snapshot.PartitionMvStorageAccess;
 import org.apache.ignite.internal.partition.replicator.raft.snapshot.PartitionSnapshotStorage;
 import org.apache.ignite.internal.partition.replicator.raft.snapshot.PartitionSnapshotStorageFactory;
 import org.apache.ignite.internal.partition.replicator.raft.snapshot.PartitionTxStateAccessImpl;
-import org.apache.ignite.internal.partition.replicator.raft.snapshot.ZonePartitionKey;
+import org.apache.ignite.internal.partition.replicator.raft.snapshot.metrics.RaftSnapshotsMetricsSource;
 import org.apache.ignite.internal.partition.replicator.raft.snapshot.outgoing.OutgoingSnapshotsManager;
 import org.apache.ignite.internal.placementdriver.LeasePlacementDriver;
 import org.apache.ignite.internal.raft.Loza;
@@ -92,11 +94,12 @@ import org.apache.ignite.internal.raft.RaftGroupConfigurationConverter;
 import org.apache.ignite.internal.raft.RaftGroupEventsListener;
 import org.apache.ignite.internal.raft.RaftGroupOptionsConfigurer;
 import org.apache.ignite.internal.raft.RaftNodeId;
+import org.apache.ignite.internal.raft.configuration.LogStorageConfiguration;
 import org.apache.ignite.internal.raft.configuration.RaftConfiguration;
 import org.apache.ignite.internal.raft.server.RaftGroupOptions;
 import org.apache.ignite.internal.raft.service.RaftGroupService;
-import org.apache.ignite.internal.raft.storage.LogStorageFactory;
-import org.apache.ignite.internal.raft.util.SharedLogStorageFactoryUtils;
+import org.apache.ignite.internal.raft.storage.LogStorageManager;
+import org.apache.ignite.internal.raft.util.SharedLogStorageManagerUtils;
 import org.apache.ignite.internal.replicator.ReplicaManager;
 import org.apache.ignite.internal.replicator.ZonePartitionId;
 import org.apache.ignite.internal.replicator.message.ReplicaMessagesFactory;
@@ -108,8 +111,8 @@ import org.apache.ignite.internal.storage.MvPartitionStorage.WriteClosure;
 import org.apache.ignite.internal.storage.lease.LeaseInfo;
 import org.apache.ignite.internal.table.distributed.StorageUpdateHandler;
 import org.apache.ignite.internal.table.distributed.index.IndexMetaStorage;
+import org.apache.ignite.internal.table.distributed.raft.DefaultTablePartitionRaftProcessor;
 import org.apache.ignite.internal.table.distributed.raft.MinimumRequiredTimeCollectorService;
-import org.apache.ignite.internal.table.distributed.raft.TablePartitionProcessor;
 import org.apache.ignite.internal.table.distributed.raft.snapshot.SnapshotAwarePartitionDataStorage;
 import org.apache.ignite.internal.testframework.ExecutorServiceExtension;
 import org.apache.ignite.internal.testframework.IgniteAbstractTest;
@@ -150,7 +153,7 @@ class ItZonePartitionRaftListenerRecoveryTest extends IgniteAbstractTest {
 
     private OutgoingSnapshotsManager outgoingSnapshotsManager;
 
-    private LogStorageFactory logStorageFactory;
+    private LogStorageManager logStorageManager;
 
     private PartitionSnapshotStorage partitionSnapshotStorage;
 
@@ -177,9 +180,14 @@ class ItZonePartitionRaftListenerRecoveryTest extends IgniteAbstractTest {
     @InjectExecutorService
     private ExecutorService executor;
 
+    @InjectConfiguration
+    private static LogStorageConfiguration logStorageConfiguration;
+
     private final List<IgniteComponent> components = new ArrayList<>();
 
     private final HybridClock clock = new HybridClockImpl();
+
+    private final ClockService clockService = new TestClockService(clock);
 
     private final Map<Integer, MockMvPartitionStorage> storagesByTableId = new HashMap<>();
 
@@ -272,7 +280,7 @@ class ItZonePartitionRaftListenerRecoveryTest extends IgniteAbstractTest {
         components.add(raftManager);
 
         var sharedRockDbStorage = new TxStateRocksDbSharedStorage(
-                clusterService.nodeName(),
+                clusterService.staticLocalNode().name(),
                 workDir.resolve("tx"),
                 scheduledExecutorService,
                 executor,
@@ -283,35 +291,36 @@ class ItZonePartitionRaftListenerRecoveryTest extends IgniteAbstractTest {
         components.add(sharedRockDbStorage);
 
         outgoingSnapshotsManager = new OutgoingSnapshotsManager(
-                clusterService.nodeName(),
+                clusterService.staticLocalNode().name(),
                 clusterService.messagingService(),
                 failureProcessor
         );
 
         components.add(outgoingSnapshotsManager);
 
-        logStorageFactory = SharedLogStorageFactoryUtils.create(
-                "table data log",
-                clusterService.nodeName(),
+        logStorageManager = SharedLogStorageManagerUtils.create(
+                clusterService.staticLocalNode().name(),
                 componentWorkingDir.raftLogPath(),
-                true
+                logStorageConfiguration
         );
 
-        components.add(logStorageFactory);
+        components.add(logStorageManager);
 
         assertThat(startAsync(new ComponentContext(), components), willCompleteSuccessfully());
 
         txStateStorage = new TxStateRocksDbStorage(PARTITION_ID.zoneId(), 10, sharedRockDbStorage);
 
         partitionSnapshotStorage = new PartitionSnapshotStorage(
-                new ZonePartitionKey(PARTITION_ID.zoneId(), PARTITION_ID.partitionId()),
+                clusterService.staticLocalNode().name(),
+                new PartitionKey(PARTITION_ID.zoneId(), PARTITION_ID.partitionId()),
                 clusterService.topologyService(),
                 outgoingSnapshotsManager,
                 new PartitionTxStateAccessImpl(txStateStorage.getOrCreatePartitionStorage(PARTITION_ID.partitionId())),
                 catalogService,
                 failureProcessor,
                 executor,
-                new LogStorageAccessImpl(replicaManager)
+                new LogStorageAccessImpl(replicaManager),
+                new RaftSnapshotsMetricsSource()
         );
     }
 
@@ -334,7 +343,8 @@ class ItZonePartitionRaftListenerRecoveryTest extends IgniteAbstractTest {
                 new SafeTimeValuesTracker(HybridTimestamp.MIN_VALUE),
                 new PendingComparableValuesTracker<>(0L),
                 outgoingSnapshotsManager,
-                executor
+                executor,
+                clockService
         );
 
         for (int tableId : tableIds) {
@@ -347,21 +357,21 @@ class ItZonePartitionRaftListenerRecoveryTest extends IgniteAbstractTest {
             currentRaftListener.addTableProcessorOnRecovery(tableId, createTableProcessor(tableId));
         }
 
-        var peersAndLearners = PeersAndLearners.fromConsistentIds(Set.of(clusterService.nodeName()));
+        var peersAndLearners = PeersAndLearners.fromConsistentIds(Set.of(clusterService.staticLocalNode().name()));
 
         RaftGroupOptions options = RaftGroupOptions.forPersistentStores();
 
         options.snapshotStorageFactory(new PartitionSnapshotStorageFactory(partitionSnapshotStorage));
 
         RaftGroupOptionsConfigurer raftGroupOptionsConfigurer = configureProperties(
-                logStorageFactory,
+                logStorageManager,
                 componentWorkingDir.metaPath()
         );
 
         raftGroupOptionsConfigurer.configure(options);
 
         return raftManager.startRaftGroupNode(
-                new RaftNodeId(PARTITION_ID, new Peer(clusterService.nodeName())),
+                new RaftNodeId(PARTITION_ID, new Peer(clusterService.staticLocalNode().name())),
                 peersAndLearners,
                 currentRaftListener,
                 RaftGroupEventsListener.noopLsnr,
@@ -377,12 +387,12 @@ class ItZonePartitionRaftListenerRecoveryTest extends IgniteAbstractTest {
         raftManager.stopRaftNodes(PARTITION_ID);
     }
 
-    private RaftTableProcessor createTableProcessor(int tableId) {
+    private TablePartitionRaftProcessor createTableProcessor(int tableId) {
         var storage = new SnapshotAwarePartitionDataStorage(
                 tableId,
                 mockStorage(tableId).storage,
                 outgoingSnapshotsManager,
-                new ZonePartitionKey(PARTITION_ID.zoneId(), PARTITION_ID.partitionId())
+                new PartitionKey(PARTITION_ID.zoneId(), PARTITION_ID.partitionId())
         );
 
         LeasePlacementDriver placementDriver = mock(LeasePlacementDriver.class);
@@ -390,18 +400,20 @@ class ItZonePartitionRaftListenerRecoveryTest extends IgniteAbstractTest {
 
         ClockService clockService = mock(ClockService.class);
         lenient().when(clockService.current()).thenReturn(clock.current());
+        lenient().when(clockService.updateClock(any(), anyBoolean())).thenAnswer(invocation -> {
+            HybridTimestamp requestTime = invocation.getArgument(0);
+            return clock.update(requestTime);
+        });
 
-        return new TablePartitionProcessor(
+        return new DefaultTablePartitionRaftProcessor(
                 txManager,
                 storage,
                 storageUpdateHandler,
-                new SafeTimeValuesTracker(HybridTimestamp.MIN_VALUE),
                 catalogService,
                 schemaRegistry,
                 indexMetaStorage,
-                clusterService.topologyService().localMember().id(),
+                clusterService.staticLocalNode().id(),
                 minimumRequiredTimeCollectorService,
-                executor,
                 placementDriver,
                 clockService,
                 new ZonePartitionId(PARTITION_ID.zoneId(), PARTITION_ID.partitionId())
@@ -409,7 +421,7 @@ class ItZonePartitionRaftListenerRecoveryTest extends IgniteAbstractTest {
     }
 
     private MockMvPartitionStorage mockStorage(int tableId) {
-        return storagesByTableId.computeIfAbsent(tableId, id -> new MockMvPartitionStorage(clusterService.topologyService().localMember()));
+        return storagesByTableId.computeIfAbsent(tableId, id -> new MockMvPartitionStorage(clusterService.staticLocalNode()));
     }
 
     @Test
@@ -459,7 +471,7 @@ class ItZonePartitionRaftListenerRecoveryTest extends IgniteAbstractTest {
         // Execute a snapshot and then apply some commands on top of it for a new table.
         // We then expect that the new commands will be re-applied on startup.
         assertThat(
-                raftGroupService.snapshot(new Peer(clusterService.nodeName()), true),
+                raftGroupService.snapshot(new Peer(clusterService.staticLocalNode().name()), true),
                 willCompleteSuccessfully()
         );
 
@@ -493,7 +505,7 @@ class ItZonePartitionRaftListenerRecoveryTest extends IgniteAbstractTest {
         List<UUID> rowIds = applyRandomUpdateCommands(raftGroupService, tableIds);
 
         assertThat(
-                raftGroupService.snapshot(new Peer(clusterService.nodeName()), true),
+                raftGroupService.snapshot(new Peer(clusterService.staticLocalNode().name()), true),
                 willCompleteSuccessfully()
         );
 
@@ -520,7 +532,7 @@ class ItZonePartitionRaftListenerRecoveryTest extends IgniteAbstractTest {
         applyRandomUpdateCommands(raftGroupService, tableIds);
 
         assertThat(
-                raftGroupService.snapshot(new Peer(clusterService.nodeName()), true),
+                raftGroupService.snapshot(new Peer(clusterService.staticLocalNode().name()), true),
                 willCompleteSuccessfully()
         );
 
@@ -572,7 +584,7 @@ class ItZonePartitionRaftListenerRecoveryTest extends IgniteAbstractTest {
                 .txCoordinatorId(id)
                 .requiredCatalogVersion(0)
                 .leaseStartTime(0L)
-                .safeTime(now)
+                .safeTime(clock.now())
                 .build();
     }
 

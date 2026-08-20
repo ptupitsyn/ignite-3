@@ -24,7 +24,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Function;
 import org.apache.ignite.internal.catalog.CatalogService;
 import org.apache.ignite.internal.failure.FailureContext;
 import org.apache.ignite.internal.failure.FailureProcessor;
@@ -34,6 +33,7 @@ import org.apache.ignite.internal.logger.IgniteLogger;
 import org.apache.ignite.internal.logger.Loggers;
 import org.apache.ignite.internal.network.ClusterNodeResolver;
 import org.apache.ignite.internal.network.InternalClusterNode;
+import org.apache.ignite.internal.partition.replicator.PartitionReplicaLifecycleManager.TablePartitionReplicaProcessorFactory;
 import org.apache.ignite.internal.partition.replicator.handlers.MinimumActiveTxTimeReplicaRequestHandler;
 import org.apache.ignite.internal.partition.replicator.handlers.ReplicaSafeTimeSyncRequestHandler;
 import org.apache.ignite.internal.partition.replicator.handlers.TxCleanupRecoveryRequestHandler;
@@ -54,8 +54,11 @@ import org.apache.ignite.internal.replicator.message.ReplicaRequest;
 import org.apache.ignite.internal.replicator.message.ReplicaSafeTimeSyncRequest;
 import org.apache.ignite.internal.replicator.message.TableAware;
 import org.apache.ignite.internal.schema.SchemaSyncService;
-import org.apache.ignite.internal.tx.PendingTxPartitionEnlistment;
 import org.apache.ignite.internal.tx.TxManager;
+import org.apache.ignite.internal.tx.impl.PlacementDriverHelper;
+import org.apache.ignite.internal.tx.impl.TransactionStateResolver;
+import org.apache.ignite.internal.tx.impl.TxMessageSender;
+import org.apache.ignite.internal.tx.impl.TxRecoveryEngine;
 import org.apache.ignite.internal.tx.message.TxCleanupRecoveryRequest;
 import org.apache.ignite.internal.tx.message.TxFinishReplicaRequest;
 import org.apache.ignite.internal.tx.message.TxRecoveryMessage;
@@ -72,7 +75,7 @@ public class ZonePartitionReplicaListener implements ReplicaListener {
     private static final IgniteLogger LOG = Loggers.forClass(ZonePartitionReplicaListener.class);
 
     // tableId -> tableProcessor.
-    private final Map<Integer, ReplicaTableProcessor> replicaProcessors = new ConcurrentHashMap<>();
+    private final Map<Integer, TablePartitionReplicaProcessor> replicaProcessors = new ConcurrentHashMap<>();
 
     /** Raft client. */
     private final RaftCommandRunner raftClient;
@@ -94,6 +97,7 @@ public class ZonePartitionReplicaListener implements ReplicaListener {
     private final MinimumActiveTxTimeReplicaRequestHandler minimumActiveTxTimeReplicaRequestHandler;
     private final VacuumTxStateReplicaRequestHandler vacuumTxStateReplicaRequestHandler;
     private final ReplicaSafeTimeSyncRequestHandler replicaSafeTimeSyncRequestHandler;
+    private final TransactionStateResolver transactionStateResolver;
 
     /**
      * The constructor.
@@ -110,14 +114,19 @@ public class ZonePartitionReplicaListener implements ReplicaListener {
             SchemaSyncService schemaSyncService,
             CatalogService catalogService,
             LeasePlacementDriver placementDriver,
+            PlacementDriverHelper placementDriverHelper,
             ClusterNodeResolver clusterNodeResolver,
             RaftCommandRunner raftClient,
             FailureProcessor failureProcessor,
             InternalClusterNode localNode,
-            ZonePartitionId replicationGroupId
+            ZonePartitionId replicationGroupId,
+            TransactionStateResolver transactionStateResolver,
+            TxMessageSender txMessageSender,
+            TxRecoveryEngine txRecoveryEngine
     ) {
         this.raftClient = raftClient;
         this.failureProcessor = failureProcessor;
+        this.transactionStateResolver = transactionStateResolver;
 
         this.replicationGroupId = replicationGroupId;
 
@@ -135,13 +144,6 @@ public class ZonePartitionReplicaListener implements ReplicaListener {
         );
 
         ReplicationRaftCommandApplicator raftCommandApplicator = new ReplicationRaftCommandApplicator(raftClient, replicationGroupId);
-
-        TxRecoveryEngine txRecoveryEngine = new TxRecoveryEngine(
-                txManager,
-                clusterNodeResolver,
-                replicationGroupId,
-                ZonePartitionReplicaListener::createAbandonedTxRecoveryEnlistment
-        );
 
         // Request handlers initialization.
 
@@ -170,11 +172,20 @@ public class ZonePartitionReplicaListener implements ReplicaListener {
                 txStatePartitionStorage,
                 txManager,
                 clusterNodeResolver,
-                localNode,
-                txRecoveryEngine
+                txRecoveryEngine,
+                txMessageSender,
+                placementDriverHelper,
+                replicationGroupId,
+                localNode
         );
 
-        txRecoveryMessageHandler = new TxRecoveryMessageHandler(txStatePartitionStorage, replicationGroupId, txRecoveryEngine);
+        txRecoveryMessageHandler = new TxRecoveryMessageHandler(
+                txStatePartitionStorage,
+                replicationGroupId,
+                txRecoveryEngine,
+                txManager,
+                localNode
+        );
 
         txCleanupRecoveryRequestHandler = new TxCleanupRecoveryRequestHandler(
                 txStatePartitionStorage,
@@ -191,13 +202,6 @@ public class ZonePartitionReplicaListener implements ReplicaListener {
         vacuumTxStateReplicaRequestHandler = new VacuumTxStateReplicaRequestHandler(raftCommandApplicator);
 
         replicaSafeTimeSyncRequestHandler = new ReplicaSafeTimeSyncRequestHandler(clockService, raftCommandApplicator);
-    }
-
-    private static PendingTxPartitionEnlistment createAbandonedTxRecoveryEnlistment(InternalClusterNode node) {
-        // Enlistment consistency token is not required for the rollback, so it is 0L.
-        // Passing an empty set of table IDs as we don't know which tables were enlisted; this is ok as the corresponding write intents
-        // can still be resolved later when reads stumble upon them.
-        return new PendingTxPartitionEnlistment(node.name(), 0L);
     }
 
     @Override
@@ -229,11 +233,11 @@ public class ZonePartitionReplicaListener implements ReplicaListener {
         } else if (request instanceof WriteIntentSwitchReplicaRequest) {
             return writeIntentSwitchRequestHandler.handle((WriteIntentSwitchReplicaRequest) request, senderId);
         } else if (request instanceof TxStateCommitPartitionRequest) {
-            return txStateCommitPartitionReplicaRequestHandler.handle((TxStateCommitPartitionRequest) request);
+            return txStateCommitPartitionReplicaRequestHandler.handle((TxStateCommitPartitionRequest) request, senderId);
         } else if (request instanceof TxRecoveryMessage) {
             return txRecoveryMessageHandler.handle((TxRecoveryMessage) request, senderId);
         } else if (request instanceof TxCleanupRecoveryRequest) {
-            return txCleanupRecoveryRequestHandler.handle((TxCleanupRecoveryRequest) request);
+            return txCleanupRecoveryRequestHandler.handle();
         }
 
         return processZoneReplicaRequest(request, replicaPrimacy);
@@ -252,11 +256,11 @@ public class ZonePartitionReplicaListener implements ReplicaListener {
             ReplicaPrimacy replicaPrimacy,
             UUID senderId
     ) {
-        return tableAwareReplicaRequestPreProcessor.preProcessTableAwareRequest(request, replicaPrimacy, senderId)
+        return tableAwareReplicaRequestPreProcessor.preProcessTableAwareRequest(request)
                 .thenCompose(ignored -> {
                     int tableId = ((TableAware) request).tableId();
 
-                    ReplicaTableProcessor replicaProcessor = replicaProcessors.get(tableId);
+                    TablePartitionReplicaProcessor replicaProcessor = replicaProcessors.get(tableId);
 
                     if (replicaProcessor == null) {
                         // Most of the times this condition should be false. This block handles a case when a request got stuck
@@ -286,7 +290,7 @@ public class ZonePartitionReplicaListener implements ReplicaListener {
         } else if (request instanceof UpdateMinimumActiveTxBeginTimeReplicaRequest) {
             return minimumActiveTxTimeReplicaRequestHandler.handle((UpdateMinimumActiveTxBeginTimeReplicaRequest) request);
         } else if (request instanceof ReplicaSafeTimeSyncRequest) {
-            return replicaSafeTimeSyncRequestHandler.handle((ReplicaSafeTimeSyncRequest) request, replicaPrimacy.isPrimary());
+            return replicaSafeTimeSyncRequestHandler.handle(replicaPrimacy.isPrimary());
         } else {
             LOG.warn("Non table request is not supported by the zone partition yet " + request);
         }
@@ -302,10 +306,10 @@ public class ZonePartitionReplicaListener implements ReplicaListener {
      * Add table partition replica processor to the current zone replica listener.
      *
      * @param tableId Table id.
-     * @param replicaListener Table replica listener.
+     * @param replicaListenerFactory Table replica listener factory.
      */
-    public void addTableReplicaProcessor(int tableId, Function<RaftCommandRunner, ReplicaTableProcessor> replicaListener) {
-        replicaProcessors.put(tableId, replicaListener.apply(raftClient));
+    public void addTableReplicaProcessor(int tableId, TablePartitionReplicaProcessorFactory replicaListenerFactory) {
+        replicaProcessors.put(tableId, replicaListenerFactory.createProcessor(raftClient, transactionStateResolver));
     }
 
     /**
@@ -318,12 +322,19 @@ public class ZonePartitionReplicaListener implements ReplicaListener {
     }
 
     /**
+     * Returns true if there are no table replica processors, false otherwise.
+     */
+    boolean areTableReplicaProcessorsEmpty() {
+        return replicaProcessors.isEmpty();
+    }
+
+    /**
      * Return table replicas listeners.
      *
      * @return Table replicas listeners.
      */
     @VisibleForTesting
-    public Map<Integer, ReplicaTableProcessor> tableReplicaProcessors() {
+    public Map<Integer, TablePartitionReplicaProcessor> tableReplicaProcessors() {
         return replicaProcessors;
     }
 

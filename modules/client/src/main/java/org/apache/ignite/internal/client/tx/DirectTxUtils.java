@@ -23,6 +23,7 @@ import static org.apache.ignite.internal.client.proto.tx.ClientInternalTxOptions
 import static org.apache.ignite.internal.client.proto.tx.ClientTxUtils.TX_ID_DIRECT;
 import static org.apache.ignite.internal.client.proto.tx.ClientTxUtils.TX_ID_FIRST_DIRECT;
 import static org.apache.ignite.internal.util.CompletableFutures.nullCompletedFuture;
+import static org.apache.ignite.internal.util.ExceptionUtils.sneakyThrow;
 import static org.apache.ignite.lang.ErrorGroups.Client.CONNECTION_ERR;
 import static org.apache.ignite.lang.ErrorGroups.Common.INTERNAL_ERR;
 
@@ -34,6 +35,7 @@ import org.apache.ignite.internal.client.ClientChannel;
 import org.apache.ignite.internal.client.PartitionMapping;
 import org.apache.ignite.internal.client.PayloadInputChannel;
 import org.apache.ignite.internal.client.PayloadOutputChannel;
+import org.apache.ignite.internal.client.PayloadWriter;
 import org.apache.ignite.internal.client.ReliableChannel;
 import org.apache.ignite.internal.client.WriteContext;
 import org.apache.ignite.internal.client.proto.ClientMessageUnpacker;
@@ -49,6 +51,8 @@ import org.jetbrains.annotations.Nullable;
  * Collection of helper methods to unify handling of direct transactions and piggybacking of tx start request.
  */
 public class DirectTxUtils {
+    private static final String TRANSACTION_CONTEXT_LOST = "Transaction context has been lost due to connection errors.";
+
     /**
      * Ensures that a client-side transaction is started and ready to serve requests.
      *
@@ -92,8 +96,8 @@ public class DirectTxUtils {
             IgniteBiTuple<CompletableFuture<ClientTransaction>, Boolean> tuple = ClientLazyTransaction.ensureStarted(tx, ch,
                     piggybackSupported.test(ch0) ? null : () -> completedFuture(ch0));
 
-            // If this is the first direct request in transaction, it will also piggyback a transaction start.
             if (tuple.get2()) {
+                // If this is the first direct request in transaction, it will also piggyback a transaction start.
                 ctx.pm = pm;
                 ctx.readOnly = tx.isReadOnly();
                 ctx.channel = ch0;
@@ -171,7 +175,7 @@ public class DirectTxUtils {
                 //noinspection resource
                 if (tx0.channel() != out.clientChannel()) {
                     // Do not throw IgniteClientConnectionException to avoid retry kicking in.
-                    throw new IgniteException(CONNECTION_ERR, "Transaction context has been lost due to connection errors.");
+                    throw new IgniteException(CONNECTION_ERR, TRANSACTION_CONTEXT_LOST);
                 }
 
                 out.out().packLong(tx0.id());
@@ -186,12 +190,14 @@ public class DirectTxUtils {
      * ensuring the transaction state is correctly initialized or synchronized with the server.
      *
      * @param payloadChannel The {@link PayloadInputChannel} containing the server's response data.
+     * @param ch Channels repository.
      * @param ctx The {@link WriteContext} holding the transaction request state and response future.
      * @param tx The current {@link ClientTransaction}, or {@code null} if piggybacking a new transaction.
      * @param observableTimestamp A tracker for observable timestamps used for transaction visibility and causality.
      */
     public static void readTx(
             PayloadInputChannel payloadChannel,
+            ReliableChannel ch,
             WriteContext ctx,
             @Nullable ClientTransaction tx,
             HybridTimestampTracker observableTimestamp
@@ -206,7 +212,7 @@ public class DirectTxUtils {
             long timeout = in.unpackLong();
 
             ClientTransaction startedTx =
-                    new ClientTransaction(payloadChannel.clientChannel(), id, ctx.readOnly, txId, ctx.pm, coordId, observableTimestamp,
+                    new ClientTransaction(payloadChannel.clientChannel(), ch, id, ctx.readOnly, txId, ctx.pm, coordId, observableTimestamp,
                             timeout);
 
             ctx.firstReqFut.complete(startedTx);
@@ -223,11 +229,11 @@ public class DirectTxUtils {
                             "Encountered no-op on first direct enlistment, server version upgrade is required"));
                 }
             } else {
-                String consistentId = payloadChannel.in().unpackString();
-                long token = payloadChannel.in().unpackLong();
+                String consistentId = in.unpackString();
+                long token = in.unpackLong();
 
                 // Test if no-op enlistment.
-                if (payloadChannel.in().unpackBoolean()) {
+                if (in.unpackBoolean()) {
                     payloadChannel.clientChannel().inflights().removeInflight(tx.txId(), null);
                 }
 
@@ -260,9 +266,11 @@ public class DirectTxUtils {
             @Nullable ClientTransaction tx,
             @Nullable PartitionMapping mapping
     ) {
-        CompletableFuture<ClientChannel> chFuture = ctx.firstReqFut != null
-                ? completedFuture(ctx.channel)
-                : ch.getChannelAsync(resolvePreferredNode(tx, mapping));
+        if (tx != null) {
+            tx.validateOwnership(ch);
+        }
+
+        CompletableFuture<ClientChannel> chFuture = resolveChannelInner(ctx, ch, tx, mapping);
 
         return chFuture.thenCompose(opCh -> {
             if (tx != null && tx.hasCommitPartition()
@@ -276,14 +284,113 @@ public class DirectTxUtils {
         });
     }
 
-    private static @Nullable String resolvePreferredNode(@Nullable ClientTransaction tx, @Nullable PartitionMapping pm) {
-        String opNode = pm == null ? null : pm.nodeConsistentId();
+    /**
+     * If the current request is the first request of a direct tx, add a listener to the {@link PayloadWriter}.
+     *
+     * @param ctx The {@link WriteContext} that holds transactional context information.
+     * @param tx The client transaction associated with the request, or {@code null} if none.
+     * @param base Request native {@link PayloadWriter}.
+     * @return The {@link PayloadWriter} that should be used on the request.
+     */
+    public static PayloadWriter payloadWriter(WriteContext ctx, @Nullable Transaction tx, PayloadWriter base) {
+        if (ctx.firstReqFut != null && tx instanceof ClientLazyTransaction) {
+            return poc -> {
+                base.accept(poc);
+
+                var clientLazyTx = (ClientLazyTransaction) tx;
+                long requestId = poc.requestId();
+                ClientChannel cc = poc.clientChannel();
+                poc.onSent(() -> clientLazyTx.updateRequestInfo(requestId, cc));
+            };
+        } else {
+            return base;
+        }
+    }
+
+    /**
+     * Try to handle error on first request. Returns false if not in the context of the first request.
+     * This method essentially populates context with a failed request instance.
+     *
+     * @param ctx The {@link WriteContext} that holds transactional context information.
+     * @param ch The {@link ReliableChannel} used to resolve the actual communication channel.
+     * @return Whether the error was handled or not.
+     */
+    public static boolean tryHandleErrorOnFirstRequest(WriteContext ctx, ReliableChannel ch) {
+        if (ctx.firstReqFut == null) {
+            return false;
+        }
+
+        // Create failed transaction.
+        ClientTransaction failed = new ClientTransaction(
+                ctx.channel,
+                ch,
+                -1,
+                ctx.readOnly,
+                null,
+                ctx.pm,
+                null,
+                ch.observableTimestamp(),
+                0
+        );
+
+        failed.fail();
+        ctx.firstReqFut.complete(failed);
+        // Txn was not started, rollback is not required.
+        return true;
+    }
+
+    /**
+     * Handles errors after the first request.
+     * Essentially call the rollback on the transaction and appends any errors to the original error.
+     *
+     * @param ctx The {@link WriteContext} that holds transactional context information.
+     * @param tx The client transaction.
+     * @param err The error to be handled.
+     * @param <T> type of the expected future.
+     * @return A completable future what always fails with the original error plus any suppressed errors.
+     */
+    public static <T> CompletableFuture<T> handleErrorOnOtherRequests(WriteContext ctx, ClientTransaction tx, Throwable err) {
+        CompletableFuture<Void> rollback;
+        if (ctx.enlistmentToken != null) {
+            // In case of direct mapping error need to rollback the tx on coordinator.
+            rollback = tx.rollbackAsync();
+        } else {
+            rollback = tx.rollbackAndDiscardDirectMappings(false);
+        }
+
+        return rollback.handle((ignored, err0) -> {
+            if (err0 != null) {
+                err.addSuppressed(err0);
+            }
+
+            sneakyThrow(err);
+            return null;
+        });
+    }
+
+    private static CompletableFuture<ClientChannel> resolveChannelInner(
+            WriteContext ctx,
+            ReliableChannel ch,
+            @Nullable ClientTransaction tx,
+            @Nullable PartitionMapping mapping) {
+        if (ctx.firstReqFut != null) {
+            return completedFuture(ctx.channel);
+        }
+
+        String opNode = mapping == null ? null : mapping.nodeConsistentId();
 
         if (tx != null) {
-            return !tx.isReadOnly() && tx.hasCommitPartition() && opNode != null ? opNode : tx.nodeName();
-        } else {
-            return opNode;
+            if (tx.isReadOnly() || !tx.hasCommitPartition() || opNode == null) {
+                if (tx.channel().closed()) {
+                    // Do not throw IgniteClientConnectionException to avoid retry kicking in.
+                    throw new IgniteException(CONNECTION_ERR, TRANSACTION_CONTEXT_LOST);
+                }
+
+                return completedFuture(tx.channel());
+            }
         }
+
+        return ch.getChannelAsync(opNode);
     }
 
     private static CompletableFuture<Void> enlistDirect(
@@ -293,7 +400,7 @@ public class DirectTxUtils {
             WriteContext ctx,
             boolean trackOperation
     ) {
-        return tx.enlistFuture(ch, opChannel, ctx.pm, trackOperation).thenCompose(tup -> {
+        return tx.enlistFuture(ch, ctx.pm, trackOperation).thenCompose(tup -> {
             if (tup.get2() == null) { // First request.
                 ctx.enlistmentToken = 0L;
                 return nullCompletedFuture();

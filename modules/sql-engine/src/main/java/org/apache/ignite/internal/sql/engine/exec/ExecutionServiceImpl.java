@@ -27,6 +27,7 @@ import static org.apache.ignite.lang.ErrorGroups.Common.INTERNAL_ERR;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
@@ -49,7 +50,6 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -72,7 +72,6 @@ import org.apache.ignite.internal.lang.IgniteStringBuilder;
 import org.apache.ignite.internal.logger.IgniteLogger;
 import org.apache.ignite.internal.logger.Loggers;
 import org.apache.ignite.internal.network.InternalClusterNode;
-import org.apache.ignite.internal.network.TopologyService;
 import org.apache.ignite.internal.replicator.ZonePartitionId;
 import org.apache.ignite.internal.sql.engine.InternalSqlRow;
 import org.apache.ignite.internal.sql.engine.InternalSqlRowImpl;
@@ -83,11 +82,13 @@ import org.apache.ignite.internal.sql.engine.QueryCancel;
 import org.apache.ignite.internal.sql.engine.QueryCancelledException;
 import org.apache.ignite.internal.sql.engine.SchemaAwareConverter;
 import org.apache.ignite.internal.sql.engine.SqlOperationContext;
+import org.apache.ignite.internal.sql.engine.SqlPlanToTxSchemaVersionValidator;
 import org.apache.ignite.internal.sql.engine.SqlQueryProcessor.PrefetchCallback;
 import org.apache.ignite.internal.sql.engine.SqlQueryType;
+import org.apache.ignite.internal.sql.engine.api.expressions.RowFactoryFactory;
 import org.apache.ignite.internal.sql.engine.exec.AsyncDataCursor.CancellationReason;
 import org.apache.ignite.internal.sql.engine.exec.ddl.DdlCommandHandler;
-import org.apache.ignite.internal.sql.engine.exec.exp.ExpressionFactory;
+import org.apache.ignite.internal.sql.engine.exec.exp.SqlExpressionFactory;
 import org.apache.ignite.internal.sql.engine.exec.exp.func.TableFunctionRegistry;
 import org.apache.ignite.internal.sql.engine.exec.kill.KillCommand;
 import org.apache.ignite.internal.sql.engine.exec.kill.KillCommandHandler;
@@ -113,15 +114,10 @@ import org.apache.ignite.internal.sql.engine.prepare.DdlPlan;
 import org.apache.ignite.internal.sql.engine.prepare.ExplainPlan;
 import org.apache.ignite.internal.sql.engine.prepare.ExplainablePlan;
 import org.apache.ignite.internal.sql.engine.prepare.Fragment;
-import org.apache.ignite.internal.sql.engine.prepare.IgniteRelShuttle;
 import org.apache.ignite.internal.sql.engine.prepare.KillPlan;
 import org.apache.ignite.internal.sql.engine.prepare.MultiStepPlan;
 import org.apache.ignite.internal.sql.engine.prepare.QueryPlan;
-import org.apache.ignite.internal.sql.engine.rel.IgniteIndexScan;
 import org.apache.ignite.internal.sql.engine.rel.IgniteRel;
-import org.apache.ignite.internal.sql.engine.rel.IgniteTableModify;
-import org.apache.ignite.internal.sql.engine.rel.IgniteTableScan;
-import org.apache.ignite.internal.sql.engine.rel.SourceAwareIgniteRel;
 import org.apache.ignite.internal.sql.engine.schema.IgniteSchemas;
 import org.apache.ignite.internal.sql.engine.schema.IgniteTable;
 import org.apache.ignite.internal.sql.engine.schema.SqlSchemaManager;
@@ -186,13 +182,15 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
 
     private final KillCommandHandler killCommandHandler;
 
-    private final ExpressionFactory expressionFactory;
+    private final SqlExpressionFactory sqlExpressionFactory;
+
+    private final SqlPlanToTxSchemaVersionValidator planValidator;
 
     /**
      * Constructor.
      *
      * @param messageService Message service.
-     * @param topSrvc Topology service.
+     * @param localNode Local node.
      * @param mappingService Nodes mapping calculation service.
      * @param sqlSchemaManager Schema manager.
      * @param ddlCmdHnd Handler of the DDL commands.
@@ -203,10 +201,11 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
      * @param clockService Clock service.
      * @param killCommandHandler Kill command handler.
      * @param shutdownTimeout Shutdown timeout.
+     * @param planValidator Validator of the catalog version from the plan relative to the started transaction.
      */
     public ExecutionServiceImpl(
             MessageService messageService,
-            TopologyService topSrvc,
+            InternalClusterNode localNode,
             MappingService mappingService,
             SqlSchemaManager sqlSchemaManager,
             DdlCommandHandler ddlCmdHnd,
@@ -218,10 +217,11 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
             ImplementorFactory<RowT> implementorFactory,
             ClockService clockService,
             KillCommandHandler killCommandHandler,
-            ExpressionFactory expressionFactory,
-            long shutdownTimeout
+            SqlExpressionFactory sqlExpressionFactory,
+            long shutdownTimeout,
+            SqlPlanToTxSchemaVersionValidator planValidator
     ) {
-        this.localNode = topSrvc.localMember();
+        this.localNode = localNode;
         this.handler = handler;
         this.rowFactoryFactory = rowFactoryFactory;
         this.messageService = messageService;
@@ -234,15 +234,16 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
         this.implementorFactory = implementorFactory;
         this.clockService = clockService;
         this.killCommandHandler = killCommandHandler;
-        this.expressionFactory = expressionFactory;
+        this.sqlExpressionFactory = sqlExpressionFactory;
         this.shutdownTimeout = shutdownTimeout;
+        this.planValidator = planValidator;
     }
 
     /**
      * Creates the execution services.
      *
      * @param <RowT> Type of the sql row.
-     * @param topSrvc Topology service.
+     * @param localNode Local node.
      * @param msgSrvc Message service.
      * @param sqlSchemaManager Schema manager.
      * @param ddlCommandHandler Handler of the DDL commands.
@@ -258,10 +259,11 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
      * @param clockService Clock service.
      * @param killCommandHandler Kill command handler.
      * @param shutdownTimeout Shutdown timeout.
+     * @param planValidator Validator of the catalog version from the plan relative to the started transaction.
      * @return An execution service.
      */
     public static <RowT> ExecutionServiceImpl<RowT> create(
-            TopologyService topSrvc,
+            InternalClusterNode localNode,
             MessageService msgSrvc,
             SqlSchemaManager sqlSchemaManager,
             DdlCommandHandler ddlCommandHandler,
@@ -276,12 +278,13 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
             TableFunctionRegistry tableFunctionRegistry,
             ClockService clockService,
             KillCommandHandler killCommandHandler,
-            ExpressionFactory expressionFactory,
-            long shutdownTimeout
+            SqlExpressionFactory sqlExpressionFactory,
+            long shutdownTimeout,
+            SqlPlanToTxSchemaVersionValidator planValidator
     ) {
         return new ExecutionServiceImpl<>(
                 msgSrvc,
-                topSrvc,
+                localNode,
                 mappingService,
                 sqlSchemaManager,
                 ddlCommandHandler,
@@ -299,8 +302,9 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
                 ),
                 clockService,
                 killCommandHandler,
-                expressionFactory,
-                shutdownTimeout
+                sqlExpressionFactory,
+                shutdownTimeout,
+                planValidator
         );
     }
 
@@ -329,60 +333,76 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
 
         assert old == null;
 
+        boolean readOnly = plan.type().implicitTransactionReadOnlyMode();
+
+        QueryTransactionWrapper txWrapper = getOrStartTransaction(operationContext, readOnly);
+        InternalTransaction tx = txWrapper.unwrap();
+
+        return planValidator.validate(plan, txWrapper)
+                .thenCompose(ignore -> {
+                    PrefetchCallback prefetchCallback = queryManager.prefetchCallback;
+
+                    CompletableFuture<Void> firstPageReady = prefetchCallback.prefetchFuture();
+
+                    if (plan.type() == SqlQueryType.DML) {
+                        // DML is supposed to have a single row response, so if the first page is ready, then all
+                        // inputs have been processed, all tables have been updated, and now it should be safe to
+                        // commit implicit transaction
+                        firstPageReady = firstPageReady.thenCompose(none -> txWrapper.finalise());
+                    }
+
+                    CompletableFuture<Void> firstPageReady0 = firstPageReady;
+
+                    Predicate<String> nodeExclusionFilter = operationContext.nodeExclusionFilter();
+
+                    CompletableFuture<AsyncDataCursor<InternalSqlRow>> f = queryManager.execute(tx, plan, nodeExclusionFilter)
+                            .thenApply(dataCursor -> new TxAwareAsyncCursor<>(
+                                    txWrapper,
+                                    dataCursor,
+                                    firstPageReady0,
+                                    queryManager::close,
+                                    operationContext::notifyError
+                            ));
+
+                    return f.handle((r, t) -> {
+                        if (t != null) {
+                            // We were unable to create cursor, hence need to finalise transaction wrapper
+                            // which were created solely for this operation.
+                            return txWrapper.finalise(t).handle((none, finalizationErr) -> {
+                                if (finalizationErr != null) {
+                                    t.addSuppressed(finalizationErr);
+                                }
+
+                                // Re-throw the exception, so execution future is completed with the same exception.
+                                sneakyThrow(t);
+
+                                // We must never reach this line.
+                                return (AsyncDataCursor<InternalSqlRow>) null;
+                            });
+                        }
+
+                        return completedFuture(r);
+                    }).thenCompose(Function.identity());
+                });
+    }
+
+    private static QueryTransactionWrapper getOrStartTransaction(SqlOperationContext operationContext, boolean readOnly) {
         QueryTransactionContext txContext = operationContext.txContext();
 
         assert txContext != null;
 
-        boolean readOnly = plan.type().implicitTransactionReadOnlyMode();
-        QueryTransactionWrapper txWrapper = txContext.getOrStartSqlManaged(readOnly, false);
+        // Try to use previously started transaction.
+        QueryTransactionWrapper txWrapper = operationContext.retryTx();
 
-        InternalTransaction tx = txWrapper.unwrap();
+        if (txWrapper != null) {
+            return txWrapper;
+        }
+
+        txWrapper = txContext.getOrStartSqlManaged(readOnly, false);
 
         operationContext.notifyTxUsed(txWrapper);
 
-        PrefetchCallback prefetchCallback = queryManager.prefetchCallback;
-
-        CompletableFuture<Void> firstPageReady = prefetchCallback.prefetchFuture();
-
-        if (plan.type() == SqlQueryType.DML) {
-            // DML is supposed to have a single row response, so if the first page is ready, then all
-            // inputs have been processed, all tables have been updated, and now it should be safe to
-            // commit implicit transaction
-            firstPageReady = firstPageReady.thenCompose(none -> txWrapper.finalise());
-        }
-
-        CompletableFuture<Void> firstPageReady0 = firstPageReady;
-
-        Predicate<String> nodeExclusionFilter = operationContext.nodeExclusionFilter();
-
-        CompletableFuture<AsyncDataCursor<InternalSqlRow>> f = queryManager.execute(tx, plan, nodeExclusionFilter)
-                .thenApply(dataCursor -> new TxAwareAsyncCursor<>(
-                        txWrapper,
-                        dataCursor,
-                        firstPageReady0,
-                        queryManager::close,
-                        operationContext::notifyError
-                ));
-
-        return f.handle((r, t) -> {
-            if (t != null) {
-                // We were unable to create cursor, hence need to finalise transaction wrapper
-                // which were created solely for this operation.
-                return txWrapper.finalise(t).handle((none, finalizationErr) -> {
-                    if (finalizationErr != null) {
-                        t.addSuppressed(finalizationErr);
-                    }
-
-                    // Re-throw the exception, so execution future is completed with the same exception.
-                    sneakyThrow(t);
-
-                    // We must never reach this line.
-                    return (AsyncDataCursor<InternalSqlRow>) null;
-                });
-            }
-
-            return completedFuture(r);
-        }).thenCompose(Function.identity());
+        return txWrapper;
     }
 
     private static SqlOperationContext createOperationContext(
@@ -472,7 +492,7 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
     ) {
         ExecutionId executionId = nextExecutionId(operationContext.queryId());
         ExecutionContext<RowT> ectx = new ExecutionContext<>(
-                expressionFactory,
+                sqlExpressionFactory,
                 taskExecutor,
                 executionId,
                 localNode,
@@ -689,7 +709,8 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
-            LOG.warn("The stop future was interrupted, going to proceed the stop procedure", e);
+            String message = format("The stop future was interrupted, going to proceed the stop procedure. Exception: {}", e);
+            LOG.warn(message + dumpDebugInfo() + dumpThreads());
         }
     }
 
@@ -1027,6 +1048,7 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
                 );
 
                 AsyncRootNode<RowT, InternalSqlRow> rootNode = new AsyncRootNode<>(
+                        ectx,
                         node,
                         inRow -> new InternalSqlRowImpl<>(inRow, ectx.rowAccessor(), internalTypeConverter));
                 node.onRegister(rootNode);
@@ -1062,7 +1084,7 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
                 @Nullable Long topologyVersion
         ) {
             return new ExecutionContext<>(
-                    expressionFactory,
+                    sqlExpressionFactory,
                     taskExecutor,
                     executionId,
                     localNode,
@@ -1121,7 +1143,17 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
             } catch (Exception e) {
                 LOG.info("Unable to send error message", e);
 
-                close(CancellationReason.CANCEL);
+                try {
+                    messageService.send(
+                            initiatorNode,
+                            FACTORY.queryCloseMessage()
+                                    .queryId(executionId.queryId())
+                                    .executionToken(executionId.executionToken())
+                                    .build()
+                    );
+                } finally {
+                    close(CancellationReason.CANCEL);
+                }
             }
         }
 
@@ -1265,65 +1297,39 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
         }
 
         private void enlistPartitions(MappedFragment mappedFragment, InternalTransaction tx) {
-            // no need to traverse the tree if fragment has no tables
-            if (mappedFragment.fragment().tables().isEmpty()) {
-                return;
+            boolean shouldAssignCommitPartition = tx.commitPartition() == null;
+            for (Long2ObjectMap.Entry<IgniteTable> entry : mappedFragment.fragment().tables().long2ObjectEntrySet()) {
+                long sourceId = entry.getLongKey();
+                IgniteTable table = entry.getValue();
+
+                ColocationGroup colocationGroup = mappedFragment.groupsBySourceId().get(sourceId);
+                Int2ObjectMap<NodeWithConsistencyToken> assignments = colocationGroup.assignments();
+
+                if (assignments.isEmpty()) {
+                    continue;
+                }
+
+                int tableId = table.id();
+                int zoneId = table.zoneId();
+
+                if (shouldAssignCommitPartition) {
+                    tx.assignCommitPartition(new ZonePartitionId(zoneId, assignments.keySet().iterator().nextInt()));
+                    shouldAssignCommitPartition = false;
+                }
+
+                for (Int2ObjectMap.Entry<NodeWithConsistencyToken> partWithToken : assignments.int2ObjectEntrySet()) {
+                    ZonePartitionId partitionId = new ZonePartitionId(zoneId, partWithToken.getIntKey());
+
+                    NodeWithConsistencyToken assignment = partWithToken.getValue();
+
+                    tx.enlist(
+                            partitionId,
+                            tableId,
+                            assignment.name(),
+                            assignment.enlistmentConsistencyToken()
+                    );
+                }
             }
-
-            new IgniteRelShuttle() {
-                @Override
-                public IgniteRel visit(IgniteIndexScan rel) {
-                    enlist(rel);
-
-                    return super.visit(rel);
-                }
-
-                @Override
-                public IgniteRel visit(IgniteTableScan rel) {
-                    enlist(rel);
-
-                    return super.visit(rel);
-                }
-
-                @Override
-                public IgniteRel visit(IgniteTableModify rel) {
-                    enlist(rel);
-
-                    return super.visit(rel);
-                }
-
-                private void enlist(int tableId, int zoneId, Int2ObjectMap<NodeWithConsistencyToken> assignments) {
-                    if (assignments.isEmpty()) {
-                        return;
-                    }
-
-                    int partsCnt = assignments.size();
-
-                    tx.assignCommitPartition(new ZonePartitionId(zoneId, ThreadLocalRandom.current().nextInt(partsCnt)));
-
-                    for (Int2ObjectMap.Entry<NodeWithConsistencyToken> partWithToken : assignments.int2ObjectEntrySet()) {
-                        ZonePartitionId replicationGroupId = new ZonePartitionId(zoneId, partWithToken.getIntKey());
-
-                        NodeWithConsistencyToken assignment = partWithToken.getValue();
-
-                        tx.enlist(
-                                replicationGroupId,
-                                tableId,
-                                assignment.name(),
-                                assignment.enlistmentConsistencyToken()
-                        );
-                    }
-                }
-
-                private void enlist(SourceAwareIgniteRel rel) {
-                    IgniteTable igniteTable = rel.getTable().unwrap(IgniteTable.class);
-
-                    ColocationGroup colocationGroup = mappedFragment.groupsBySourceId().get(rel.sourceId());
-                    Int2ObjectMap<NodeWithConsistencyToken> assignments = colocationGroup.assignments();
-
-                    enlist(igniteTable.id(), igniteTable.zoneId(), assignments);
-                }
-            }.visit(mappedFragment.fragment().root());
         }
 
         private CompletableFuture<Void> close(CancellationReason reason) {
@@ -1331,19 +1337,13 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
                 return cancelFut;
             }
 
-            CompletableFuture<Void> start = new CompletableFuture<>();
-
             CompletableFuture<Void> stage;
 
             if (coordinator) {
-                stage = start.thenCompose(ignored -> closeRootNode(reason))
+                stage = closeRootNode(reason)
                         .thenCompose(ignored -> awaitFragmentInitialisationAndClose());
             } else {
-                stage = start.thenCompose(ignored -> messageService.send(coordinatorNodeName, FACTORY.queryCloseMessage()
-                                .queryId(executionId.queryId())
-                                .executionToken(executionId.executionToken())
-                                .build()).exceptionally(ignore -> null))
-                        .thenCompose(ignored -> closeLocalFragments());
+                stage = closeLocalFragments();
             }
 
             stage.whenComplete((r, e) -> {
@@ -1357,8 +1357,6 @@ public class ExecutionServiceImpl<RowT> implements ExecutionService, LogicalTopo
 
                 cancelFut.complete(null);
             }).thenRun(() -> localFragments.forEach(f -> f.context().cancel()));
-
-            start.completeAsync(() -> null, taskExecutor);
 
             return cancelFut;
         }

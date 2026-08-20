@@ -28,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import org.apache.ignite.internal.pagememory.metrics.CollectionMetricSource;
 import org.apache.ignite.internal.testframework.ExecutorServiceExtension;
 import org.apache.ignite.internal.testframework.InjectExecutorService;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 public class CheckpointReadWriteLockTest {
     @InjectExecutorService
     private ExecutorService executorService;
+
+    private final CheckpointReadWriteLockMetrics metrics = new CheckpointReadWriteLockMetrics(
+            new CollectionMetricSource("test", "storage", null)
+    );
 
     @Test
     void testReadLock() throws Exception {
@@ -167,7 +172,7 @@ public class CheckpointReadWriteLockTest {
     }
 
     private CheckpointReadWriteLock newReadWriteLock() {
-        return new CheckpointReadWriteLock(new ReentrantReadWriteLockWithTracking(), executorService);
+        return new CheckpointReadWriteLock(new ReentrantReadWriteLockWithTracking(), executorService, metrics);
     }
 
     @Test

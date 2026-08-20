@@ -43,6 +43,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -68,7 +69,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
  */
 @ExtendWith(ExecutorServiceExtension.class)
 class SegmentFileTest extends IgniteAbstractTest {
-    private static final String FILE_NAME = "test.bin";
+    private static final String FILE_NAME = SegmentFile.fileName(new FileProperties(0));
 
     private Path path;
 
@@ -106,17 +107,17 @@ class SegmentFileTest extends IgniteAbstractTest {
 
     @Test
     void testCreateNewConstructorInvariants() {
-        assertThrows(IllegalArgumentException.class, () -> SegmentFile.createNew(path, -1));
-        assertThrows(IllegalArgumentException.class, () -> SegmentFile.createNew(path, Integer.MAX_VALUE + 1L));
+        assertThrows(IllegalArgumentException.class, () -> SegmentFile.createNew(path, -1, false));
+        assertThrows(IllegalArgumentException.class, () -> SegmentFile.createNew(path, Integer.MAX_VALUE + 1L, false));
     }
 
     @Test
     void testOpenExistingConstructorInvariants() throws IOException {
-        assertThrows(IllegalArgumentException.class, () -> SegmentFile.openExisting(path));
+        assertThrows(NoSuchFileException.class, () -> SegmentFile.openExisting(path, false));
 
         createSegmentFile(1);
 
-        assertDoesNotThrow(() -> SegmentFile.openExisting(path));
+        assertDoesNotThrow(() -> SegmentFile.openExisting(path, false));
     }
 
     /**
@@ -385,8 +386,77 @@ class SegmentFileTest extends IgniteAbstractTest {
         assertThat(readFileContent(offset, bytesForRollover.length), is(bytesForRollover));
     }
 
+    @Test
+    void testSync() throws IOException {
+        createSegmentFile(100);
+
+        assertThat(file.syncPosition(), is(0));
+
+        try (WriteBuffer ignored = file.reserve(5)) {
+            // No-op.
+        }
+
+        try (WriteBuffer ignored = file.reserve(7)) {
+            // No-op.
+        }
+
+        assertThat(file.syncPosition(), is(0));
+
+        file.close();
+
+        file.sync();
+
+        assertThat(file.syncPosition(), is(12));
+    }
+
+    @Test
+    void testSyncWithRollover() throws IOException {
+        createSegmentFile(100);
+
+        assertThat(file.syncPosition(), is(0));
+
+        try (WriteBuffer ignored = file.reserve(5)) {
+            // No-op.
+        }
+
+        try (WriteBuffer ignored = file.reserve(7)) {
+            // No-op.
+        }
+
+        assertThat(file.syncPosition(), is(0));
+
+        file.closeForRollover(new byte[] {1, 2, 3});
+
+        file.sync();
+
+        assertThat(file.syncPosition(), is(15));
+    }
+
+    @Test
+    void testSyncWithNotEnoughSpaceForRollover() throws IOException {
+        createSegmentFile(13);
+
+        assertThat(file.syncPosition(), is(0));
+
+        try (WriteBuffer ignored = file.reserve(5)) {
+            // No-op.
+        }
+
+        try (WriteBuffer ignored = file.reserve(7)) {
+            // No-op.
+        }
+
+        assertThat(file.syncPosition(), is(0));
+
+        file.closeForRollover(new byte[] {1, 2, 3});
+
+        file.sync();
+
+        assertThat(file.syncPosition(), is(12));
+    }
+
     private void createSegmentFile(int size) throws IOException {
-        file = SegmentFile.createNew(path, size);
+        file = SegmentFile.createNew(path, size, false);
     }
 
     private boolean writeToSegmentFile(byte[] bytes) {

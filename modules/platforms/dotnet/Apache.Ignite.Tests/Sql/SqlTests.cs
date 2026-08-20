@@ -25,6 +25,7 @@ namespace Apache.Ignite.Tests.Sql
     using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
+    using Common.Table;
     using Ignite.Sql;
     using Ignite.Table;
     using Ignite.Transactions;
@@ -761,6 +762,31 @@ namespace Apache.Ignite.Tests.Sql
                 async () => await Client.Sql.ExecuteBatchAsync(null, "select 1", [[1]]));
 
             Assert.AreEqual("Statement of type \"Query\" is not allowed in current context [allowedTypes=[DML]].", ex.Message);
+            Assert.IsEmpty(ex.UpdateCounters);
+        }
+
+        [Test]
+        public async Task TestExecuteBatchWithDuplicateKeyException()
+        {
+            int duplicateId = 1000;
+            var sql = "INSERT INTO TEST (ID, VAL) VALUES (?, ?)";
+            await Client.Sql.ExecuteAsync(null, sql, duplicateId, "initial");
+
+            object?[][] args =
+            [
+                [1001, "test1"],
+                [1002, "test2"],
+                [1003, "test3"],
+                [duplicateId, "duplicate"],
+                [1004, "test4"]
+            ];
+
+            var ex = Assert.ThrowsAsync<SqlBatchException>(async () => await Client.Sql.ExecuteBatchAsync(null, sql, args));
+            Assert.AreEqual("PK unique constraint is violated", ex.Message);
+            Assert.AreEqual("IGN-SQL-5", ex.CodeAsString);
+
+            // 3 rows inserted successfully before the duplicate key error.
+            Assert.AreEqual(new long[] { 1, 1, 1 }, ex.UpdateCounters);
         }
 
         [Test]
@@ -792,7 +818,7 @@ namespace Apache.Ignite.Tests.Sql
         }
 
         [Test]
-        public async Task TestCancelQueryExecute([Values("sql", "sql-mapped", "script", "reader", "batch")] string mode)
+        public async Task TestCancelQueryExecute([Values("sql", "sql-mapped", "sql-mapped2", "script", "reader", "batch")] string mode)
         {
             // Cross join will produce 10^N rows, which takes a while to execute.
             var manyRowsQuery = $"select count (*) from ({GenerateCrossJoin(8)})";
@@ -803,6 +829,7 @@ namespace Apache.Ignite.Tests.Sql
             {
                 "sql" => Client.Sql.ExecuteAsync(transaction: null, manyRowsQuery, cts.Token),
                 "sql-mapped" => Client.Sql.ExecuteAsync<int>(transaction: null, manyRowsQuery, cts.Token),
+                "sql-mapped2" => Client.Sql.ExecuteAsync(transaction: null, new IntMapper(), manyRowsQuery, cts.Token),
                 "script" => Client.Sql.ExecuteScriptAsync($"DELETE FROM {TableName} WHERE KEY = ({manyRowsQuery})", cts.Token),
                 "reader" => Client.Sql.ExecuteReaderAsync(transaction: null, manyRowsQuery, cts.Token),
                 "batch" => Client.Sql.ExecuteBatchAsync(null, $"DELETE FROM {TableName} WHERE KEY = ({manyRowsQuery}) + ?", [[1]], cts.Token),

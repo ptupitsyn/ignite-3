@@ -33,6 +33,7 @@ import org.apache.ignite.internal.configuration.testframework.InjectConfiguratio
 import org.apache.ignite.internal.network.NodeFinder;
 import org.apache.ignite.internal.network.StaticNodeFinder;
 import org.apache.ignite.internal.raft.RaftGroupConfiguration;
+import org.apache.ignite.internal.raft.configuration.LogStorageConfiguration;
 import org.apache.ignite.internal.raft.configuration.RaftConfiguration;
 import org.apache.ignite.internal.storage.configurations.StorageConfiguration;
 import org.apache.ignite.internal.testframework.IgniteAbstractTest;
@@ -60,6 +61,9 @@ public abstract class BaseItClusterManagementTest extends IgniteAbstractTest {
     @InjectConfiguration
     private static StorageConfiguration storageConfiguration;
 
+    @InjectConfiguration
+    private static LogStorageConfiguration logStorageConfiguration;
+
     private TestInfo testInfo;
 
     @BeforeEach
@@ -83,6 +87,7 @@ public abstract class BaseItClusterManagementTest extends IgniteAbstractTest {
                         workDir,
                         raftConfiguration,
                         systemLocalConfiguration,
+                        logStorageConfiguration,
                         userNodeAttributes,
                         storageConfiguration,
                         config -> onConfigurationCommittedListener.accept(i, config)
@@ -105,11 +110,12 @@ public abstract class BaseItClusterManagementTest extends IgniteAbstractTest {
     protected MockNode createNode(int idx, int clusterSize, Consumer<RaftGroupConfiguration> onConfigurationCommittedListener) {
         return new MockNode(
                 testInfo,
-                new NetworkAddress("localhost", PORT_BASE + idx),
+                new NetworkAddress("127.0.0.1", PORT_BASE + idx),
                 new StaticNodeFinder(createSeedAddresses(clusterSize)),
                 workDir,
                 raftConfiguration,
                 systemLocalConfiguration,
+                logStorageConfiguration,
                 userNodeAttributes,
                 storageConfiguration,
                 onConfigurationCommittedListener
@@ -124,11 +130,12 @@ public abstract class BaseItClusterManagementTest extends IgniteAbstractTest {
     ) {
         return new MockNode(
                 testInfo,
-                new NetworkAddress("localhost", PORT_BASE + idx),
+                new NetworkAddress("127.0.0.1", PORT_BASE + idx),
                 new StaticNodeFinder(createSeedAddresses(clusterSize)),
                 workDir,
                 raftConfiguration,
                 systemLocalConfiguration,
+                logStorageConfiguration,
                 userNodeAttributes,
                 attributesProvider,
                 storageConfiguration,
@@ -143,7 +150,7 @@ public abstract class BaseItClusterManagementTest extends IgniteAbstractTest {
 
     private static List<NetworkAddress> createSeedAddresses(int clusterSize) {
         return IntStream.range(0, clusterSize)
-                .mapToObj(i -> new NetworkAddress("localhost", PORT_BASE + i))
+                .mapToObj(i -> new NetworkAddress("127.0.0.1", PORT_BASE + i))
                 .collect(toUnmodifiableList());
     }
 }

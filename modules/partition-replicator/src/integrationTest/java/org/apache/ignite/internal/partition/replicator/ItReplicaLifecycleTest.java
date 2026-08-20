@@ -57,7 +57,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import org.apache.ignite.internal.catalog.Catalog;
 import org.apache.ignite.internal.catalog.CatalogManager;
 import org.apache.ignite.internal.catalog.descriptors.CatalogZoneDescriptor;
 import org.apache.ignite.internal.cluster.management.configuration.NodeAttributesConfiguration;
@@ -67,7 +66,7 @@ import org.apache.ignite.internal.hlc.HybridTimestamp;
 import org.apache.ignite.internal.metastorage.MetaStorageManager;
 import org.apache.ignite.internal.metastorage.dsl.Operation;
 import org.apache.ignite.internal.partition.replicator.fixtures.Node;
-import org.apache.ignite.internal.partition.replicator.raft.RaftTableProcessor;
+import org.apache.ignite.internal.partition.replicator.raft.TablePartitionRaftProcessor;
 import org.apache.ignite.internal.partition.replicator.raft.ZonePartitionRaftListener;
 import org.apache.ignite.internal.partitiondistribution.Assignment;
 import org.apache.ignite.internal.partitiondistribution.Assignments;
@@ -200,9 +199,7 @@ public class ItReplicaLifecycleTest extends ItAbstractColocationTest {
 
         DistributionZonesTestUtil.createDefaultZone(catalogManager);
 
-        Catalog catalog = catalogManager.catalog(catalogManager.latestCatalogVersion());
-
-        CatalogZoneDescriptor defaultZone = catalog.defaultZone();
+        CatalogZoneDescriptor defaultZone = catalogManager.latestCatalog().defaultZone();
 
         MetaStorageManager metaStorageManager = node.metaStorageManager;
 
@@ -509,8 +506,7 @@ public class ItReplicaLifecycleTest extends ItAbstractColocationTest {
 
                 Node node = cluster.get(0);
 
-                int catalogVersion = node.catalogManager.latestCatalogVersion();
-                long timestamp = node.catalogManager.catalog(catalogVersion).time();
+                long timestamp = node.catalogManager.latestCatalog().time();
 
                 node.metaStorageManager.put(
                         stablePartAssignmentsKey(partId),
@@ -799,7 +795,7 @@ public class ItReplicaLifecycleTest extends ItAbstractColocationTest {
 
         var fsm = (JraftServerImpl.DelegatingStateMachine) grp.getRaftNode().getOptions().getFsm();
 
-        RaftTableProcessor tableProcessor = ((ZonePartitionRaftListener) fsm.getListener()).tableProcessor(tableId);
+        TablePartitionRaftProcessor tableProcessor = ((ZonePartitionRaftListener) fsm.getListener()).tableProcessor(tableId);
 
         return tableProcessor != null;
     }

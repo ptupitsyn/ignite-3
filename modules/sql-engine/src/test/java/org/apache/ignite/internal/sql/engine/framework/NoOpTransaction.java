@@ -25,6 +25,8 @@ import static org.apache.ignite.internal.hlc.HybridTimestamp.nullableHybridTimes
 import java.net.InetSocketAddress;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.ignite.internal.hlc.HybridTimestamp;
 import org.apache.ignite.internal.network.ClusterNodeImpl;
 import org.apache.ignite.internal.network.InternalClusterNode;
@@ -35,16 +37,13 @@ import org.apache.ignite.internal.tx.TransactionIds;
 import org.apache.ignite.internal.tx.TxState;
 import org.apache.ignite.network.NetworkAddress;
 import org.apache.ignite.tx.TransactionException;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Dummy transaction that should be used as mock transaction for execution tests.
  */
 public final class NoOpTransaction implements InternalTransaction {
-    private static final int ZONE_ID = 1;
-
     private static final int TABLE_ID = 2;
-
-    private static final int PARTITION_ID = 2;
 
     private final UUID id;
 
@@ -55,7 +54,7 @@ public final class NoOpTransaction implements InternalTransaction {
 
     private final PendingTxPartitionEnlistment enlistment;
 
-    private final ZonePartitionId groupId = new ZonePartitionId(ZONE_ID, PARTITION_ID);
+    private final AtomicReference<ZonePartitionId> commitPartition = new AtomicReference<>();
 
     private final boolean implicit;
 
@@ -115,7 +114,7 @@ public final class NoOpTransaction implements InternalTransaction {
 
     @Override
     public CompletableFuture<Void> commitAsync() {
-        return finish(true, nullableHybridTimestamp(NULL_HYBRID_TIMESTAMP), false, false);
+        return finish(true, nullableHybridTimestamp(NULL_HYBRID_TIMESTAMP), false, null);
     }
 
     @Override
@@ -125,7 +124,15 @@ public final class NoOpTransaction implements InternalTransaction {
 
     @Override
     public CompletableFuture<Void> rollbackAsync() {
-        return finish(false, nullableHybridTimestamp(NULL_HYBRID_TIMESTAMP), false, false);
+        return finish(false, nullableHybridTimestamp(NULL_HYBRID_TIMESTAMP), false, null);
+    }
+
+    @Override
+    public CompletableFuture<Void> rollbackWithExceptionAsync(Throwable throwable) {
+        if (throwable instanceof TimeoutException) {
+            this.isRolledBackWithTimeoutExceeded = true;
+        }
+        return rollbackAsync();
     }
 
     @Override
@@ -168,12 +175,12 @@ public final class NoOpTransaction implements InternalTransaction {
 
     @Override
     public boolean assignCommitPartition(ZonePartitionId replicationGroupId) {
-        return true;
+        return commitPartition.compareAndSet(null, replicationGroupId);
     }
 
     @Override
     public ZonePartitionId commitPartition() {
-        return groupId;
+        return commitPartition.get();
     }
 
     @Override
@@ -182,7 +189,12 @@ public final class NoOpTransaction implements InternalTransaction {
     }
 
     @Override
-    public CompletableFuture<Void> finish(boolean commit, HybridTimestamp executionTimestamp, boolean full, boolean timeoutExceeded) {
+    public CompletableFuture<Void> finish(
+            boolean commit,
+            HybridTimestamp executionTimestamp,
+            boolean full,
+            @Nullable Throwable finishReason
+    ) {
         CompletableFuture<Void> fut = commit ? commitFut : rollbackFut;
 
         fut.complete(null);
@@ -215,12 +227,6 @@ public final class NoOpTransaction implements InternalTransaction {
 
     @Override
     public CompletableFuture<Void> kill() {
-        return rollbackAsync();
-    }
-
-    @Override
-    public CompletableFuture<Void> rollbackTimeoutExceededAsync() {
-        this.isRolledBackWithTimeoutExceeded = true;
         return rollbackAsync();
     }
 

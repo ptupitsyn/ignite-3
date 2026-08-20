@@ -26,7 +26,9 @@ import org.jetbrains.annotations.Nullable;
  * Base class for all metric sources.
  *
  * @param <T> Holder type.
+ * @deprecated Use {@link SimpleMetricSource} instead.
  */
+@Deprecated
 public abstract class AbstractMetricSource<T extends AbstractMetricSource.Holder<T>> implements MetricSource {
     /** Holder field updater. */
     @SuppressWarnings("rawtypes")
@@ -113,7 +115,7 @@ public abstract class AbstractMetricSource<T extends AbstractMetricSource.Holder
     }
 
     /**
-     * Returns metric instances' holder. Use this on order to avoid metric lookup from map-like data structures.
+     * Returns metric instances' holder. Use this in order to avoid metric lookup from map-like data structures.
      * Returned value is {@code null} if metrics are disabled.
      *
      * @return Metrics holder instance if metrics are enabled, otherwise - {@code null}.

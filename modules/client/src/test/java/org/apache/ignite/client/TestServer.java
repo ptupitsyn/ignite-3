@@ -52,7 +52,6 @@ import org.apache.ignite.client.handler.configuration.ClientConnectorExtensionCo
 import org.apache.ignite.client.handler.configuration.ClientConnectorExtensionConfigurationSchema;
 import org.apache.ignite.internal.cluster.management.ClusterTag;
 import org.apache.ignite.internal.cluster.management.network.messages.CmgMessagesFactory;
-import org.apache.ignite.internal.components.SystemPropertiesNodeProperties;
 import org.apache.ignite.internal.compute.IgniteComputeInternal;
 import org.apache.ignite.internal.configuration.ConfigurationRegistry;
 import org.apache.ignite.internal.configuration.ConfigurationTreeGenerator;
@@ -66,7 +65,7 @@ import org.apache.ignite.internal.hlc.TestClockService;
 import org.apache.ignite.internal.lowwatermark.TestLowWatermark;
 import org.apache.ignite.internal.manager.ComponentContext;
 import org.apache.ignite.internal.manager.IgniteComponent;
-import org.apache.ignite.internal.metrics.MetricManagerImpl;
+import org.apache.ignite.internal.metrics.NoOpMetricManager;
 import org.apache.ignite.internal.network.ClusterNodeImpl;
 import org.apache.ignite.internal.network.ClusterService;
 import org.apache.ignite.internal.network.InternalClusterNode;
@@ -95,6 +94,8 @@ public class TestServer implements AutoCloseable {
     private final IgniteComponent module;
 
     private final NettyBootstrapFactory bootstrapFactory;
+
+    private final UUID nodeId;
 
     private final String nodeName;
 
@@ -156,6 +157,7 @@ public class TestServer implements AutoCloseable {
                 port,
                 true,
                 null,
+                null,
                 null
         );
     }
@@ -177,7 +179,8 @@ public class TestServer implements AutoCloseable {
             @Nullable Integer port,
             boolean enableRequestHandling,
             @Nullable BitSet features,
-            String @Nullable [] listenAddresses
+            String @Nullable [] listenAddresses,
+            @Nullable UUID nodeId
     ) {
         ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID);
 
@@ -217,14 +220,14 @@ public class TestServer implements AutoCloseable {
         }
 
         this.nodeName = nodeName;
+        this.nodeId = nodeId == null ? getNodeId(nodeName) : nodeId;
+
         this.ignite = ignite;
 
         ClusterService clusterService = mock(ClusterService.class, RETURNS_DEEP_STUBS);
-        Mockito.when(clusterService.topologyService().localMember().id()).thenReturn(getNodeId(nodeName));
-        Mockito.when(clusterService.topologyService().localMember().name()).thenReturn(nodeName);
-        Mockito.when(clusterService.topologyService().localMember()).thenReturn(getClusterNode(nodeName));
+        Mockito.when(clusterService.staticLocalNode()).thenReturn(getClusterNode(nodeName, this.nodeId));
         Mockito.when(clusterService.topologyService().getByConsistentId(anyString())).thenAnswer(
-                i -> getClusterNode(i.getArgument(0, String.class)));
+                i -> getClusterNode(i.getArgument(0, String.class), getNodeId(i.getArgument(0, String.class))));
 
         metrics = new ClientHandlerMetricSource();
         metrics.enable();
@@ -276,7 +279,7 @@ public class TestServer implements AutoCloseable {
                         clusterService,
                         bootstrapFactory,
                         () -> clusterInfo,
-                        mock(MetricManagerImpl.class),
+                        new NoOpMetricManager(),
                         metrics,
                         authenticationManager,
                         new TestClockService(ignite.clock()),
@@ -284,9 +287,10 @@ public class TestServer implements AutoCloseable {
                         catalogService,
                         ignite.placementDriver(),
                         clientConnectorConfiguration,
+                        EventLog.NOOP,
                         new TestLowWatermark(),
-                        new SystemPropertiesNodeProperties(),
-                        Runnable::run
+                        Runnable::run,
+                        () -> true
                 );
 
         module.startAsync(componentContext).join();
@@ -325,15 +329,6 @@ public class TestServer implements AutoCloseable {
      */
     public String nodeName() {
         return nodeName;
-    }
-
-    /**
-     * Gets the node ID.
-     *
-     * @return Node ID.
-     */
-    public UUID nodeId() {
-        return getNodeId(nodeName);
     }
 
     /**
@@ -382,8 +377,8 @@ public class TestServer implements AutoCloseable {
         }
     }
 
-    private InternalClusterNode getClusterNode(String name) {
-        return new ClusterNodeImpl(getNodeId(name), name, new NetworkAddress("127.0.0.1", 8080));
+    private static InternalClusterNode getClusterNode(String name, UUID nodeId) {
+        return new ClusterNodeImpl(nodeId, name, new NetworkAddress("127.0.0.1", 8080));
     }
 
     private static UUID getNodeId(String name) {
@@ -413,6 +408,7 @@ public class TestServer implements AutoCloseable {
         private boolean enableRequestHandling = true;
         private @Nullable BitSet features;
         private @Nullable String[] listenAddresses;
+        private @Nullable UUID nodeId;
 
         public Builder idleTimeout(long idleTimeout) {
             this.idleTimeout = idleTimeout;
@@ -469,6 +465,11 @@ public class TestServer implements AutoCloseable {
             return this;
         }
 
+        public Builder nodeId(@Nullable UUID nodeId) {
+            this.nodeId = nodeId;
+            return this;
+        }
+
         /**
          * Builds the test server.
          *
@@ -486,7 +487,8 @@ public class TestServer implements AutoCloseable {
                     port,
                     enableRequestHandling,
                     features,
-                    listenAddresses
+                    listenAddresses,
+                    nodeId
             );
         }
     }

@@ -19,6 +19,7 @@ package org.apache.ignite.client.handler.requests.tx;
 
 import static org.apache.ignite.client.handler.requests.tx.ClientTransactionCommitRequest.merge;
 
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import org.apache.ignite.client.handler.ClientHandlerMetricSource;
 import org.apache.ignite.client.handler.ClientResourceRegistry;
@@ -28,6 +29,10 @@ import org.apache.ignite.internal.lang.IgniteInternalCheckedException;
 import org.apache.ignite.internal.table.IgniteTablesInternal;
 import org.apache.ignite.internal.table.TableViewInternal;
 import org.apache.ignite.internal.tx.InternalTransaction;
+import org.apache.ignite.internal.tx.impl.ReadWriteTransactionImpl;
+import org.apache.ignite.internal.wrapper.Wrappers;
+import org.apache.ignite.lang.ErrorGroups.Client;
+import org.apache.ignite.lang.IgniteException;
 
 /**
  * Client transaction rollback request.
@@ -40,7 +45,9 @@ public class ClientTransactionRollbackRequest {
      * @param resources Resources.
      * @param metrics Metrics.
      * @param igniteTables Tables facade.
+     * @param reqToTxMap Tracker for first request of direct transactions.
      * @param enableDirectMapping Enable direct mapping.
+     * @param sendRemoteWritesFlag Send remote writes flag.
      * @return Future.
      */
     public static CompletableFuture<ResponseWriter> process(
@@ -48,26 +55,54 @@ public class ClientTransactionRollbackRequest {
             ClientResourceRegistry resources,
             ClientHandlerMetricSource metrics,
             IgniteTablesInternal igniteTables,
-            boolean enableDirectMapping
+            Map<Long, Long> reqToTxMap,
+            boolean enableDirectMapping,
+            boolean sendRemoteWritesFlag
     )
             throws IgniteInternalCheckedException {
         long resourceId = in.unpackLong();
 
-        InternalTransaction tx = resources.remove(resourceId).get(InternalTransaction.class);
+        InternalTransaction tx;
 
-        if (enableDirectMapping && !tx.isReadOnly()) {
-            // Attempt to merge server and client transactions.
-            int cnt = in.unpackInt(); // Number of direct enlistments.
-            for (int i = 0; i < cnt; i++) {
-                int tableId = in.unpackInt();
-                int partId = in.unpackInt();
-                String consistentId = in.unpackString();
-                long token = in.unpackLong();
+        if (!enableDirectMapping) {
+            tx = resources.remove(resourceId).get(InternalTransaction.class);
+        } else if (resourceId < 0) {
+            // Direct mapping was enabled, but the user does not know the resourceId, so he sent the first req id.
+            long reqId = -resourceId;
+            var actualResourceId = reqToTxMap.get(reqId);
 
-                TableViewInternal table = igniteTables.cachedTable(tableId);
+            if (actualResourceId == null) {
+                throw new IgniteException(Client.RESOURCE_NOT_FOUND_ERR, "Failed to find resource from requestId: " + reqId);
+            }
 
-                if (table != null) {
-                    merge(table.internalTable(), partId, consistentId, token, tx, false);
+            tx = resources.remove(actualResourceId).get(InternalTransaction.class);
+            // Will not remove right away from reqToTxMap, it will be remove automatically on rollback.
+        } else {
+            tx = resources.remove(resourceId).get(InternalTransaction.class);
+
+            if (!tx.isReadOnly()) {
+                // Attempt to merge server and client transactions.
+                int cnt = in.unpackInt(); // Number of direct enlistments.
+                for (int i = 0; i < cnt; i++) {
+                    int tableId = in.unpackInt();
+                    int partId = in.unpackInt();
+                    String consistentId = in.unpackString();
+                    long token = in.unpackLong();
+
+                    TableViewInternal table = igniteTables.cachedTable(tableId);
+
+                    if (table != null) {
+                        merge(table.internalTable(), partId, consistentId, token, tx, false);
+                    }
+                }
+
+                if (cnt > 0) {
+                    in.unpackLong(); // Unpack causality.
+
+                    ReadWriteTransactionImpl tx0 = Wrappers.unwrap(tx, ReadWriteTransactionImpl.class);
+
+                    // Enforce cleanup.
+                    tx0.noRemoteWrites(sendRemoteWritesFlag && in.unpackBoolean());
                 }
             }
         }

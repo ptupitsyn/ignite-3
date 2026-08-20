@@ -19,8 +19,10 @@ package org.apache.ignite.internal.sql.engine.planner;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
+import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.util.ImmutableIntList;
 import org.apache.ignite.internal.sql.engine.framework.TestBuilders.TableBuilder;
@@ -28,6 +30,7 @@ import org.apache.ignite.internal.sql.engine.prepare.bounds.SearchBounds;
 import org.apache.ignite.internal.sql.engine.rel.IgniteAggregate;
 import org.apache.ignite.internal.sql.engine.rel.IgniteIndexScan;
 import org.apache.ignite.internal.sql.engine.rel.IgniteTableScan;
+import org.apache.ignite.internal.sql.engine.rel.IgniteValues;
 import org.apache.ignite.internal.sql.engine.schema.IgniteSchema;
 import org.apache.ignite.internal.sql.engine.trait.IgniteDistributions;
 import org.apache.ignite.internal.type.NativeTypes;
@@ -178,7 +181,7 @@ public class ProjectFilterScanMergePlannerTest extends AbstractPlannerTest {
         // Inner query contains correlate, it prevents filter to be moved below project, and after HEP_FILTER_PUSH_DOWN
         // phase we should have chain Project - Filter - Project - Scan. Whole this chain should be merged into a single
         // table scan on the next phases. Order of merge: (((scan + inner project) + filter) + outer project).
-        String sql = "SELECT /*+ DISABLE_RULE('ExposeIndexRule') */(SELECT a+2 FROM (SELECT c, a+1 AS a FROM tbl) "
+        String sql = "SELECT /*+ disable_decorrelation, DISABLE_RULE('ExposeIndexRule') */(SELECT a+2 FROM (SELECT c, a+1 AS a FROM tbl) "
                 + "AS t2 WHERE t2.c = t1.c) FROM tbl AS t1";
 
         assertPlan(sql, publicSchema, hasChildThat(isInstanceOf(IgniteAggregate.class)
@@ -195,7 +198,7 @@ public class ProjectFilterScanMergePlannerTest extends AbstractPlannerTest {
     public void testIdentityFilterProjectMerge() throws Exception {
         // The same as two projects merge, but outer project is identity and should be eliminated together with inner
         // project by project to scan merge rule.
-        String sql = "SELECT (SELECT a FROM (SELECT a, a+1 FROM tbl) AS t2 WHERE t2.a = t1.a) FROM tbl AS t1";
+        String sql = "SELECT /*+ disable_decorrelation */ (SELECT a FROM (SELECT a, a+1 FROM tbl) AS t2 WHERE t2.a = t1.a) FROM tbl AS t1";
 
         assertPlan(sql, publicSchema, hasChildThat(isInstanceOf(IgniteAggregate.class)
                 .and(input(isInstanceOf(IgniteTableScan.class)
@@ -206,7 +209,7 @@ public class ProjectFilterScanMergePlannerTest extends AbstractPlannerTest {
                 ))), "ProjectFilterTransposeRule");
 
         // Filter on project that is not permutation should be merged too.
-        sql = "SELECT (SELECT a FROM (SELECT a+1 AS a FROM tbl) AS t2 WHERE t2.a = t1.a) FROM tbl AS t1";
+        sql = "SELECT /*+ disable_decorrelation */ (SELECT a FROM (SELECT a+1 AS a FROM tbl) AS t2 WHERE t2.a = t1.a) FROM tbl AS t1";
 
         assertPlan(sql, publicSchema, hasChildThat(isInstanceOf(IgniteAggregate.class)
                 .and(input(isInstanceOf(IgniteTableScan.class)
@@ -222,7 +225,7 @@ public class ProjectFilterScanMergePlannerTest extends AbstractPlannerTest {
     public void testProjectFilterIdentityMerge() throws Exception {
         // The same as two projects merge, but inner project is identity and should be eliminated by project to scan
         // merge rule.
-        String sql = "SELECT (SELECT a+2 FROM (SELECT a, c FROM tbl) AS t2 WHERE t2.c = t1.c) FROM tbl AS t1";
+        String sql = "SELECT /*+ disable_decorrelation */ (SELECT a+2 FROM (SELECT a, c FROM tbl) AS t2 WHERE t2.c = t1.c) FROM tbl AS t1";
 
         assertPlan(sql, publicSchema, hasChildThat(isInstanceOf(IgniteAggregate.class)
                 .and(input(isInstanceOf(IgniteTableScan.class)
@@ -238,7 +241,7 @@ public class ProjectFilterScanMergePlannerTest extends AbstractPlannerTest {
     public void testIdentityFilterIdentityMerge() throws Exception {
         // The same as two projects merge, but projects are identity and should be eliminated by project to scan
         // merge rule.
-        String sql = "SELECT (SELECT c FROM (SELECT a AS c FROM tbl) AS t2 WHERE t2.c = t1.c) FROM tbl AS t1";
+        String sql = "SELECT /*+ disable_decorrelation */ (SELECT c FROM (SELECT a AS c FROM tbl) AS t2 WHERE t2.c = t1.c) FROM tbl AS t1";
 
         assertPlan(sql, publicSchema, hasChildThat(isInstanceOf(IgniteAggregate.class)
                 .and(input(isInstanceOf(IgniteTableScan.class)
@@ -273,6 +276,75 @@ public class ProjectFilterScanMergePlannerTest extends AbstractPlannerTest {
                         .and(scan -> "AND(=($t0, 1), =($t1, 1))".equals(scan.condition().toString()))
                         .and(scan -> ImmutableIntList.of(0, 2).equals(scan.requiredColumns())),
                 "ProjectFilterTransposeRule", "FilterProjectTransposeRule");
+    }
+
+    @Test
+    public void testAlwaysTrueFilterPruning() throws Exception {
+        String sql = "SELECT a, c FROM tbl WHERE a > 1 OR a < 3 OR a IS NULL";
+
+        assertPlan(sql, publicSchema, isInstanceOf(IgniteTableScan.class)
+                        .and(scan -> scan.projects() == null)
+                        .and(scan -> scan.condition() == null)
+                        .and(scan -> ImmutableIntList.of(0, 2).equals(scan.requiredColumns())),
+                "ProjectFilterTransposeRule", "FilterProjectTransposeRule");
+    }
+
+    @Test
+    public void testAlwaysFalseFilterPruning() throws Exception {
+        Predicate<IgniteValues> hasEmptyValuesOnly = hasEmptyValuesOnlyPredicate();
+
+        // Table scan elimination.
+        String sql = "SELECT a, c FROM tbl WHERE a > 1 AND a < 0";
+        assertPlan(sql, publicSchema, hasEmptyValuesOnly);
+
+        sql = "SELECT a, c FROM (SELECT a, c FROM tbl WHERE a > 1) WHERE c = 1 AND c IS NULL";
+        assertPlan(sql, publicSchema, hasEmptyValuesOnly,
+                "ProjectFilterTransposeRule", "FilterProjectTransposeRule");
+
+        sql = "SELECT a, c FROM (SELECT a, c FROM tbl WHERE a > 1) WHERE a < 0";
+        assertPlan(sql, publicSchema, hasEmptyValuesOnly,
+                "ProjectFilterTransposeRule", "FilterProjectTransposeRule");
+
+        // JOIN branch elimination.
+        sql = "SELECT t1.a, t2.a, t1.c FROM tbl AS t1 LEFT JOIN tbl AS t2 ON t1.a = t2.a WHERE t2.a = 1 AND t2.a IS NULL AND t1.c = 1";
+        assertPlan(sql, publicSchema, hasEmptyValuesOnly);
+
+        sql = "SELECT t1.a, t2.a, t1.c FROM tbl AS t1 INNER JOIN tbl AS t2 ON t1.a = t2.a WHERE t2.a = 1 AND t2.a IS NULL";
+        assertPlan(sql, publicSchema, hasEmptyValuesOnly);
+
+        sql = "SELECT t1.a, t2.a, t1.c FROM tbl AS t1 INNER JOIN tbl AS t2 ON t1.a = t2.a WHERE t1.a = 1 AND t2.a = 2";
+        assertPlan(sql, publicSchema, hasEmptyValuesOnlyPredicate());
+    }
+
+    @Test
+    public void testJoinWithAlwaysFalseConditionPruning() throws Exception {
+        String sql = "SELECT t1.a, t2.a, t1.c FROM tbl AS t1 LEFT JOIN tbl AS t2 ON (t1.a = t2.a AND t2.a = 1 AND t2.a = 2) WHERE t1.c = 1";
+        assertPlan(sql, publicSchema, isInstanceOf(IgniteTableScan.class)
+                .and(scan -> scan.projects() != null)
+                .and(scan -> scan.condition() != null)
+                .and(scan -> "=($t1, 1)".equals(scan.condition().toString()))
+        );
+
+        sql = "SELECT t1.a, t2.a, t1.c FROM tbl AS t1 INNER JOIN tbl AS t2 ON t1.a = t2.a AND t2.a = 1 AND t2.a = 2";
+        assertPlan(sql, publicSchema, hasEmptyValuesOnlyPredicate());
+    }
+
+    @Test
+    public void testAlwaysFalseFilterPruningWithDml() throws Exception {
+        Predicate<IgniteValues> zeroDmlResultPredicate = isInstanceOf(IgniteValues.class)
+                .and(values -> values.getTuples().size() == 1) // single row
+                .and(values -> values.getTuples().get(0).size() == 1) // row of single column
+                .and(values -> RexLiteral.longValue(values.getTuples().get(0).get(0)) == 0L);
+
+        String sql = "INSERT INTO tbl (a, c) SELECT a, b FROM tbl WHERE a > 1 AND a < 0";
+        assertPlan(sql, publicSchema, zeroDmlResultPredicate);
+
+        sql = "INSERT INTO tbl (a, c) (SELECT a, c FROM (SELECT a, c FROM tbl WHERE a > 1) WHERE a < 0)";
+        assertPlan(sql, publicSchema, zeroDmlResultPredicate);
+    }
+
+    private Predicate<IgniteValues> hasEmptyValuesOnlyPredicate() {
+        return isInstanceOf(IgniteValues.class).and(values -> values.getTuples().isEmpty());
     }
 
     /**

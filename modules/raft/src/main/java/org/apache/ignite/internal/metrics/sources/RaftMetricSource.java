@@ -22,6 +22,7 @@ import java.lang.invoke.VarHandle;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.LongStream;
+import org.apache.ignite.internal.metrics.AtomicIntMetric;
 import org.apache.ignite.internal.metrics.DistributionMetric;
 import org.apache.ignite.internal.metrics.Metric;
 import org.apache.ignite.internal.metrics.MetricSet;
@@ -32,7 +33,11 @@ import org.jetbrains.annotations.Nullable;
  * Metrics of striped disruptor.
  */
 public class RaftMetricSource implements MetricSource {
-    private static final String SOURCE_NAME = "raft";
+    public static final String SOURCE_NAME = "raft";
+
+    public static final String RAFT_GROUP_LEADERS = "groups.localLeadersCount";
+
+    public static final String SAVE_META_DURATION = "SaveMetaDuration";
 
     private static final VarHandle ENABLED;
 
@@ -55,6 +60,17 @@ public class RaftMetricSource implements MetricSource {
     /** Metric set. */
     private final Map<String, Metric> metrics;
 
+    private static final long[] HISTOGRAM_BUCKETS =
+            {1, 5, 10, 25, 50, 100, 250, 500, 1000};
+
+    private final AtomicIntMetric leadersCount = new AtomicIntMetric(RAFT_GROUP_LEADERS, "Number of raft leaders on this node");
+
+    private final DistributionMetric saveMetaDuration = new DistributionMetric(
+            SAVE_META_DURATION,
+            "Duration of saving raft meta in milliseconds",
+            HISTOGRAM_BUCKETS
+    );
+
     /**
      * Constructor.
      *
@@ -66,6 +82,14 @@ public class RaftMetricSource implements MetricSource {
         this.logStripeCount = logStripeCount;
 
         this.metrics = createMetrics();
+    }
+
+    public void onLeaderStart() {
+        leadersCount.increment();
+    }
+
+    public void onLeaderStop() {
+        leadersCount.decrement();
     }
 
     @Override
@@ -88,60 +112,64 @@ public class RaftMetricSource implements MetricSource {
         var metrics = new HashMap<String, Metric>();
 
         // jraft-fsmcaller-disruptor
-        metrics.put("raft.fsmcaller.disruptor.Batch",
+        metrics.put("fsmcaller.disruptor.Batch",
                 new DistributionMetric(
-                        "raft.fsmcaller.disruptor.Batch",
+                        "fsmcaller.disruptor.Batch",
                         "The histogram of the batch size to handle in the state machine for partitions",
                         bounds
                 ));
-        metrics.put("raft.fsmcaller.disruptor.Stripes",
+        metrics.put("fsmcaller.disruptor.Stripes",
                 new DistributionMetric(
-                        "raft.fsmcaller.disruptor.Stripes",
+                        "fsmcaller.disruptor.Stripes",
                         "The histogram of distribution data by stripes in the state machine for partitions",
                         LongStream.range(0, stripeCount).toArray()
                 ));
 
         // jraft-nodeimpl-disruptor
-        metrics.put("raft.nodeimpl.disruptor.Batch",
+        metrics.put("nodeimpl.disruptor.Batch",
                 new DistributionMetric(
-                        "raft.nodeimpl.disruptor.Batch",
+                        "nodeimpl.disruptor.Batch",
                         "The histogram of the batch size to handle node operations for partitions",
                         bounds
                 ));
-        metrics.put("raft.nodeimpl.disruptor.Stripes",
+        metrics.put("nodeimpl.disruptor.Stripes",
                 new DistributionMetric(
-                        "raft.nodeimpl.disruptor.Stripes",
+                        "nodeimpl.disruptor.Stripes",
                         "The histogram of distribution data by stripes for node operations for partitions",
                         LongStream.range(0, stripeCount).toArray()
                 ));
 
         // jraft-readonlyservice-disruptor
-        metrics.put("raft.readonlyservice.disruptor.Batch",
+        metrics.put("readonlyservice.disruptor.Batch",
                 new DistributionMetric(
-                        "raft.readonlyservice.disruptor.Batch",
+                        "readonlyservice.disruptor.Batch",
                         "The histogram of the batch size to handle readonly operations for partitions",
                         bounds
                 ));
-        metrics.put("raft.readonlyservice.disruptor.Stripes",
+        metrics.put("readonlyservice.disruptor.Stripes",
                 new DistributionMetric(
-                        "raft.readonlyservice.disruptor.Stripes",
+                        "readonlyservice.disruptor.Stripes",
                         "The histogram of distribution data by stripes readonly operations for partitions",
                         LongStream.range(0, stripeCount).toArray()
                 ));
 
         // jraft-logmanager-disruptor
-        metrics.put("raft.logmanager.disruptor.Batch",
+        metrics.put("logmanager.disruptor.Batch",
                 new DistributionMetric(
-                        "raft.logmanager.disruptor.Batch",
+                        "logmanager.disruptor.Batch",
                         "The histogram of the batch size to handle in the log for partitions",
                         bounds
                 ));
-        metrics.put("raft.logmanager.disruptor.Stripes",
+
+        metrics.put("logmanager.disruptor.Stripes",
                 new DistributionMetric(
-                        "raft.logmanager.disruptor.Stripes",
+                        "logmanager.disruptor.Stripes",
                         "The histogram of distribution data by stripes in the log for partitions",
                         LongStream.range(0, logStripeCount).toArray()
                 ));
+
+        metrics.put(RAFT_GROUP_LEADERS, leadersCount);
+        metrics.put(SAVE_META_DURATION, saveMetaDuration);
 
         return metrics;
     }
@@ -161,12 +189,16 @@ public class RaftMetricSource implements MetricSource {
 
     @Override
     public void disable() {
-        ENABLED.compareAndSet(this, false, true);
+        ENABLED.compareAndSet(this, true, false);
     }
 
     @Override
     public boolean enabled() {
         return enabled;
+    }
+
+    public void onSaveMeta(long duration) {
+        saveMetaDuration.add(duration);
     }
 
     /**

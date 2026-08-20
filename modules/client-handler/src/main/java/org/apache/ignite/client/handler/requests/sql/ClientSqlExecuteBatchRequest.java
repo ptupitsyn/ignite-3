@@ -21,7 +21,7 @@ import static org.apache.ignite.client.handler.requests.table.ClientTableCommon.
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
+import org.apache.ignite.client.handler.ClientHandlerMetricSource;
 import org.apache.ignite.client.handler.ClientResourceRegistry;
 import org.apache.ignite.client.handler.ResponseWriter;
 import org.apache.ignite.internal.client.proto.ClientMessageUnpacker;
@@ -41,7 +41,6 @@ public class ClientSqlExecuteBatchRequest {
     /**
      * Processes the request.
      *
-     * @param operationExecutor Executor to submit execution of operation.
      * @param in Unpacker.
      * @param sql SQL API.
      * @param resources Resources.
@@ -49,16 +48,18 @@ public class ClientSqlExecuteBatchRequest {
      * @param cancelHandleMap Registry of handlers. Request must register itself in this registry before switching to another
      *         thread.
      * @param username Authenticated user name.
+     * @param reqToTxMap Tracker for first request of direct transactions.
      * @return Future representing result of operation.
      */
     public static CompletableFuture<ResponseWriter> process(
-            Executor operationExecutor,
             ClientMessageUnpacker in,
             QueryProcessor sql,
             ClientResourceRegistry resources,
+            ClientHandlerMetricSource metrics,
             long requestId,
             Map<Long, CancelHandle> cancelHandleMap,
             HybridTimestampTracker tsTracker,
+            Map<Long, Long> reqToTxMap,
             String username
     ) {
         CancelHandle cancelHandle = CancelHandle.create();
@@ -68,10 +69,13 @@ public class ClientSqlExecuteBatchRequest {
                 in,
                 tsTracker,
                 resources,
+                metrics,
                 null,
                 null,
                 null,
-                null
+                null,
+                requestId,
+                reqToTxMap
         );
 
         ClientSqlProperties props = new ClientSqlProperties(in, false);

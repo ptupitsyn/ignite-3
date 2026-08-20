@@ -2,6 +2,7 @@ package test.template_types
 
 import jetbrains.buildServer.configs.kotlin.BuildStep
 import jetbrains.buildServer.configs.kotlin.BuildType
+import jetbrains.buildServer.configs.kotlin.buildFeatures.parallelTests
 import org.apache.ignite.teamcity.CustomBuildSteps.Companion.customGradle
 import org.apache.ignite.teamcity.CustomBuildSteps.Companion.customScript
 import org.apache.ignite.teamcity.Teamcity.Companion.getId
@@ -25,26 +26,33 @@ class TestsModule(
 
         hiddenText("IGNITE_COMPATIBILITY_TEST_ALL_VERSIONS", "-DtestAllVersions=false")
         hiddenText("IGNITE_DEFAULT_STORAGE_ENGINE", "")
-        hiddenText("env.GRADLE_OPTS", "-PextraJvmArgs=\"%IGNITE_COMPATIBILITY_TEST_ALL_VERSIONS% %IGNITE_DEFAULT_STORAGE_ENGINE%\"")
+        hiddenText("EXTRA_GRADLE_OPTS", "-PextraJvmArgs=\"%IGNITE_COMPATIBILITY_TEST_ALL_VERSIONS% %IGNITE_DEFAULT_STORAGE_ENGINE%\"")
     }
 
     steps {
         customScript(type = "bash") {
             name = "Clean Up Remaining Processes"
         }
+
+        customScript(type = "bash") {
+            name = "Setup Docker Proxy"
+        }
+
         customGradle {
             name = "Run tests"
             tasks = module.buildTask(configuration.testTask)
             workingDir = "%VCSROOT__IGNITE3%"
-            gradleParams = "%env.GRADLE_OPTS%"
+            gradleParams = "%env.GRADLE_OPTS% %EXTRA_GRADLE_OPTS%"
             jvmArgs = """
                 -Xmx%XMX%
                 %JVM_ARGS%
             """.trimIndent()
         }
+
         customScript(type = "bash") {
             name = "Clean Up Remaining Processes"
         }
+
         customScript(type = "bash") {
             id = "PruneDockerImages"
             name = "DockerImagePrune"
@@ -52,6 +60,13 @@ class TestsModule(
             conditions {
                 equals("env.DIND_ENABLED", "true")
             }
+        }
+    }
+
+    features {
+        parallelTests {
+            enabled = module.parallelTestsEnabled
+            numberOfBatches = 15
         }
     }
 

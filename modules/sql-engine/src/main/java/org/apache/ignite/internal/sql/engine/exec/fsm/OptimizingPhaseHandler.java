@@ -19,7 +19,7 @@ package org.apache.ignite.internal.sql.engine.exec.fsm;
 
 import static org.apache.ignite.internal.sql.engine.exec.fsm.ValidationHelper.validateDynamicParameters;
 import static org.apache.ignite.internal.sql.engine.exec.fsm.ValidationHelper.validateParsedStatement;
-import static org.apache.ignite.lang.ErrorGroups.Sql.RUNTIME_ERR;
+import static org.apache.ignite.lang.ErrorGroups.Sql.STMT_VALIDATION_ERR;
 
 import java.time.ZoneId;
 import java.util.concurrent.CompletableFuture;
@@ -44,6 +44,31 @@ class OptimizingPhaseHandler implements ExecutionPhaseHandler {
         ParsedResult result = query.parsedResult;
 
         assert result != null : "Query is expected to be parsed at this phase";
+
+        SqlOperationContext operationContext = buildContext(query, result);
+
+        CompletableFuture<Void> awaitFuture = query.executor.waitForMetadata(operationContext.operationTime())
+                .thenCompose(none -> query.executor.prepare(result, operationContext)
+                        .thenAccept(plan -> {
+                            if (query.txContext.explicitTx() == null) {
+                                // in case of implicit tx we have to update observable time to prevent tx manager to start
+                                // implicit transaction too much in the past where version of catalog we used to prepare the
+                                // plan was not yet available
+                                query.txContext.updateObservableTime(query.executor.deriveMinimalRequiredTime(plan));
+                            }
+
+                            query.plan = plan;
+                        }));
+
+        return Result.proceedAfter(awaitFuture);
+    }
+
+    private static SqlOperationContext buildContext(Query query, ParsedResult result) {
+        SqlOperationContext retryContext = query.operationContext;
+
+        if (retryContext != null) {
+            return retryContext;
+        }
 
         validateParsedStatement(query.properties, result);
         validateDynamicParameters(result.dynamicParamsCount(), query.params, true);
@@ -70,20 +95,7 @@ class OptimizingPhaseHandler implements ExecutionPhaseHandler {
 
         query.operationContext = operationContext;
 
-        CompletableFuture<Void> awaitFuture = query.executor.waitForMetadata(operationTime)
-                .thenCompose(none -> query.executor.prepare(result, operationContext)
-                        .thenAccept(plan -> {
-                            if (query.txContext.explicitTx() == null) {
-                                // in case of implicit tx we have to update observable time to prevent tx manager to start
-                                // implicit transaction too much in the past where version of catalog we used to prepare the
-                                // plan was not yet available
-                                query.txContext.updateObservableTime(query.executor.deriveMinimalRequiredTime(plan));
-                            }
-
-                            query.plan = plan;
-                        }));
-
-        return Result.proceedAfter(awaitFuture);
+        return operationContext;
     }
 
     /** Checks that the statement is allowed within an external/script transaction. */
@@ -95,11 +107,11 @@ class OptimizingPhaseHandler implements ExecutionPhaseHandler {
         }
 
         if (!queryType.supportsExplicitTransactions()) {
-            throw new SqlException(RUNTIME_ERR, queryType.displayName() + " doesn't support transactions.");
+            throw new SqlException(STMT_VALIDATION_ERR, queryType.displayName() + " doesn't support transactions.");
         }
 
         if (SqlQueryType.DML == queryType && txWrapper.unwrap().isReadOnly()) {
-            throw new SqlException(RUNTIME_ERR, queryType.displayName() + " cannot be started by using read only transactions.");
+            throw new SqlException(STMT_VALIDATION_ERR, queryType.displayName() + " cannot be started by using read only transactions.");
         }
     }
 }

@@ -19,17 +19,22 @@ package org.apache.ignite.internal.network;
 
 import java.util.Collection;
 import org.apache.ignite.network.NetworkAddress;
+import org.apache.ignite.network.NodeMetadata;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * Entry point for obtaining physical cluster topology information.
  */
 // TODO: allow removing event handlers, see https://issues.apache.org/jira/browse/IGNITE-14519
-public interface TopologyService extends ClusterNodeResolver, JoinedNodes {
+public interface TopologyService extends ClusterNodeResolver, LogicalTopologyEventsListener {
     /**
-     * Returns information about the current node.
+     * Returns the current view of the local node, including up-to-date {@link NodeMetadata}.
      *
-     * @return Information about the local network member.
+     * <p>Unlike {@link ClusterService#staticLocalNode()}, this method reflects metadata changes that occurred after node startup
+     * (e.g., REST port becoming available). Prefer {@link ClusterService#staticLocalNode()} when only the node's
+     * {@link InternalClusterNode#id() ID} or {@link InternalClusterNode#name() name} is needed.
+     *
+     * @return Current information about the local node.
      */
     InternalClusterNode localMember();
 
@@ -46,6 +51,11 @@ public interface TopologyService extends ClusterNodeResolver, JoinedNodes {
      * @return List of logical topology members.
      */
     Collection<InternalClusterNode> logicalTopologyMembers();
+
+    /**
+     * Returns the logical topology version.
+     */
+    long logicalTopologyVersion();
 
     /**
      * Registers a handler for physical topology change events.

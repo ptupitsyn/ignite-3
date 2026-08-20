@@ -17,15 +17,20 @@
 
 package org.apache.ignite.internal.raft.storage.segstore;
 
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.WRITE;
+
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.ignite.internal.close.ManuallyCloseable;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,18 +50,47 @@ class SegmentFile implements ManuallyCloseable {
      */
     private static final int CLOSED_POS_MARKER = -1;
 
+    private static final MappedByteBufferSyncer SYNCER = MappedByteBufferSyncer.createSyncer();
+
+    private static final String SEGMENT_FILE_NAME_FORMAT = "segment-%010d-%010d.bin";
+
+    private static final Pattern SEGMENT_FILE_NAME_PATTERN = Pattern.compile("segment-(?<ordinal>\\d{10})-(?<generation>\\d{10})\\.bin");
+
     private final MappedByteBuffer buffer;
 
+    /** Flag indicating if an fsync call should follow every write to the buffer. */
+    private final boolean isSync;
+
+    private final Path path;
+
+    private final FileProperties fileProperties;
+
+    /** Position of the first non-reserved byte in the buffer. */
     private final AtomicInteger bufferPosition = new AtomicInteger();
 
+    /** Number of concurrent writers to the buffer. */
     private final AtomicInteger numWriters = new AtomicInteger();
 
-    private SegmentFile(RandomAccessFile file) throws IOException {
-        //noinspection ChannelOpenedButNotSafelyClosed
-        buffer = file.getChannel().map(MapMode.READ_WRITE, 0, file.length());
+    /** Position in the buffer <b>up to which</b> some data has been written, but not necessarily synced to the underlying storage. */
+    private volatile int lastWritePosition;
+
+    /** Position in the buffer <b>up to which</b> all written bytes have been synced. */
+    private volatile int syncPosition;
+
+    /** Lock used to atomically execute fsync. */
+    private final Object syncLock = new Object();
+
+    private SegmentFile(FileChannel channel, Path path, boolean isSync) throws IOException {
+        buffer = channel.map(MapMode.READ_WRITE, 0, channel.size());
+
+        assert buffer.limit() > 0 : "File " + path + " is empty.";
+
+        this.path = path;
+        this.isSync = isSync;
+        this.fileProperties = fileProperties(path);
     }
 
-    static SegmentFile createNew(Path path, long fileSize) throws IOException {
+    static SegmentFile createNew(Path path, long fileSize, boolean isSync) throws IOException {
         if (fileSize < 0) {
             throw new IllegalArgumentException("File size is negative: " + fileSize);
         }
@@ -67,21 +101,43 @@ class SegmentFile implements ManuallyCloseable {
             throw new IllegalArgumentException("File size is too big: " + fileSize);
         }
 
+        // Using the RandomAccessFile for its "setLength" method.
         try (var file = new RandomAccessFile(path.toFile(), "rw")) {
             file.setLength(fileSize);
 
-            return new SegmentFile(file);
+            return new SegmentFile(file.getChannel(), path, isSync);
         }
     }
 
-    static SegmentFile openExisting(Path path) throws IOException {
-        if (!Files.exists(path)) {
-            throw new IllegalArgumentException("File does not exist: " + path);
+    static SegmentFile openExisting(Path path, boolean isSync) throws IOException {
+        try (var channel = FileChannel.open(path, READ, WRITE)) {
+            return new SegmentFile(channel, path, isSync);
+        }
+    }
+
+    static String fileName(FileProperties fileProperties) {
+        return String.format(SEGMENT_FILE_NAME_FORMAT, fileProperties.ordinal(), fileProperties.generation());
+    }
+
+    static FileProperties fileProperties(Path path) {
+        Matcher matcher = SEGMENT_FILE_NAME_PATTERN.matcher(path.getFileName().toString());
+
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException(String.format("Invalid segment file name format: %s.", path));
         }
 
-        try (var file = new RandomAccessFile(path.toFile(), "rw")) {
-            return new SegmentFile(file);
-        }
+        return new FileProperties(
+                Integer.parseInt(matcher.group("ordinal")),
+                Integer.parseInt(matcher.group("generation"))
+        );
+    }
+
+    FileProperties fileProperties() {
+        return fileProperties;
+    }
+
+    Path path() {
+        return path;
     }
 
     ByteBuffer buffer() {
@@ -91,8 +147,11 @@ class SegmentFile implements ManuallyCloseable {
     class WriteBuffer implements AutoCloseable {
         private final ByteBuffer slice;
 
+        private final int pos;
+
         WriteBuffer(ByteBuffer slice) {
             this.slice = slice;
+            this.pos = slice.position();
         }
 
         ByteBuffer buffer() {
@@ -101,6 +160,17 @@ class SegmentFile implements ManuallyCloseable {
 
         @Override
         public void close() {
+            if (isSync) {
+                // Wait for all previous writes to complete.
+                while (lastWritePosition != pos) {
+                    Thread.onSpinWait();
+                }
+
+                lastWritePosition = slice.limit();
+
+                sync(slice.limit());
+            }
+
             numWriters.decrementAndGet();
         }
     }
@@ -115,6 +185,11 @@ class SegmentFile implements ManuallyCloseable {
         close(bytesToWrite);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Does not execute {@link #sync} on its own, it should be performed manually by the caller.
+     */
     @Override
     public void close() {
         close(null);
@@ -133,6 +208,10 @@ class SegmentFile implements ManuallyCloseable {
 
         if (bytesToWrite != null && pos + bytesToWrite.length <= buffer.limit()) {
             slice(pos, bytesToWrite.length).put(bytesToWrite);
+
+            lastWritePosition = pos + bytesToWrite.length;
+        } else {
+            lastWritePosition = pos;
         }
     }
 
@@ -163,8 +242,35 @@ class SegmentFile implements ManuallyCloseable {
         }
     }
 
+    int lastWritePosition() {
+        return lastWritePosition;
+    }
+
+    int syncPosition() {
+        return syncPosition;
+    }
+
     void sync() {
-        buffer.force();
+        sync(lastWritePosition);
+    }
+
+    private void sync(int upToPosition) {
+        if (upToPosition <= syncPosition) {
+            return;
+        }
+
+        synchronized (syncLock) {
+            int syncPosition = this.syncPosition;
+
+            if (upToPosition <= syncPosition) {
+                return;
+            }
+
+            //noinspection AccessToStaticFieldLockedOnInstance
+            SYNCER.force(buffer, syncPosition, upToPosition - syncPosition);
+
+            this.syncPosition = upToPosition;
+        }
     }
 
     private @Nullable ByteBuffer reserveBytes(int size) {
@@ -177,7 +283,8 @@ class SegmentFile implements ManuallyCloseable {
 
             int nextPos = pos + size;
 
-            if (nextPos > buffer.limit()) {
+            // nextPos < 0 detects integer overflow (pos >= 0 and size > 0).
+            if (nextPos < 0 || nextPos > buffer.limit()) {
                 return null;
             }
 

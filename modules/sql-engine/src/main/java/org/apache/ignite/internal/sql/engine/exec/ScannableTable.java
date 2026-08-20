@@ -17,9 +17,9 @@
 
 package org.apache.ignite.internal.sql.engine.exec;
 
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow.Publisher;
+import org.apache.ignite.internal.sql.engine.api.expressions.RowFactory;
 import org.apache.ignite.internal.sql.engine.exec.exp.RangeCondition;
 import org.apache.ignite.internal.tx.InternalTransaction;
 import org.jetbrains.annotations.Nullable;
@@ -54,7 +54,6 @@ public interface ScannableTable {
      * @param partWithConsistencyToken Partition.
      * @param rowFactory Row factory.
      * @param indexId Index id.
-     * @param columns Index columns.
      * @param cond Index condition.
      * @param requiredColumns Required columns.
      * @return A publisher that produces rows.
@@ -64,7 +63,6 @@ public interface ScannableTable {
             PartitionWithConsistencyToken partWithConsistencyToken,
             RowFactory<RowT> rowFactory,
             int indexId,
-            List<String> columns,
             @Nullable RangeCondition<RowT> cond,
             int @Nullable [] requiredColumns
     );
@@ -77,7 +75,6 @@ public interface ScannableTable {
      * @param partWithConsistencyToken Partition.
      * @param rowFactory Row factory.
      * @param indexId Index id.
-     * @param columns Index columns.
      * @param key A key to lookup.
      * @param requiredColumns Required columns.
      * @return A publisher that produces rows.
@@ -87,7 +84,6 @@ public interface ScannableTable {
             PartitionWithConsistencyToken partWithConsistencyToken,
             RowFactory<RowT> rowFactory,
             int indexId,
-            List<String> columns,
             RowT key,
             int @Nullable [] requiredColumns
     );

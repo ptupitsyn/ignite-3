@@ -53,8 +53,10 @@ import org.apache.ignite.internal.components.LogSyncer;
 import org.apache.ignite.internal.configuration.testframework.ConfigurationExtension;
 import org.apache.ignite.internal.failure.FailureManager;
 import org.apache.ignite.internal.pagememory.DataRegion;
+import org.apache.ignite.internal.pagememory.TestDataRegion;
 import org.apache.ignite.internal.pagememory.configuration.CheckpointConfiguration;
 import org.apache.ignite.internal.pagememory.io.PageIoRegistry;
+import org.apache.ignite.internal.pagememory.metrics.CollectionMetricSource;
 import org.apache.ignite.internal.pagememory.persistence.CheckpointUrgency;
 import org.apache.ignite.internal.pagememory.persistence.DirtyFullPageId;
 import org.apache.ignite.internal.pagememory.persistence.GroupPartitionId;
@@ -85,7 +87,7 @@ public class CheckpointManagerTest extends BaseIgniteAbstractTest {
     void testSimple() throws Exception {
         PersistentPageMemory pageMemory = mock(PersistentPageMemory.class);
 
-        DataRegion<PersistentPageMemory> dataRegion = () -> pageMemory;
+        DataRegion<PersistentPageMemory> dataRegion = new TestDataRegion<>(pageMemory);
 
         CheckpointManager checkpointManager = new CheckpointManager(
                 "test",
@@ -98,7 +100,7 @@ public class CheckpointManagerTest extends BaseIgniteAbstractTest {
                 mock(PageIoRegistry.class),
                 mock(LogSyncer.class),
                 executorService,
-                new CheckpointMetricSource("test"),
+                new CollectionMetricSource("test", "storage", null),
                 1024
         );
 
@@ -131,8 +133,8 @@ public class CheckpointManagerTest extends BaseIgniteAbstractTest {
         when(pageMemory0.checkpointUrgency()).then(answer -> urgency0.get());
         when(pageMemory1.checkpointUrgency()).then(answer -> urgency1.get());
 
-        DataRegion<PersistentPageMemory> dataRegion0 = () -> pageMemory0;
-        DataRegion<PersistentPageMemory> dataRegion1 = () -> pageMemory1;
+        DataRegion<PersistentPageMemory> dataRegion0 = new TestDataRegion<>(pageMemory0);
+        DataRegion<PersistentPageMemory> dataRegion1 = new TestDataRegion<>(pageMemory1);
 
         assertEquals(MUST_TRIGGER, checkpointUrgency(List.of(dataRegion0)));
         assertEquals(SHOULD_TRIGGER, checkpointUrgency(List.of(dataRegion1)));
@@ -365,7 +367,7 @@ public class CheckpointManagerTest extends BaseIgniteAbstractTest {
                 mock(PageIoRegistry.class),
                 mock(LogSyncer.class),
                 executorService,
-                new CheckpointMetricSource("test"),
+                new CollectionMetricSource("test", "storage", null),
                 1024
         ));
 

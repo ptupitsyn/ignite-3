@@ -37,19 +37,17 @@ import java.util.function.Consumer;
 import org.apache.ignite.Ignite;
 import org.apache.ignite.internal.Cluster;
 import org.apache.ignite.internal.ClusterPerTestIntegrationTest;
-import org.apache.ignite.internal.catalog.Catalog;
-import org.apache.ignite.internal.catalog.CatalogManager;
 import org.apache.ignite.internal.catalog.CatalogService;
 import org.apache.ignite.internal.catalog.descriptors.CatalogZoneDescriptor;
 import org.apache.ignite.internal.components.LogSyncer;
+import org.apache.ignite.internal.configuration.SystemLocalConfiguration;
 import org.apache.ignite.internal.configuration.testframework.ConfigurationExtension;
 import org.apache.ignite.internal.configuration.testframework.InjectConfiguration;
 import org.apache.ignite.internal.failure.FailureManager;
 import org.apache.ignite.internal.failure.FailureProcessor;
 import org.apache.ignite.internal.hlc.HybridClockImpl;
 import org.apache.ignite.internal.manager.ComponentContext;
-import org.apache.ignite.internal.metrics.MetricManager;
-import org.apache.ignite.internal.metrics.TestMetricManager;
+import org.apache.ignite.internal.metrics.NoOpMetricManager;
 import org.apache.ignite.internal.pagememory.io.PageIoRegistry;
 import org.apache.ignite.internal.replicator.ReplicationGroupId;
 import org.apache.ignite.internal.storage.MvPartitionStorage;
@@ -57,8 +55,6 @@ import org.apache.ignite.internal.storage.configurations.StorageConfiguration;
 import org.apache.ignite.internal.storage.engine.MvTableStorage;
 import org.apache.ignite.internal.storage.engine.StorageEngine;
 import org.apache.ignite.internal.storage.engine.StorageTableDescriptor;
-import org.apache.ignite.internal.storage.index.StorageIndexDescriptor;
-import org.apache.ignite.internal.storage.index.StorageIndexDescriptorSupplier;
 import org.apache.ignite.internal.storage.pagememory.PersistentPageMemoryStorageEngine;
 import org.apache.ignite.internal.table.TableViewInternal;
 import org.apache.ignite.internal.testframework.ExecutorServiceExtension;
@@ -71,7 +67,6 @@ import org.apache.ignite.raft.jraft.RaftGroupService;
 import org.apache.ignite.raft.jraft.Status;
 import org.apache.ignite.raft.jraft.error.RaftError;
 import org.apache.ignite.table.KeyValueView;
-import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -83,6 +78,9 @@ class ItInterruptedRaftSnapshotStorageRecoveryTest extends ClusterPerTestIntegra
 
     @InjectConfiguration("mock.profiles.default {engine = aipersist, sizeBytes = " + Constants.GiB + "}")
     private StorageConfiguration storageConfig;
+
+    @InjectConfiguration
+    private SystemLocalConfiguration systemConfig;
 
     @InjectExecutorService
     private ExecutorService executor;
@@ -111,7 +109,7 @@ class ItInterruptedRaftSnapshotStorageRecoveryTest extends ClusterPerTestIntegra
         // Truncate log prefix to force snapshot installation to node 2 when its storages will be cleared on startup.
         // This also causes flushes of both MV and TxState storages, so, after we simulate non-finished rebalance in either MV or
         // TX state storage and restart node 2, the corresponding storage data will not be rewritten by reapplying the log.
-        truncateLogPrefixOnAllNodes(cluster.solePartitionId(ZONE_NAME, TABLE_NAME));
+        truncateLogPrefixOnAllNodes(cluster.solePartitionId(ZONE_NAME));
 
         Path node2PartitionsDbPath = unwrapIgniteImpl(cluster.node(2)).partitionsWorkDir().dbPath();
 
@@ -176,10 +174,11 @@ class ItInterruptedRaftSnapshotStorageRecoveryTest extends ClusterPerTestIntegra
     }
 
     private int zoneId() {
-        CatalogManager catalogManager = unwrapIgniteImpl(cluster.aliveNode()).catalogManager();
-        Catalog catalog = catalogManager.catalog(catalogManager.latestCatalogVersion());
+        CatalogZoneDescriptor zone = unwrapIgniteImpl(cluster.aliveNode())
+                .catalogManager()
+                .latestCatalog()
+                .zone(ZONE_NAME);
 
-        CatalogZoneDescriptor zone = catalog.zone(ZONE_NAME);
         assertThat(zone, is(notNullValue()));
 
         return zone.id();
@@ -189,23 +188,14 @@ class ItInterruptedRaftSnapshotStorageRecoveryTest extends ClusterPerTestIntegra
         assertTrue(Files.exists(storagePath));
         assertTrue(Files.isDirectory(storagePath));
 
-        var metricManager = new TestMetricManager();
-
-        StorageEngine engine = createPersistentPageMemoryEngine(storagePath, metricManager);
+        StorageEngine engine = createPersistentPageMemoryEngine(storagePath);
 
         engine.start();
 
         try {
-            assertThat(metricManager.startAsync(new ComponentContext()), willCompleteSuccessfully());
-
             StorageTableDescriptor tableDescriptor = storageTableDescriptor();
 
-            MvTableStorage tableStorage = engine.createMvTable(tableDescriptor, new StorageIndexDescriptorSupplier() {
-                @Override
-                public @Nullable StorageIndexDescriptor get(int indexId) {
-                    return null;
-                }
-            });
+            MvTableStorage tableStorage = engine.createMvTable(tableDescriptor, indexId -> null);
             assertThat(tableStorage.createMvPartition(0), willCompleteSuccessfully());
             assertThat(tableStorage.startRebalancePartition(0), willCompleteSuccessfully());
 
@@ -216,16 +206,16 @@ class ItInterruptedRaftSnapshotStorageRecoveryTest extends ClusterPerTestIntegra
         }
     }
 
-    private StorageEngine createPersistentPageMemoryEngine(Path storagePath, MetricManager metricManager) {
+    private StorageEngine createPersistentPageMemoryEngine(Path storagePath) {
         var ioRegistry = new PageIoRegistry();
 
         ioRegistry.loadFromServiceLoader();
 
         return new PersistentPageMemoryStorageEngine(
                 "test",
-                metricManager,
+                new NoOpMetricManager(),
                 storageConfig,
-                null,
+                systemConfig,
                 ioRegistry,
                 storagePath,
                 null,

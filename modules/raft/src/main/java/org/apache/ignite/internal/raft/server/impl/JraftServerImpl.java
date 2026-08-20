@@ -59,6 +59,7 @@ import org.apache.ignite.internal.lang.IgniteStringFormatter;
 import org.apache.ignite.internal.logger.IgniteLogger;
 import org.apache.ignite.internal.logger.Loggers;
 import org.apache.ignite.internal.manager.ComponentContext;
+import org.apache.ignite.internal.metrics.MetricManager;
 import org.apache.ignite.internal.metrics.sources.RaftMetricSource;
 import org.apache.ignite.internal.network.ClusterService;
 import org.apache.ignite.internal.raft.IndexWithTerm;
@@ -75,7 +76,7 @@ import org.apache.ignite.internal.raft.server.RaftServer;
 import org.apache.ignite.internal.raft.service.CommandClosure;
 import org.apache.ignite.internal.raft.service.RaftGroupListener;
 import org.apache.ignite.internal.raft.storage.GroupStoragesDestructionIntents;
-import org.apache.ignite.internal.raft.storage.LogStorageFactory;
+import org.apache.ignite.internal.raft.storage.LogStorageManager;
 import org.apache.ignite.internal.raft.storage.impl.IgniteJraftServiceFactory;
 import org.apache.ignite.internal.raft.storage.impl.StorageDestructionIntent;
 import org.apache.ignite.internal.raft.storage.impl.StoragesDestructionContext;
@@ -162,6 +163,8 @@ public class JraftServerImpl implements RaftServer {
     /** The number of parallel raft groups starts. */
     private static final int SIMULTANEOUS_GROUP_START_PARALLELISM = Math.min(Utils.cpus() * 3, 25);
 
+    private final MetricManager metricManager;
+
     /**
      * The constructor.
      *
@@ -178,11 +181,13 @@ public class JraftServerImpl implements RaftServer {
             RaftGroupEventsClientListener raftGroupEventsClientListener,
             FailureManager failureManager,
             GroupStoragesDestructionIntents groupStoragesDestructionIntents,
-            GroupStoragesContextResolver groupStoragesContextResolver
+            GroupStoragesContextResolver groupStoragesContextResolver,
+            MetricManager metricManager
     ) {
         this.service = service;
         this.groupStoragesContextResolver = groupStoragesContextResolver;
         this.groupStoragesDestructionIntents = groupStoragesDestructionIntents;
+        this.metricManager = metricManager;
 
         this.opts = opts;
         this.raftGroupEventsClientListener = raftGroupEventsClientListener;
@@ -194,7 +199,7 @@ public class JraftServerImpl implements RaftServer {
         this.opts.setSharedPools(true);
 
         if (opts.getServerName() == null) {
-            this.opts.setServerName(service.nodeName());
+            this.opts.setServerName(service.staticLocalNode().name());
         }
 
         /*
@@ -319,7 +324,7 @@ public class JraftServerImpl implements RaftServer {
                     opts.getStripes(),
                     false,
                     false,
-                    opts.getRaftMetrics().disruptorMetrics("raft.fsmcaller.disruptor")
+                    opts.getRaftMetrics().disruptorMetrics("fsmcaller.disruptor")
             ));
         }
 
@@ -333,7 +338,7 @@ public class JraftServerImpl implements RaftServer {
                     opts.getStripes(),
                     false,
                     false,
-                    opts.getRaftMetrics().disruptorMetrics("raft.nodeimpl.disruptor")
+                    opts.getRaftMetrics().disruptorMetrics("nodeimpl.disruptor")
             ));
         }
 
@@ -347,7 +352,7 @@ public class JraftServerImpl implements RaftServer {
                     opts.getStripes(),
                     false,
                     false,
-                    opts.getRaftMetrics().disruptorMetrics("raft.readonlyservice.disruptor")
+                    opts.getRaftMetrics().disruptorMetrics("readonlyservice.disruptor")
             ));
         }
 
@@ -361,7 +366,7 @@ public class JraftServerImpl implements RaftServer {
                     opts.getLogStripesCount(),
                     true,
                     opts.isLogYieldStrategy(),
-                    opts.getRaftMetrics().disruptorMetrics("raft.logmanager.disruptor")
+                    opts.getRaftMetrics().disruptorMetrics("logmanager.disruptor")
             ));
 
             opts.setLogStripes(IntStream.range(0, opts.getLogStripesCount()).mapToObj(i -> new Stripe()).collect(toList()));
@@ -377,7 +382,7 @@ public class JraftServerImpl implements RaftServer {
     @Override
     public CompletableFuture<Void> stopAsync(ComponentContext componentContext) {
         assert nodes.isEmpty() : IgniteStringFormatter.format("Raft nodes {} are still running on the Ignite node {}", nodes.keySet(),
-                service.topologyService().localMember().name());
+                service.staticLocalNode().name());
 
         opts.getNodeManager().shutdown();
         rpcServer.shutdown();
@@ -467,7 +472,7 @@ public class JraftServerImpl implements RaftServer {
             RaftGroupListener lsnr,
             RaftGroupOptions groupOptions
     ) {
-        assert nodeId.peer().consistentId().equals(service.topologyService().localMember().name());
+        assert nodeId.peer().consistentId().equals(service.staticLocalNode().name());
 
         // fast track to check if node with the same ID is already created.
         if (nodes.containsKey(nodeId)) {
@@ -508,16 +513,20 @@ public class JraftServerImpl implements RaftServer {
             if (groupOptions.commandsMarshaller() != null) {
                 nodeOptions.setCommandsMarshaller(groupOptions.commandsMarshaller());
             }
+            if (groupOptions.safeTimeValidator() != null) {
+                nodeOptions.setSafeTimeValidator(groupOptions.safeTimeValidator());
+            }
 
-            nodeOptions.setFsm(new DelegatingStateMachine(lsnr, nodeOptions.getCommandsMarshaller(), failureManager));
+            nodeOptions.setFsm(
+                    new DelegatingStateMachine(nodeId, lsnr, nodeOptions, failureManager));
 
             nodeOptions.setRaftGrpEvtsLsnr(new RaftGroupEventsListenerAdapter(nodeId.groupId(), serviceEventInterceptor, evLsnr));
 
-            LogStorageFactory logStorageFactory = groupOptions.getLogStorageFactory();
+            LogStorageManager logStorageManager = groupOptions.getLogStorageManager();
 
-            assert logStorageFactory != null : "LogStorageFactory was not set.";
+            assert logStorageManager != null : "LogStorageManager was not set.";
 
-            IgniteJraftServiceFactory serviceFactory = new IgniteJraftServiceFactory(logStorageFactory);
+            IgniteJraftServiceFactory serviceFactory = new IgniteJraftServiceFactory(logStorageManager);
 
             if (groupOptions.snapshotStorageFactory() != null) {
                 serviceFactory.setSnapshotStorageFactory(groupOptions.snapshotStorageFactory());
@@ -543,7 +552,8 @@ public class JraftServerImpl implements RaftServer {
                     nodeId.groupId().toString(),
                     PeerId.fromPeer(nodeId.peer()),
                     nodeOptions,
-                    rpcServer
+                    rpcServer,
+                    metricManager
             );
 
             server.start();
@@ -633,11 +643,11 @@ public class JraftServerImpl implements RaftServer {
         StorageDestructionIntent intent = groupStoragesContextResolver.getIntent(nodeId, groupOptions.volatileStores());
 
         if (durable) {
-            groupStoragesDestructionIntents.saveStorageDestructionIntent(nodeId.groupId(), intent);
+            groupStoragesDestructionIntents.saveStorageDestructionIntent(intent);
         }
 
         destroyStorages(
-                new StoragesDestructionContext(intent, groupOptions.getLogStorageFactory(), groupOptions.serverDataPath()),
+                new StoragesDestructionContext(intent, groupOptions.getLogStorageManager(), groupOptions.serverDataPath()),
                 durable
         );
     }
@@ -650,8 +660,8 @@ public class JraftServerImpl implements RaftServer {
         String nodeId = context.intent().nodeId();
 
         try {
-            if (context.logStorageFactory() != null) {
-                context.logStorageFactory().destroyLogStorage(nodeId);
+            if (context.logStorageManager() != null) {
+                context.logStorageManager().destroyLogStorage(nodeId);
             }
 
             Path dataPath = getServerDataPath(context.serverDataPath(), nodeId);
@@ -675,13 +685,13 @@ public class JraftServerImpl implements RaftServer {
     public Set<StoredRaftNodeId> raftNodeIdsOnDisk() {
         Set<String> groupIdsForStorage = new HashSet<>();
 
-        for (LogStorageFactory logStorageFactory : groupStoragesContextResolver.logStorageFactories()) {
-            groupIdsForStorage.addAll(logStorageFactory.raftNodeStorageIdsOnDisk());
+        for (LogStorageManager logStorageManager : groupStoragesContextResolver.logStorageFactories()) {
+            groupIdsForStorage.addAll(logStorageManager.raftNodeStorageIdsOnDisk());
         }
         groupIdsForStorage.addAll(raftNodeMetaStorageIdsOnDisk());
 
         return groupIdsForStorage.stream()
-                .map(nodeIdStr -> RaftNodeId.fromNodeIdStringForStorage(nodeIdStr, service.nodeName()))
+                .map(nodeIdStr -> RaftNodeId.fromNodeIdStringForStorage(nodeIdStr, service.staticLocalNode().name()))
                 .collect(toUnmodifiableSet());
     }
 
@@ -836,16 +846,26 @@ public class JraftServerImpl implements RaftServer {
 
         private final FailureManager failureManager;
 
+        private final RaftMetricSource raftMetrics;
+
         /**
          * Constructor.
          *
-         * @param listener The listener.
-         * @param marshaller Marshaller.
+         * @param nodeId Node ID.
+         * @param listener Listener.
+         * @param opts Node options.
          * @param failureManager Failure processor that is used to handle critical errors.
          */
-        public DelegatingStateMachine(RaftGroupListener listener, Marshaller marshaller, FailureManager failureManager) {
+        public DelegatingStateMachine(
+                RaftNodeId nodeId,
+                RaftGroupListener listener,
+                NodeOptions opts,
+                FailureManager failureManager
+        ) {
+            super(nodeId.groupId().toString());
             this.listener = listener;
-            this.marshaller = marshaller;
+            this.raftMetrics = opts.getRaftMetrics();
+            this.marshaller = opts.getCommandsMarshaller();
             this.failureManager = failureManager;
         }
 
@@ -854,12 +874,19 @@ public class JraftServerImpl implements RaftServer {
         }
 
         @Override
+        public long getPersistedAppliedIndex() {
+            return listener.getPersistedAppliedIndex();
+        }
+
+        @Override
         public void onApply(Iterator iter) {
-            var writeCommandIterator = new WriteCommandIterator(iter, marshaller);
+            var iterWrapper = new WriteCommandIterator(iter, marshaller);
 
             try {
-                listener.onWrite(writeCommandIterator);
+                listener.onWrite(iterWrapper);
             } catch (Throwable err) {
+                LOG.error("Unexpected error while processing command [label={}]", err, label);
+
                 Status st;
 
                 if (err.getMessage() != null) {
@@ -868,13 +895,9 @@ public class JraftServerImpl implements RaftServer {
                     st = new Status(RaftError.ESTATEMACHINE, "Unknown state machine error.");
                 }
 
-                // This is necessary so that IndexOutOfBoundsException is not thrown in a situation where the listener, when processing a
-                // command, catch any exception and does clo.result(throwable) (that actually advances the iterator) and then throws the
-                // caught exception.
-                Closure done = writeCommandIterator.doneForExceptionHandling();
-
-                if (done != null) {
-                    done.run(st);
+                if (iterWrapper.done != null) {
+                    // Trigger internal error for state machine.
+                    iterWrapper.done.run(st);
                 }
 
                 iter.setErrorAndRollback(1, st);
@@ -963,14 +986,18 @@ public class JraftServerImpl implements RaftServer {
         public void onLeaderStart(long term) {
             super.onLeaderStart(term);
 
-            listener.onLeaderStart();
+            if (raftMetrics != null) {
+                raftMetrics.onLeaderStart();
+            }
         }
 
         @Override
         public void onLeaderStop(Status status) {
             super.onLeaderStop(status);
 
-            listener.onLeaderStop();
+            if (raftMetrics != null) {
+                raftMetrics.onLeaderStop();
+            }
         }
     }
 
@@ -979,7 +1006,7 @@ public class JraftServerImpl implements RaftServer {
 
         private final Marshaller marshaller;
 
-        private @Nullable Closure latestDone;
+        private @Nullable Closure done;
 
         private WriteCommandIterator(Iterator iter, Marshaller marshaller) {
             this.iter = iter;
@@ -993,15 +1020,14 @@ public class JraftServerImpl implements RaftServer {
 
         @Override
         public CommandClosure<WriteCommand> next() {
-            @Nullable Closure currentDone = iter.done();
-            latestDone = currentDone;
+            done = iter.done(); // Save for later error processing.
 
-            @Nullable CommandClosure<WriteCommand> done = (CommandClosure<WriteCommand>) currentDone;
+            @Nullable CommandClosure<WriteCommand> localDone = (CommandClosure<WriteCommand>) done;
             ByteBuffer data = iter.getData();
 
-            // done != null means we are on the leader, otherwise a command has been read from the log.
-            WriteCommand command = done == null ? marshaller.unmarshall(data) : done.command();
-            HybridTimestamp safeTs = done == null ? command.safeTime() : done.safeTimestamp();
+            // localDone != null means we are on the leader, otherwise a command has been read from the log.
+            WriteCommand command = localDone == null ? marshaller.unmarshall(data) : localDone.command();
+            HybridTimestamp safeTs = localDone == null ? command.safeTime() : localDone.safeTimestamp();
 
             long commandIndex = iter.getIndex();
             long commandTerm = iter.getTerm();
@@ -1029,21 +1055,13 @@ public class JraftServerImpl implements RaftServer {
 
                 @Override
                 public void result(Serializable res) {
-                    if (done != null) {
-                        done.result(res);
+                    if (localDone != null) {
+                        localDone.result(res);
                     }
 
                     iter.next();
                 }
             };
-        }
-
-        private @Nullable Closure doneForExceptionHandling() {
-            if (latestDone == null) {
-                latestDone = iter.done();
-            }
-
-            return latestDone;
         }
     }
 }

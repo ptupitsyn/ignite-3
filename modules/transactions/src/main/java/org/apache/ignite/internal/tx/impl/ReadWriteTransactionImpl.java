@@ -19,8 +19,13 @@ package org.apache.ignite.internal.tx.impl;
 
 import static java.util.concurrent.CompletableFuture.failedFuture;
 import static org.apache.ignite.internal.lang.IgniteStringFormatter.format;
+import static org.apache.ignite.internal.tx.TransactionErrors.finishedTransactionErrorCode;
+import static org.apache.ignite.internal.tx.TransactionErrors.finishedTransactionErrorMessage;
+import static org.apache.ignite.internal.tx.TransactionLogUtils.formatTxInfo;
+import static org.apache.ignite.internal.tx.TxState.FINISHING;
+import static org.apache.ignite.internal.tx.TxState.isFinalState;
 import static org.apache.ignite.internal.util.CompletableFutures.nullCompletedFuture;
-import static org.apache.ignite.lang.ErrorGroups.Transactions.TX_ALREADY_FINISHED_ERR;
+import static org.apache.ignite.internal.util.ExceptionUtils.isFinishedDueToTimeout;
 import static org.apache.ignite.lang.ErrorGroups.Transactions.TX_COMMIT_ERR;
 import static org.apache.ignite.lang.ErrorGroups.Transactions.TX_ROLLBACK_ERR;
 
@@ -30,12 +35,16 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Consumer;
 import org.apache.ignite.internal.hlc.HybridTimestamp;
 import org.apache.ignite.internal.hlc.HybridTimestampTracker;
 import org.apache.ignite.internal.replicator.ZonePartitionId;
+import org.apache.ignite.internal.tx.InternalTransaction;
 import org.apache.ignite.internal.tx.PendingTxPartitionEnlistment;
 import org.apache.ignite.internal.tx.TransactionIds;
+import org.apache.ignite.internal.tx.TransactionKilledException;
 import org.apache.ignite.internal.tx.TxManager;
+import org.apache.ignite.internal.tx.TxStateMeta;
 import org.apache.ignite.tx.TransactionException;
 import org.jetbrains.annotations.Nullable;
 
@@ -62,7 +71,18 @@ public class ReadWriteTransactionImpl extends IgniteAbstractTransactionImpl {
     /**
      * {@code True} if a transaction is externally killed.
      */
-    private boolean killed;
+    private volatile boolean killed;
+
+    /**
+     * {@code True} if a remote(directly mapped) part of this transaction has no writes.
+     */
+    private boolean noRemoteWrites = true;
+
+    /**
+     * A closure which is called then a transaction is externally killed (not by direct user call).
+     * Not-null only for a client's transaction.
+     */
+    private final @Nullable Consumer<InternalTransaction> killClosure;
 
     /**
      * Constructs an explicit read-write transaction.
@@ -73,6 +93,7 @@ public class ReadWriteTransactionImpl extends IgniteAbstractTransactionImpl {
      * @param txCoordinatorId Transaction coordinator inconsistent ID.
      * @param implicit True for an implicit transaction, false for an ordinary one.
      * @param timeout The timeout.
+     * @param killClosure Kill closure.
      */
     public ReadWriteTransactionImpl(
             TxManager txManager,
@@ -80,9 +101,11 @@ public class ReadWriteTransactionImpl extends IgniteAbstractTransactionImpl {
             UUID id,
             UUID txCoordinatorId,
             boolean implicit,
-            long timeout
+            long timeout,
+            @Nullable Consumer<InternalTransaction> killClosure
     ) {
         super(txManager, observableTsTracker, id, txCoordinatorId, implicit, timeout);
+        this.killClosure = killClosure;
     }
 
     /** {@inheritDoc} */
@@ -113,8 +136,7 @@ public class ReadWriteTransactionImpl extends IgniteAbstractTransactionImpl {
     ) {
         // No need to wait for lock if commit is in progress.
         if (!enlistPartitionLock.readLock().tryLock()) {
-            failEnlist();
-            assert false; // Not reachable.
+            throw enlistFailedException();
         }
 
         try {
@@ -132,28 +154,53 @@ public class ReadWriteTransactionImpl extends IgniteAbstractTransactionImpl {
     }
 
     /**
-     * Fails the operation.
+     * Return the exception depending on a transaction state.
+     *
+     * @return The exception.
      */
-    private void failEnlist() {
-        throw new TransactionException(
-                TX_ALREADY_FINISHED_ERR,
-                format("Transaction is already finished [id={}, state={}].", id(), state()));
+    @Override
+    public RuntimeException enlistFailedException() {
+        TxStateMeta meta = txManager.stateMeta(id());
+        Throwable cause = meta == null ? null : meta.lastException();
+        boolean isFinishedDueToTimeout = meta != null && meta.isFinishedDueToTimeoutOrFalse();
+        boolean isFinishedDueToError = meta != null && !isFinishedDueToTimeout && meta.lastExceptionErrorCode() != null;
+        Throwable publicCause = isFinishedDueToError ? cause : null;
+        Integer causeErrorCode = meta == null ? null : meta.lastExceptionErrorCode();
+
+        return killed ? new TransactionKilledException(id(), txManager) :
+                new TransactionException(
+                        finishedTransactionErrorCode(isFinishedDueToTimeout, isFinishedDueToError),
+                        format("{} [{}, txState={}].",
+                                finishedTransactionErrorMessage(
+                                        isFinishedDueToTimeout,
+                                        isFinishedDueToError,
+                                        causeErrorCode,
+                                        publicCause != null
+                                ),
+                                formatTxInfo(id(), txManager, false),
+                                state()),
+                        publicCause);
     }
 
     /**
      * Checks that this transaction was not finished and will be able to enlist another partition.
      */
     private void checkEnlistPossibility() {
-        if (isFinishingOrFinished()) {
-            // This means that the transaction is either in final or FINISHING state.
-            failEnlist();
+        if (isFinishingOrFinished() || killed) {
+            throw enlistFailedException();
+        }
+
+        TxStateMeta meta = txManager.stateMeta(id());
+
+        if (meta != null && (meta.txState() == FINISHING || isFinalState(meta.txState()))) {
+            throw enlistFailedException();
         }
     }
 
     @Override
     public CompletableFuture<Void> commitAsync() {
         return TransactionsExceptionMapperUtil.convertToPublicFuture(
-                finish(true, null, false, false),
+                finish(true, null, false, null),
                 TX_COMMIT_ERR
         );
     }
@@ -161,15 +208,7 @@ public class ReadWriteTransactionImpl extends IgniteAbstractTransactionImpl {
     @Override
     public CompletableFuture<Void> rollbackAsync() {
         return TransactionsExceptionMapperUtil.convertToPublicFuture(
-                finish(false, null, false, false),
-                TX_ROLLBACK_ERR
-        );
-    }
-
-    @Override
-    public CompletableFuture<Void> rollbackTimeoutExceededAsync() {
-        return TransactionsExceptionMapperUtil.convertToPublicFuture(
-                finish(false, null, false, true),
+                finish(false, null, false, null),
                 TX_ROLLBACK_ERR
         );
     }
@@ -179,15 +218,15 @@ public class ReadWriteTransactionImpl extends IgniteAbstractTransactionImpl {
             boolean commit,
             @Nullable HybridTimestamp executionTimestamp,
             boolean full,
-            boolean timeoutExceeded
+            @Nullable Throwable finishReason
     ) {
-        assert !(commit && timeoutExceeded) : "Transaction cannot commit with timeout exceeded.";
+        assert !(commit && finishReason != null) : "Transaction cannot be committed with an error.";
 
         if (finishFuture != null) {
             return finishFuture;
         }
 
-        return finishInternal(commit, executionTimestamp, full, true, timeoutExceeded);
+        return finishInternal(commit, executionTimestamp, full, true, finishReason);
     }
 
     /**
@@ -196,59 +235,75 @@ public class ReadWriteTransactionImpl extends IgniteAbstractTransactionImpl {
      * @param commit Commit flag.
      * @param executionTimestamp The timestamp is the time when the transaction is applied to the remote node.
      * @param full Full state transaction marker.
-     * @param isComplete The flag is true if the transaction is completed through the public API, false for {@link this#kill()} invocation.
-     * @param timeoutExceeded {@code True} if rollback reason is the timeout.
+     * @param isFinishedDirectly {@code True} if the transaction is completed through the public API, false for {@link #kill()}.
+     * @param finishReason Optional finish reason (for example, timeout). Must be {@code null} for commit.
      * @return The future.
      */
     private CompletableFuture<Void> finishInternal(
             boolean commit,
             @Nullable HybridTimestamp executionTimestamp,
             boolean full,
-            boolean isComplete,
-            boolean timeoutExceeded
+            boolean isFinishedDirectly,
+            @Nullable Throwable finishReason
     ) {
         enlistPartitionLock.writeLock().lock();
 
         try {
             if (finishFuture == null) {
                 if (killed) {
-                    if (isComplete) {
+                    if (isFinishedDirectly) {
+                        // An attempt to finish a killed transaction.
                         finishFuture = nullCompletedFuture();
 
-                        return failedFuture(new TransactionException(
-                                TX_ALREADY_FINISHED_ERR,
-                                format("Transaction is killed [id={}, state={}].", id(), state())
-                        ));
+                        return failedFuture(new TransactionKilledException(id(), txManager));
                     } else {
+                        // Kill is called twice.
                         return nullCompletedFuture();
                     }
                 }
 
                 if (full) {
-                    txManager.finishFull(observableTsTracker, id(), executionTimestamp, commit, timeoutExceeded);
+                    CompletableFuture<Void> finishFutureInternal =
+                            txManager.finishFull(observableTsTracker, id(), executionTimestamp, commit, finishReason);
 
-                    if (isComplete) {
-                        finishFuture = nullCompletedFuture();
-                        this.timeoutExceeded = timeoutExceeded;
+                    if (isFinishedDirectly) {
+                        finishFuture = finishFutureInternal.handle((unused, throwable) -> null);
+                        this.timeoutExceeded = isFinishedDueToTimeout(finishReason);
                     } else {
+                        if (killClosure == null) {
+                            throw new AssertionError("Invalid kill state for a full transaction");
+                        }
                         killed = true;
                     }
+
+                    return finishFutureInternal;
                 } else {
+                    killed = !isFinishedDirectly;
+
                     CompletableFuture<Void> finishFutureInternal = txManager.finish(
                             observableTsTracker,
                             commitPart,
                             commit,
-                            timeoutExceeded,
+                            finishReason,
                             false,
+                            noRemoteWrites,
                             enlisted,
                             id()
                     );
 
-                    if (isComplete) {
+                    if (isFinishedDirectly) {
                         finishFuture = finishFutureInternal.handle((unused, throwable) -> null);
-                        this.timeoutExceeded = timeoutExceeded;
+                        this.timeoutExceeded = isFinishedDueToTimeout(finishReason);
                     } else {
-                        killed = true;
+                        return finishFutureInternal.handle((unused, throwable) -> {
+                            // TODO https://issues.apache.org/jira/browse/IGNITE-25825 move before finish after async cleanup
+                            if (killClosure != null) {
+                                // Notify the client about the kill.
+                                killClosure.accept(this);
+                            }
+
+                            return null;
+                        });
                     }
 
                     // Return the real future first time.
@@ -286,7 +341,7 @@ public class ReadWriteTransactionImpl extends IgniteAbstractTransactionImpl {
 
     @Override
     public CompletableFuture<Void> kill() {
-        return finishInternal(false, null, false, false, false);
+        return finishInternal(false, null, false, false, new TransactionKilledException(id(), txManager));
     }
 
     @Override
@@ -302,12 +357,21 @@ public class ReadWriteTransactionImpl extends IgniteAbstractTransactionImpl {
     }
 
     /**
-     * Fail the transaction with exception so finishing it is not possible.
+     * Fails the transaction with exception so finishing it is not possible.
      *
      * @param e Fail reason.
      */
     public void fail(TransactionException e) {
-        // Thread safety is not needed.
+        txManager.enrichTxMeta(id(), old -> old == null ? null : old.mutate().lastException(e).build());
         finishFuture = failedFuture(e);
+    }
+
+    /**
+     * Sets no remote writes flag.
+     *
+     * @param noRemoteWrites The value.
+     */
+    public void noRemoteWrites(boolean noRemoteWrites) {
+        this.noRemoteWrites = noRemoteWrites;
     }
 }

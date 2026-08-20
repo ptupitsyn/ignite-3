@@ -23,8 +23,10 @@ import static java.util.stream.Collectors.toList;
 import static org.apache.ignite.internal.testframework.matchers.CompletableFutureMatcher.willCompleteSuccessfully;
 import static org.apache.ignite.internal.util.ArrayUtils.asList;
 import static org.apache.ignite.internal.util.IgniteUtils.byteBufferToByteArray;
+import static org.apache.ignite.internal.util.IgniteUtils.stopAsync;
 import static org.apache.ignite.raft.jraft.core.TestCluster.ELECTION_TIMEOUT_MILLIS;
 import static org.apache.ignite.raft.jraft.test.TestUtils.sender;
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.aMapWithSize;
 import static org.hamcrest.Matchers.containsInAnyOrder;
@@ -54,7 +56,6 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-import com.codahale.metrics.ConsoleReporter;
 import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.RingBuffer;
 import java.io.File;
@@ -90,6 +91,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
@@ -98,6 +100,7 @@ import java.util.stream.IntStream;
 import org.apache.ignite.internal.logger.IgniteLogger;
 import org.apache.ignite.internal.logger.Loggers;
 import org.apache.ignite.internal.manager.ComponentContext;
+import org.apache.ignite.internal.metrics.TestMetricManager;
 import org.apache.ignite.internal.network.ClusterService;
 import org.apache.ignite.internal.network.StaticNodeFinder;
 import org.apache.ignite.internal.network.utils.ClusterServiceTestUtils;
@@ -105,9 +108,10 @@ import org.apache.ignite.internal.raft.JraftGroupEventsListener;
 import org.apache.ignite.internal.raft.WriteCommand;
 import org.apache.ignite.internal.raft.service.CommandClosure;
 import org.apache.ignite.internal.raft.service.RaftGroupListener.ShutdownException;
-import org.apache.ignite.internal.raft.storage.impl.DefaultLogStorageFactory;
+import org.apache.ignite.internal.raft.storage.impl.DefaultLogStorageManager;
 import org.apache.ignite.internal.raft.storage.impl.IgniteJraftServiceFactory;
 import org.apache.ignite.internal.testframework.BaseIgniteAbstractTest;
+import org.apache.ignite.internal.testframework.IgniteTestUtils;
 import org.apache.ignite.internal.testframework.WorkDirectory;
 import org.apache.ignite.internal.testframework.WorkDirectoryExtension;
 import org.apache.ignite.internal.thread.IgniteThreadFactory;
@@ -140,6 +144,7 @@ import org.apache.ignite.raft.jraft.error.LogIndexOutOfBoundsException;
 import org.apache.ignite.raft.jraft.error.LogNotFoundException;
 import org.apache.ignite.raft.jraft.error.RaftError;
 import org.apache.ignite.raft.jraft.error.RaftException;
+import org.apache.ignite.raft.jraft.option.ApplyTaskMode;
 import org.apache.ignite.raft.jraft.option.BootstrapOptions;
 import org.apache.ignite.raft.jraft.option.NodeOptions;
 import org.apache.ignite.raft.jraft.option.RaftOptions;
@@ -176,9 +181,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
- * Integration tests for raft cluster. TODO asch get rid of sleeps wherether possible IGNITE-14832
+ * Integration tests for raft cluster. TODO asch get rid of sleeps wherever possible IGNITE-14832
  */
 @ExtendWith(WorkDirectoryExtension.class)
 public class ItNodeTest extends BaseIgniteAbstractTest {
@@ -364,7 +371,8 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         AtomicInteger c = new AtomicInteger();
 
         Task task1 = new Task(ByteBuffer.wrap(("Test task").getBytes(UTF_8)), new JoinableClosure(status -> {
-            log.info("First task is started.");
+            log.info("First task is started [statusOk={}, statusError={}, status={}].", status.isOk(), status.getRaftError().name(),
+                    status);
 
             if (!status.isOk()) {
                 assertTrue(
@@ -374,7 +382,8 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         }));
 
         Task task2 = new Task(ByteBuffer.wrap(("Test task").getBytes(UTF_8)), new JoinableClosure(status -> {
-            log.info("Second task is started.");
+            log.info("Second task is started [statusOk={}, statusError={}, status={}].", status.isOk(), status.getRaftError().name(),
+                    status);
 
             if (!status.isOk()) {
                 assertTrue(
@@ -459,7 +468,7 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         CountDownLatch readIndexLatch = new CountDownLatch(1);
         AtomicInteger currentValue = new AtomicInteger(-1);
         String errorMsg = testInfo.getDisplayName();
-        StateMachine fsm = new StateMachineAdapter() {
+        StateMachine fsm = new StateMachineAdapter("test") {
 
             @Override
             public void onApply(Iterator iter) {
@@ -1661,40 +1670,6 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
     }
 
     @Test
-    public void testNodeMetrics() throws Exception {
-        List<TestPeer> peers = TestUtils.generatePeers(testInfo, 3);
-
-        cluster = new TestCluster("unittest", dataPath, peers, testInfo);
-        for (TestPeer peer : peers)
-            assertTrue(cluster.start(peer, false, 300, true));
-
-        //elect and get leader
-        Node leader = cluster.waitAndGetLeader();
-        assertNotNull(leader);
-        assertEquals(3, leader.listPeers().size());
-        // apply tasks to leader
-        sendTestTaskAndWait(leader);
-
-        {
-            ByteBuffer data = ByteBuffer.wrap("no closure".getBytes(UTF_8));
-            Task task = new Task(data, null);
-            leader.apply(task);
-        }
-
-        cluster.ensureSame();
-        for (Node node : cluster.getNodes()) {
-            System.out.println("-------------" + node.getNodeId() + "-------------");
-            ConsoleReporter reporter = ConsoleReporter.forRegistry(node.getNodeMetrics().getMetricRegistry())
-                .build();
-            reporter.report();
-            reporter.close();
-            System.out.println();
-        }
-        // TODO check http status https://issues.apache.org/jira/browse/IGNITE-14832
-        assertEquals(2, cluster.getFollowers().size());
-    }
-
-    @Test
     public void testLeaderFail() throws Exception {
         List<TestPeer> peers = TestUtils.generatePeers(testInfo, 3);
 
@@ -1792,10 +1767,11 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         assertTrue(cluster.start(peer1, false, 300));
 
         // add peer1
-        CountDownLatch latch = new CountDownLatch(1);
         peers.add(peer1);
-        leader.addPeer(peer1.getPeerId(), 5L, new ExpectClosure(latch));
-        waitLatch(latch);
+        SynchronizedClosure addPeer1Done = new SynchronizedClosure();
+        leader.addPeer(peer1.getPeerId(), 5L, addPeer1Done);
+        Status addPeer1Status = assertTimeoutPreemptively(Duration.ofSeconds(30), addPeer1Done::await);
+        assertTrue(addPeer1Status.isOk(), "addPeer(peer1) failed: " + addPeer1Status);
 
         cluster.ensureSame();
         assertEquals(2, cluster.getFsms().size());
@@ -1804,25 +1780,34 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
 
         // add peer2 but not start
         peers.add(peer2);
-        latch = new CountDownLatch(1);
-        leader.addPeer(peer2.getPeerId(), 6L, new ExpectClosure(RaftError.ECATCHUP, latch));
-        waitLatch(latch);
+        SynchronizedClosure addPeer2BeforeStartDone = new SynchronizedClosure();
+        leader.addPeer(peer2.getPeerId(), 6L, addPeer2BeforeStartDone);
+        Status addPeer2BeforeStartStatus = assertTimeoutPreemptively(Duration.ofSeconds(30), addPeer2BeforeStartDone::await);
+        assertEquals(RaftError.ECATCHUP, addPeer2BeforeStartStatus.getRaftError(),
+                "addPeer(peer2) before startup should fail with ECATCHUP: " + addPeer2BeforeStartStatus);
 
         // start peer2 after 2 seconds
         Thread.sleep(2000);
         assertTrue(cluster.start(peer2, false, 300));
 
         // re-add peer2
-        latch = new CountDownLatch(2);
-        leader.addPeer(peer2.getPeerId(), 7L, new ExpectClosure(latch));
+        SynchronizedClosure addPeer2Done = new SynchronizedClosure();
+        leader.addPeer(peer2.getPeerId(), 7L, addPeer2Done);
         // concurrent configuration change
-        leader.addPeer(peer3.getPeerId(), 8L, new ExpectClosure(RaftError.EBUSY, latch));
-        waitLatch(latch);
+        SynchronizedClosure addPeer3Done = new SynchronizedClosure();
+        leader.addPeer(peer3.getPeerId(), 8L, addPeer3Done);
+
+        Status addPeer2Status = assertTimeoutPreemptively(Duration.ofSeconds(30), addPeer2Done::await);
+        assertTrue(addPeer2Status.isOk(), "re-add peer2 failed: " + addPeer2Status);
+
+        Status addPeer3Status = assertTimeoutPreemptively(Duration.ofSeconds(30), addPeer3Done::await);
+        assertEquals(RaftError.EBUSY, addPeer3Status.getRaftError(),
+                "concurrent addPeer(peer3) should fail with EBUSY: " + addPeer3Status);
 
         // re-add peer2 directly
 
         try {
-            leader.addPeer(peer2.getPeerId(), 9L, new ExpectClosure(latch));
+            leader.addPeer(peer2.getPeerId(), 9L, new SynchronizedClosure());
             fail();
         }
         catch (IllegalArgumentException e) {
@@ -2993,7 +2978,8 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         // Start node C, it should install snapshot from leader.
         log.info("Start node [id={}].", peers.get(2).getPeerId().getConsistentId());
         assertTrue(cluster.start(peers.get(2)));
-        assertTrue(waitForCondition(() -> cluster.getNode(peers.get(2).getPeerId()).isInstallingSnapshot(), 10_000));
+        await().atMost(10, TimeUnit.SECONDS)
+                .until(() -> cluster.getNode(peers.get(2).getPeerId()).isInstallingSnapshot());
 
         log.info("Waiting for snapshot to start executing.");
         assertThat(snapshotStartedFuture, willCompleteSuccessfully());
@@ -3003,7 +2989,8 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         cluster.stop(leader.getLeaderId());
         log.info("Leader stopped.");
 
-        assertTrue(cluster.getNode(peers.get(2).getPeerId()).isInstallingSnapshot());
+        await().atMost(10, TimeUnit.SECONDS)
+                .until(() -> cluster.getNode(peers.get(2).getPeerId()).isInstallingSnapshot());
     }
 
     /**
@@ -3068,7 +3055,8 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
 
             return false;
         });
-        assertTrue(waitForCondition(() -> cluster.getNode(peers.get(2).getPeerId()).isInstallingSnapshot(), 10_000));
+        await().atMost(10, TimeUnit.SECONDS)
+                .until(() -> cluster.getNode(peers.get(2).getPeerId()).isInstallingSnapshot());
         // While snapshot is being installed, stop the leader.
 
         log.info("Waiting for snapshot to start executing.");
@@ -3078,9 +3066,8 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         cluster.stop(leader.getLeaderId());
         log.info("Leader stopped.");
 
-        Thread.sleep(30_000);
-
-        assertTrue(cluster.getNode(peers.get(2).getPeerId()).isInstallingSnapshot());
+        await().atMost(30, TimeUnit.SECONDS)
+                .until(() -> cluster.getNode(peers.get(2).getPeerId()).isInstallingSnapshot());
     }
 
     @Test
@@ -3135,13 +3122,15 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         log.info("Start node [id={}].", peers.get(2).getPeerId().getConsistentId());
         assertTrue(cluster.start(peers.get(2)));
 
-        assertTrue(waitForCondition(() -> cluster.getNode(peers.get(2).getPeerId()).isInstallingSnapshot(), 10_000));
+        await().atMost(10, TimeUnit.SECONDS)
+                .until(() -> cluster.getNode(peers.get(2).getPeerId()).isInstallingSnapshot());
         // While snapshot is being installed, stop the leader.
         log.info("Stopping leader [id={}].", leader.getLeaderId());
         cluster.stop(leader.getLeaderId());
         log.info("Leader stopped.");
 
-        assertFalse(cluster.getNode(peers.get(2).getPeerId()).isInstallingSnapshot());
+        await().timeout(10, TimeUnit.SECONDS)
+                .until(() -> !cluster.getNode(peers.get(2).getPeerId()).isInstallingSnapshot());
     }
 
     private void tapIntoSnapshotCopier(
@@ -3314,7 +3303,7 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         ComponentContext startComponentContext = new ComponentContext();
 
         BootstrapOptions opts = new BootstrapOptions();
-        DefaultLogStorageFactory logStorageProvider = new DefaultLogStorageFactory(path);
+        DefaultLogStorageManager logStorageProvider = new DefaultLogStorageManager(path);
         assertThat(logStorageProvider.startAsync(startComponentContext), willCompleteSuccessfully());
         opts.setServiceFactory(new IgniteJraftServiceFactory(logStorageProvider));
         opts.setLastLogIndex(fsm.getLogs().size());
@@ -3324,14 +3313,14 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         opts.setGroupConf(JRaftUtils.getConfiguration(peer.getPeerId().toString()));
         opts.setFsm(fsm);
 
-        assertTrue(JRaftUtils.bootstrap(opts));
+        assertTrue(JRaftUtils.bootstrap(opts, new TestMetricManager()));
         assertThat(logStorageProvider.stopAsync(new ComponentContext()), willCompleteSuccessfully());
 
         NodeOptions nodeOpts = new NodeOptions();
         nodeOpts.setRaftMetaUri(dataPath + File.separator + "meta");
         nodeOpts.setSnapshotUri(dataPath + File.separator + "snapshot");
         nodeOpts.setLogUri("test");
-        DefaultLogStorageFactory log2 = new DefaultLogStorageFactory(path);
+        DefaultLogStorageManager log2 = new DefaultLogStorageManager(path);
         assertThat(log2.startAsync(startComponentContext), willCompleteSuccessfully());
         nodeOpts.setServiceFactory(new IgniteJraftServiceFactory(log2));
         nodeOpts.setFsm(fsm);
@@ -3361,7 +3350,7 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         ComponentContext startComponentContext = new ComponentContext();
 
         BootstrapOptions opts = new BootstrapOptions();
-        DefaultLogStorageFactory logStorageProvider = new DefaultLogStorageFactory(path);
+        DefaultLogStorageManager logStorageProvider = new DefaultLogStorageManager(path);
         assertThat(logStorageProvider.startAsync(startComponentContext), willCompleteSuccessfully());
         opts.setServiceFactory(new IgniteJraftServiceFactory(logStorageProvider));
         opts.setLastLogIndex(0);
@@ -3371,7 +3360,7 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         opts.setGroupConf(JRaftUtils.getConfiguration(peer.getPeerId().toString()));
         opts.setFsm(fsm);
 
-        assertTrue(JRaftUtils.bootstrap(opts));
+        assertTrue(JRaftUtils.bootstrap(opts, new TestMetricManager()));
         assertThat(logStorageProvider.stopAsync(new ComponentContext()), willCompleteSuccessfully());
 
         NodeOptions nodeOpts = new NodeOptions();
@@ -3379,7 +3368,7 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         nodeOpts.setSnapshotUri(dataPath + File.separator + "snapshot");
         nodeOpts.setLogUri("test");
         nodeOpts.setFsm(fsm);
-        DefaultLogStorageFactory log2 = new DefaultLogStorageFactory(path);
+        DefaultLogStorageManager log2 = new DefaultLogStorageManager(path);
         assertThat(log2.startAsync(startComponentContext), willCompleteSuccessfully());
         nodeOpts.setServiceFactory(new IgniteJraftServiceFactory(log2));
 
@@ -4152,7 +4141,39 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         });
     }
 
-    @Disabled("https://issues.apache.org/jira/browse/IGNITE-26249")
+    private void changePeersAndLearnersWithRetry(Configuration conf, long timeoutMillis) throws InterruptedException {
+        Status lastStatus = null;
+        long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+
+        while (System.nanoTime() < deadlineNanos) {
+            Node leader = cluster.waitAndGetLeader();
+
+            if (leader == null) {
+                continue;
+            }
+
+            SynchronizedClosure done = new SynchronizedClosure();
+
+            leader.changePeersAndLearners(conf, leader.getCurrentTerm(), done);
+
+            lastStatus = done.await();
+
+            if (lastStatus.isOk()) {
+                return;
+            }
+
+            RaftError error = lastStatus.getRaftError();
+
+            if (error != RaftError.EBUSY && error != RaftError.EPERM && error != RaftError.ECATCHUP) {
+                break;
+            }
+
+            Thread.sleep(100);
+        }
+
+        assertTrue(lastStatus != null && lastStatus.isOk(), String.valueOf(lastStatus));
+    }
+
     @Test
     public void testChangePeersAndLearnersChaosWithSnapshot() throws Exception {
         // start cluster
@@ -4187,11 +4208,7 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         }
         arg.stop = true;
         future.get();
-        SynchronizedClosure done = new SynchronizedClosure();
-        Node leader = cluster.waitAndGetLeader();
-        leader.changePeersAndLearners(new Configuration(peers.stream().map(TestPeer::getPeerId).collect(toList())), leader.getCurrentTerm(), done);
-        Status st = done.await();
-        assertTrue(st.isOk(), st.getErrorMsg());
+        changePeersAndLearnersWithRetry(new Configuration(peers.stream().map(TestPeer::getPeerId).collect(toList())), 10_000);
         cluster.ensureSame();
         assertEquals(10, cluster.getFsms().size());
         for (MockStateMachine fsm : cluster.getFsms())
@@ -4233,10 +4250,7 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         }
         arg.stop = true;
         future.get();
-        SynchronizedClosure done = new SynchronizedClosure();
-        Node leader = cluster.waitAndGetLeader();
-        leader.changePeersAndLearners(new Configuration(peers.stream().map(TestPeer::getPeerId).collect(toList())), leader.getCurrentTerm(), done);
-        assertTrue(done.await().isOk());
+        changePeersAndLearnersWithRetry(new Configuration(peers.stream().map(TestPeer::getPeerId).collect(toList())), 10_000);
         cluster.ensureSame();
         assertEquals(10, cluster.getFsms().size());
         for (MockStateMachine fsm : cluster.getFsms()) {
@@ -4306,10 +4320,7 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         for (Future<?> future : futures)
             future.get();
 
-        SynchronizedClosure done = new SynchronizedClosure();
-        Node leader = cluster.waitAndGetLeader();
-        leader.changePeersAndLearners(new Configuration(peers.stream().map(TestPeer::getPeerId).collect(toList())), leader.getCurrentTerm(), done);
-        assertTrue(done.await().isOk());
+        changePeersAndLearnersWithRetry(new Configuration(peers.stream().map(TestPeer::getPeerId).collect(toList())), 10_000);
         cluster.ensureSame();
         assertEquals(10, cluster.getFsms().size());
 
@@ -4537,12 +4548,12 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         assertTrue(cluster.getNode(forcedLeaderPeer.getPeerId()).isLeader(), "Forced leader must remain a leader");
     }
 
-    private DefaultLogStorageFactory startPersistentLogStorageFactory() {
-        DefaultLogStorageFactory persistentLogStorageFactory = new DefaultLogStorageFactory(Path.of(dataPath).resolve("logs"));
+    private DefaultLogStorageManager startPersistentLogStorageManager() {
+        DefaultLogStorageManager persistentLogStorageManager = new DefaultLogStorageManager(Path.of(dataPath).resolve("logs"));
 
-        assertThat(persistentLogStorageFactory.startAsync(new ComponentContext()), willCompleteSuccessfully());
+        assertThat(persistentLogStorageManager.startAsync(new ComponentContext()), willCompleteSuccessfully());
 
-        return persistentLogStorageFactory;
+        return persistentLogStorageManager;
     }
 
     private void waitTillFirstConfigLogEntryIsReplicated(TestPeer forcedLeaderPeer) {
@@ -4730,10 +4741,122 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
         );
     }
 
+    /**
+     * Test that closure finished with error when byte size limit is exceeded.
+     */
+    @ParameterizedTest
+    @EnumSource(ApplyTaskMode.class)
+    public void testApplyQueueByteSizeThrottlingExceedsLimit(ApplyTaskMode mode) throws Exception {
+        RaftOptions raftOptions = new RaftOptions();
+        // Set limit to 2 KB
+        raftOptions.setMaxApplyQueueByteSize(2 * 1024);
+
+        Node node = setupSingleNodeClusterWithRaftOptions(raftOptions, mode);
+
+        int numTasks = 10000;
+        AtomicInteger overloadCount = new AtomicInteger(0);
+
+        List<Task> tasks = new ArrayList<>(numTasks);
+        for (int i = 0; i < numTasks; i++) {
+            byte[] bytes = new byte[1024]; // 1 KB each
+            ByteBuffer data = ByteBuffer.wrap(bytes);
+            Task task;
+            task = new Task(data, new JoinableClosure(status -> {
+                if (!status.isOk()) {
+                    assertEquals(RaftError.EBUSY, status.getRaftError());
+                    assertTrue(status.getErrorMsg().contains("Node is busy, apply queue byte size limit exceeded"));
+                    overloadCount.incrementAndGet();
+                }
+            }));
+
+            tasks.add(task);
+            node.apply(task);
+        }
+
+        Task.joinAll(tasks, TimeUnit.SECONDS.toMillis(30));
+
+        assertTrue(overloadCount.get() > 0, "Expected some tasks to be rejected due to byte size limit");
+
+        assertEquals(0, getApplyQueueByteSize(node), "Apply queue byte size should be 0 after all tasks are processed");
+    }
+
+    /**
+     * Test that tasks succeed when under the byte size limit.
+     */
+    @ParameterizedTest
+    @EnumSource(ApplyTaskMode.class)
+    public void testApplyQueueByteSizeThrottlingUnderLimit(ApplyTaskMode mode) throws Exception {
+        RaftOptions raftOptions = new RaftOptions();
+        // Set limit to 10 MB
+        raftOptions.setMaxApplyQueueByteSize(10 * 1024 * 1024);
+
+        Node node = setupSingleNodeClusterWithRaftOptions(raftOptions, mode);
+
+        CountDownLatch latch = new CountDownLatch(50);
+        AtomicInteger successCount = new AtomicInteger(0);
+
+        for (int i = 0; i < 50; i++) {
+            byte[] bytes = new byte[10 * 1024]; // 10 KB
+            ByteBuffer data = ByteBuffer.wrap(bytes);
+            Task task = new Task(data, new JoinableClosure(status -> {
+                assertTrue(status.isOk(), "Task should succeed when under limit: " + status);
+                successCount.incrementAndGet();
+                latch.countDown();
+            }));
+            node.apply(task);
+        }
+
+        waitLatch(latch);
+
+        assertEquals(50, successCount.get());
+
+        assertEquals(0, getApplyQueueByteSize(node), "Apply queue byte size should be 0 after all tasks are processed");
+    }
+
+    /**
+     * Test that byte size counter is properly decremented when tasks are processed.
+     */
+    @ParameterizedTest
+    @EnumSource(ApplyTaskMode.class)
+    public void testApplyQueueByteSizeCounterDecrements(ApplyTaskMode mode) throws Exception {
+        int batchSize = 10;
+        RaftOptions raftOptions = new RaftOptions();
+        // Set limit to 2 MB, but apply overall ~3 MB of tasks
+        raftOptions.setMaxApplyQueueByteSize(2 * 1024 * 1024);
+        raftOptions.setApplyBatch(batchSize);
+
+        Node node = setupSingleNodeClusterWithRaftOptions(raftOptions, mode);
+
+        // Apply tasks in batches, allowing time for processing between batch
+        for (int batch = 0; batch < 3; batch++) {
+            CountDownLatch latch = new CountDownLatch(batchSize);
+            AtomicInteger successCount = new AtomicInteger(0);
+
+            for (int i = 0; i < batchSize; i++) {
+                byte[] bytes = new byte[100 * 1024]; // 100 KB each
+                ByteBuffer data = ByteBuffer.wrap(bytes);
+                Task task = new Task(data, new JoinableClosure(status -> {
+                    if (status.isOk()) {
+                        successCount.incrementAndGet();
+                    }
+                    latch.countDown();
+                }));
+                node.apply(task);
+            }
+
+            waitLatch(latch);
+
+            // All tasks in each batch should succeed because counter is decremented
+            assertEquals(batchSize, successCount.get(), "All tasks in batch should succeed");
+        }
+
+        assertEquals(0, getApplyQueueByteSize(node), "Apply queue byte size should be 0 after all tasks are processed");
+    }
+
     private NodeOptions createNodeOptions(int nodeIdx) {
         NodeOptions options = new NodeOptions();
 
-        DefaultLogStorageFactory log = new DefaultLogStorageFactory(Path.of(dataPath, "node" + nodeIdx, "log"));
+        DefaultLogStorageManager log = new DefaultLogStorageManager(Path.of(dataPath, "node" + nodeIdx, "log"));
         assertThat(log.startAsync(new ComponentContext()), willCompleteSuccessfully());
 
         options.setServiceFactory(new IgniteJraftServiceFactory(log));
@@ -4855,7 +4978,7 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
 
         assertThat(clusterService.startAsync(new ComponentContext()), willCompleteSuccessfully());
 
-        var service = new RaftGroupService(groupId, peer.getPeerId(), nodeOptions, rpcServer) {
+        var service = new RaftGroupService(groupId, peer.getPeerId(), nodeOptions, rpcServer, new TestMetricManager()) {
             @Override
             public synchronized void shutdown() {
                 rpcServer.shutdown();
@@ -4865,10 +4988,10 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
                 JRaftServiceFactory serviceFactory = nodeOptions.getServiceFactory();
                 if (serviceFactory instanceof IgniteJraftServiceFactory) {
                     IgniteJraftServiceFactory igniteServiceFactory = (IgniteJraftServiceFactory) serviceFactory;
-                    assertThat(igniteServiceFactory.logStorageFactory().stopAsync(new ComponentContext()), willCompleteSuccessfully());
+                    assertThat(igniteServiceFactory.logStorageManager().stopAsync(new ComponentContext()), willCompleteSuccessfully());
                 }
 
-                assertThat(clusterService.stopAsync(new ComponentContext()), willCompleteSuccessfully());
+                assertThat(stopAsync(new ComponentContext(), clusterService), willCompleteSuccessfully());
 
                 nodeOptions.getNodeManager().shutdown();
             }
@@ -4956,6 +5079,46 @@ public class ItNodeTest extends BaseIgniteAbstractTest {
 
     private void triggerLeaderSnapshot(TestCluster cluster, Node leader) throws InterruptedException {
         triggerLeaderSnapshot(cluster, leader, 1);
+    }
+
+    /**
+     * Helper method to set up a single-node cluster with custom RaftOptions for testing.
+     *
+     * @param raftOptions The RaftOptions to use for the node
+     * @return The started node (already elected as leader)
+     */
+    private Node setupSingleNodeClusterWithRaftOptions(RaftOptions raftOptions, ApplyTaskMode mode) {
+        TestPeer peer = new TestPeer(testInfo, TestUtils.INIT_PORT);
+
+        NodeOptions nodeOptions = createNodeOptions(0);
+        nodeOptions.setApplyTaskMode(mode);
+        nodeOptions.setRaftOptions(raftOptions);
+        MockStateMachine fsm = new MockStateMachine(peer.getPeerId());
+        nodeOptions.setFsm(fsm);
+        nodeOptions.setRaftMetaUri(dataPath + File.separator + "meta");
+        nodeOptions.setSnapshotUri(dataPath + File.separator + "snapshot");
+        nodeOptions.setInitialConf(new Configuration(Collections.singletonList(peer.getPeerId())));
+
+        RaftGroupService service = createService("unittest", peer, nodeOptions, List.of());
+        Node node = service.start();
+
+        assertEquals(1, node.listPeers().size());
+        assertTrue(node.listPeers().contains(peer.getPeerId()));
+
+        await().timeout(10, TimeUnit.SECONDS).until(node::isLeader);
+
+        return node;
+    }
+
+    /**
+     * Helper method to get the current apply queue byte size for assertions.
+     *
+     * @param node The node to check
+     * @return The current applyQueueByteSize value
+     */
+    private static long getApplyQueueByteSize(Node node) {
+        LongAdder counter = IgniteTestUtils.getFieldValue(node, NodeImpl.class, "applyQueueByteSize");
+        return counter.sum();
     }
 
     private void triggerLeaderSnapshot(TestCluster cluster, Node leader, int times)

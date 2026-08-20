@@ -50,6 +50,7 @@ import org.apache.ignite.internal.distributionzones.DistributionZonesTestUtil;
 import org.apache.ignite.internal.network.NodeFinder;
 import org.apache.ignite.internal.network.StaticNodeFinder;
 import org.apache.ignite.internal.partition.replicator.fixtures.Node;
+import org.apache.ignite.internal.raft.configuration.LogStorageConfiguration;
 import org.apache.ignite.internal.raft.configuration.RaftConfiguration;
 import org.apache.ignite.internal.replicator.configuration.ReplicationConfiguration;
 import org.apache.ignite.internal.schema.configuration.GcConfiguration;
@@ -123,6 +124,9 @@ abstract class ItAbstractColocationTest extends IgniteAbstractTest {
     @InjectConfiguration
     private SqlDistributedConfiguration sqlDistributedConfiguration;
 
+    @InjectConfiguration
+    private static LogStorageConfiguration logStorageConfiguration;
+
     final List<Node> cluster = new CopyOnWriteArrayList<>();
 
     private NodeFinder nodeFinder;
@@ -155,7 +159,7 @@ abstract class ItAbstractColocationTest extends IgniteAbstractTest {
             @Nullable List<NodeAttributesConfiguration> customAttributes
     ) throws Exception {
         List<NetworkAddress> addresses = IntStream.range(0, size)
-                .mapToObj(i -> new NetworkAddress("localhost", BASE_PORT + i))
+                .mapToObj(i -> new NetworkAddress("127.0.0.1", BASE_PORT + i))
                 .collect(toList());
 
         nodeFinder = new StaticNodeFinder(addresses);
@@ -198,7 +202,7 @@ abstract class ItAbstractColocationTest extends IgniteAbstractTest {
     }
 
     Node addNodeToCluster(int idx) {
-        Node node = newNode(new NetworkAddress("localhost", BASE_PORT + idx), nodeFinder);
+        Node node = newNode(new NetworkAddress("127.0.0.1", BASE_PORT + idx), nodeFinder);
 
         cluster.add(node);
 
@@ -238,6 +242,7 @@ abstract class ItAbstractColocationTest extends IgniteAbstractTest {
                 replicationConfiguration,
                 txConfiguration,
                 scheduledExecutorService,
+                logStorageConfiguration,
                 invokeInterceptor,
                 gcConfiguration,
                 sqlLocalConfiguration,

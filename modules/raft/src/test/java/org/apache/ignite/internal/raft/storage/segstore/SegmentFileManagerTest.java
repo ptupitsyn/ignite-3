@@ -17,6 +17,7 @@
 
 package org.apache.ignite.internal.raft.storage.segstore;
 
+import static java.util.Collections.emptyIterator;
 import static java.util.Comparator.comparingLong;
 import static java.util.concurrent.CompletableFuture.allOf;
 import static java.util.concurrent.CompletableFuture.runAsync;
@@ -69,6 +70,7 @@ import org.apache.ignite.internal.failure.NoOpFailureManager;
 import org.apache.ignite.internal.lang.IgniteInternalException;
 import org.apache.ignite.internal.lang.RunnableX;
 import org.apache.ignite.internal.raft.configuration.LogStorageConfiguration;
+import org.apache.ignite.internal.raft.configuration.RaftConfiguration;
 import org.apache.ignite.internal.testframework.ExecutorServiceExtension;
 import org.apache.ignite.internal.testframework.IgniteAbstractTest;
 import org.apache.ignite.internal.testframework.InjectExecutorService;
@@ -96,7 +98,10 @@ class SegmentFileManagerTest extends IgniteAbstractTest {
 
     private final FailureManager failureManager = new NoOpFailureManager();
 
-    @InjectConfiguration("mock.segmentFileSizeBytes=" + FILE_SIZE)
+    @InjectConfiguration
+    private RaftConfiguration raftConfiguration;
+
+    @InjectConfiguration(value = "mock.segmentFileSizeBytes=" + FILE_SIZE, validate = false)
     private LogStorageConfiguration storageConfiguration;
 
     private SegmentFileManager fileManager;
@@ -111,9 +116,11 @@ class SegmentFileManagerTest extends IgniteAbstractTest {
     private SegmentFileManager createFileManager() throws IOException {
         return new SegmentFileManager(
                 NODE_NAME,
+                NODE_NAME,
                 workDir,
                 STRIPES,
                 failureManager,
+                raftConfiguration.fsync().value(),
                 storageConfiguration
         );
     }
@@ -484,22 +491,18 @@ class SegmentFileManagerTest extends IgniteAbstractTest {
         // Use a mock memtable that throws an exception to force the index manager to create a temporary index file, but not rename it.
         ReadModeIndexMemTable mockMemTable = mock(ReadModeIndexMemTable.class);
 
-        when(mockMemTable.iterator()).thenThrow(new RuntimeException("Test exception"));
+        when(mockMemTable.iterator())
+                .thenReturn(emptyIterator())
+                .thenThrow(new RuntimeException("Test exception"));
 
-        // Create two tmp index files: one for the complete segment file and one the incomplete segment file.
+        // Create a tmp file for the incomplete segment file.
         try {
-            fileManager.indexFileManager().recoverIndexFile(mockMemTable, 0);
+            fileManager.indexFileManager().recoverIndexFile(mockMemTable, new FileProperties(1));
         } catch (RuntimeException ignored) {
             // Ignore.
         }
 
-        try {
-            fileManager.indexFileManager().recoverIndexFile(mockMemTable, 1);
-        } catch (RuntimeException ignored) {
-            // Ignore.
-        }
-
-        assertThat(tmpIndexFiles(), hasSize(2));
+        assertThat(tmpIndexFiles(), hasSize(1));
 
         fileManager.close();
 

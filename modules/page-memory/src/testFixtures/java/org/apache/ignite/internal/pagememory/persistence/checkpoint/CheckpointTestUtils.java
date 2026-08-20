@@ -29,6 +29,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.apache.ignite.internal.failure.FailureManager;
 import org.apache.ignite.internal.logger.IgniteLogger;
+import org.apache.ignite.internal.pagememory.metrics.CollectionMetricSource;
 import org.apache.ignite.internal.pagememory.persistence.CheckpointUrgency;
 import org.apache.ignite.internal.pagememory.persistence.DirtyFullPageId;
 import org.apache.ignite.internal.pagememory.persistence.GroupPartitionId;
@@ -42,14 +43,18 @@ import org.apache.ignite.internal.pagememory.persistence.store.FilePageStoreMana
  * Useful class for testing a checkpoint.
  */
 public class CheckpointTestUtils {
+    private static final CheckpointReadWriteLockMetrics metrics = new CheckpointReadWriteLockMetrics(
+            new CollectionMetricSource("test", "storage", null)
+    );
+
     /**
      * Returns new instance of {@link CheckpointReadWriteLock}.
      *
-     * @param log             Logger.
+     * @param log Logger.
      * @param executorService Executor service.
      */
     static CheckpointReadWriteLock newReadWriteLock(IgniteLogger log, ExecutorService executorService) {
-        return new CheckpointReadWriteLock(new ReentrantReadWriteLockWithTracking(log, 5_000), executorService);
+        return new CheckpointReadWriteLock(new ReentrantReadWriteLockWithTracking(log, 5_000), executorService, metrics);
     }
 
     /**

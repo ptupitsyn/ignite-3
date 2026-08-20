@@ -24,9 +24,10 @@ import org.apache.ignite.internal.logger.Loggers;
 import org.apache.ignite.internal.partition.replicator.network.command.WriteIntentSwitchCommand;
 import org.apache.ignite.internal.partition.replicator.network.command.WriteIntentSwitchCommandV2;
 import org.apache.ignite.internal.partition.replicator.raft.CommandResult;
-import org.apache.ignite.internal.partition.replicator.raft.RaftTableProcessor;
 import org.apache.ignite.internal.partition.replicator.raft.RaftTxFinishMarker;
+import org.apache.ignite.internal.partition.replicator.raft.TablePartitionRaftProcessor;
 import org.apache.ignite.internal.tx.TxManager;
+import org.apache.ignite.internal.tx.storage.state.TxStatePartitionStorage;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -35,13 +36,20 @@ import org.jetbrains.annotations.Nullable;
 public class WriteIntentSwitchCommandHandler extends AbstractCommandHandler<WriteIntentSwitchCommand> {
     private static final IgniteLogger LOG = Loggers.forClass(WriteIntentSwitchCommandHandler.class);
 
-    private final IntFunction<RaftTableProcessor> tableProcessorByTableId;
+    private final IntFunction<TablePartitionRaftProcessor> tableProcessorByTableId;
 
     private final RaftTxFinishMarker txFinishMarker;
 
+    private final TxStatePartitionStorage txStatePartitionStorage;
+
     /** Constructor. */
-    public WriteIntentSwitchCommandHandler(IntFunction<RaftTableProcessor> tableProcessorByTableId, TxManager txManager) {
+    public WriteIntentSwitchCommandHandler(
+            IntFunction<TablePartitionRaftProcessor> tableProcessorByTableId,
+            TxManager txManager,
+            TxStatePartitionStorage txStatePartitionStorage
+    ) {
         this.tableProcessorByTableId = tableProcessorByTableId;
+        this.txStatePartitionStorage = txStatePartitionStorage;
 
         txFinishMarker = new RaftTxFinishMarker(txManager);
     }
@@ -58,8 +66,9 @@ public class WriteIntentSwitchCommandHandler extends AbstractCommandHandler<Writ
         txFinishMarker.markFinished(switchCommand.txId(), switchCommand.commit(), switchCommand.commitTimestamp(), null);
 
         boolean applied = false;
+        boolean handledByAnyTable = false;
         for (int tableId : ((WriteIntentSwitchCommandV2) switchCommand).tableIds()) {
-            RaftTableProcessor tableProcessor = raftTableProcessor(tableId);
+            TablePartitionRaftProcessor tableProcessor = raftTableProcessor(tableId);
 
             if (tableProcessor == null) {
                 // This can only happen if the table in question has already been dropped and destroyed. In such case, we simply
@@ -76,12 +85,19 @@ public class WriteIntentSwitchCommandHandler extends AbstractCommandHandler<Writ
                     .processCommand(switchCommand, commandIndex, commandTerm, safeTimestamp);
 
             applied = applied || singleResult.wasApplied();
+            handledByAnyTable = true;
+        }
+
+        // We MUST bump information about last updated index+term at least in one storage.
+        // See a comment in ZonePartitionRaftListener#onWrite() for explanation.
+        if (!handledByAnyTable && commandIndex > txStatePartitionStorage.lastAppliedIndex()) {
+            txStatePartitionStorage.lastApplied(commandIndex, commandTerm);
         }
 
         return new CommandResult(null, applied);
     }
 
-    private @Nullable RaftTableProcessor raftTableProcessor(int tableId) {
+    private @Nullable TablePartitionRaftProcessor raftTableProcessor(int tableId) {
         return tableProcessorByTableId.apply(tableId);
     }
 }

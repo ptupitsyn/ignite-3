@@ -17,6 +17,8 @@
 
 package org.apache.ignite.internal.partition.replicator.handlers;
 
+import static org.apache.ignite.internal.logger.Loggers.toThrottledLogger;
+import static org.apache.ignite.internal.tx.TransactionLogUtils.formatTxInfo;
 import static org.apache.ignite.internal.tx.TxState.COMMITTED;
 import static org.apache.ignite.internal.tx.TxState.isFinalState;
 import static org.apache.ignite.internal.util.CompletableFutures.nullCompletedFuture;
@@ -29,9 +31,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.apache.ignite.internal.failure.FailureContext;
 import org.apache.ignite.internal.failure.FailureProcessor;
+import org.apache.ignite.internal.lang.ComponentStoppingException;
 import org.apache.ignite.internal.lang.IgniteBiTuple;
 import org.apache.ignite.internal.lang.IgniteInternalException;
+import org.apache.ignite.internal.lang.NodeStoppingException;
 import org.apache.ignite.internal.logger.IgniteLogger;
+import org.apache.ignite.internal.logger.IgniteThrottledLogger;
 import org.apache.ignite.internal.logger.Loggers;
 import org.apache.ignite.internal.replicator.ZonePartitionId;
 import org.apache.ignite.internal.tx.TxManager;
@@ -48,6 +53,8 @@ import org.apache.ignite.internal.util.Cursor;
 public class TxCleanupRecoveryRequestHandler {
     private static final IgniteLogger LOG = Loggers.forClass(TxCleanupRecoveryRequestHandler.class);
     private static final int THROTTLE_BATCH_SIZE = 1000;
+
+    private final IgniteThrottledLogger throttledLog = toThrottledLogger(LOG);
 
     private final TxStatePartitionStorage txStatePartitionStorage;
     private final TxManager txManager;
@@ -70,10 +77,9 @@ public class TxCleanupRecoveryRequestHandler {
     /**
      * Handles a {@link TxCleanupRecoveryRequest}.
      *
-     * @param request Request to handle.
      * @return Future completed when the request has been handled.
      */
-    public CompletableFuture<Void> handle(TxCleanupRecoveryRequest request) {
+    public CompletableFuture<Void> handle() {
         runPersistentStorageScan();
 
         return nullCompletedFuture();
@@ -152,8 +158,13 @@ public class TxCleanupRecoveryRequestHandler {
                 txMeta.commitTimestamp(),
                 txId
         ).exceptionally(throwable -> {
-            LOG.warn("Failed to cleanup transaction [txId={}].", throwable, txId);
-
+            if (!hasCause(throwable, NodeStoppingException.class) && !hasCause(throwable, ComponentStoppingException.class)) {
+                throttledLog.warn(
+                        "Failed to cleanup transaction",
+                        "Failed to cleanup transaction {}.",
+                        throwable,
+                        formatTxInfo(txId, txManager));
+            }
             return null;
         });
     }

@@ -30,7 +30,6 @@ import static org.apache.ignite.internal.util.IgniteUtils.startAsync;
 import static org.apache.ignite.internal.util.IgniteUtils.stopAsync;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -42,8 +41,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import it.unimi.dsi.fastutil.ints.Int2ObjectMaps;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -53,7 +54,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.IntStream;
-import org.apache.ignite.internal.catalog.Catalog;
 import org.apache.ignite.internal.catalog.CatalogService;
 import org.apache.ignite.internal.configuration.testframework.ConfigurationExtension;
 import org.apache.ignite.internal.configuration.testframework.InjectConfiguration;
@@ -74,12 +74,12 @@ import org.apache.ignite.internal.network.ClusterService;
 import org.apache.ignite.internal.network.InternalClusterNode;
 import org.apache.ignite.internal.network.MessagingService;
 import org.apache.ignite.internal.network.StaticNodeFinder;
+import org.apache.ignite.internal.partition.replicator.ReplicaPrimacyEngine;
 import org.apache.ignite.internal.partition.replicator.schema.ValidationSchemasSource;
 import org.apache.ignite.internal.placementdriver.PlacementDriver;
 import org.apache.ignite.internal.placementdriver.leases.Lease;
 import org.apache.ignite.internal.raft.Command;
 import org.apache.ignite.internal.raft.service.RaftCommandRunner;
-import org.apache.ignite.internal.replicator.PartitionGroupId;
 import org.apache.ignite.internal.replicator.ReplicaService;
 import org.apache.ignite.internal.replicator.ReplicationGroupId;
 import org.apache.ignite.internal.replicator.ZonePartitionId;
@@ -95,8 +95,7 @@ import org.apache.ignite.internal.table.InternalTable;
 import org.apache.ignite.internal.table.StreamerReceiverRunner;
 import org.apache.ignite.internal.table.distributed.StorageUpdateHandler;
 import org.apache.ignite.internal.table.distributed.index.IndexMetaStorage;
-import org.apache.ignite.internal.table.distributed.replicator.PartitionReplicaListener;
-import org.apache.ignite.internal.table.distributed.replicator.TransactionStateResolver;
+import org.apache.ignite.internal.table.distributed.replicator.DefaultTablePartitionReplicaProcessor;
 import org.apache.ignite.internal.table.metrics.TableMetricSource;
 import org.apache.ignite.internal.testframework.BaseIgniteAbstractTest;
 import org.apache.ignite.internal.testframework.ExecutorServiceExtension;
@@ -105,6 +104,8 @@ import org.apache.ignite.internal.tx.LockManager;
 import org.apache.ignite.internal.tx.TxManager;
 import org.apache.ignite.internal.tx.impl.RemotelyTriggeredResourceRegistry;
 import org.apache.ignite.internal.tx.impl.TransactionInflights;
+import org.apache.ignite.internal.tx.impl.TransactionStateResolver;
+import org.apache.ignite.internal.tx.impl.VolatileTxStateMetaStorage;
 import org.apache.ignite.internal.util.Lazy;
 import org.apache.ignite.internal.util.PendingComparableValuesTracker;
 import org.apache.ignite.network.NetworkAddress;
@@ -199,7 +200,7 @@ public class InternalTableEstimatedSizeTest extends BaseIgniteAbstractTest {
 
         assertThat(metaStorageManager.deployWatches(), willCompleteSuccessfully());
 
-        node = clusterService.topologyService().localMember();
+        node = clusterService.staticLocalNode();
 
         var clockService = new ClockServiceImpl(
                 clock,
@@ -220,17 +221,13 @@ public class InternalTableEstimatedSizeTest extends BaseIgniteAbstractTest {
                 clockService,
                 HybridTimestampTracker.atomicTracker(null),
                 placementDriver,
-                new TransactionInflights(placementDriver, clockService),
+                new TransactionInflights(placementDriver, clockService, txStateVolatileStorage()),
                 () -> null,
                 mock(StreamerReceiverRunner.class),
-                () -> 10_000L,
-                () -> 10_000L,
                 new TableMetricSource(QualifiedName.fromSimple(TABLE_NAME))
         );
 
-        when(catalogService.catalog(anyInt())).thenReturn(mock(Catalog.class));
-
-        List<PartitionReplicaListener> partitionReplicaListeners = IntStream.range(0, PARTITIONS_NUM)
+        List<DefaultTablePartitionReplicaProcessor> tablePartitionReplicaProcessors = IntStream.range(0, PARTITIONS_NUM)
                 .mapToObj(partId -> createPartitionReplicaListener(
                         partId,
                         txManager,
@@ -250,13 +247,32 @@ public class InternalTableEstimatedSizeTest extends BaseIgniteAbstractTest {
                 ))
                 .collect(toList());
 
+        Map<ZonePartitionId, ReplicaPrimacyEngine> primacyEngines = new HashMap<>();
+        for (int partitionIndex = 0; partitionIndex < PARTITIONS_NUM; partitionIndex++) {
+            var zonePartitionId = new ZonePartitionId(ZONE_ID, partitionIndex);
+
+            var primacyEngine = new ReplicaPrimacyEngine(
+                    placementDriver,
+                    clockService,
+                    zonePartitionId,
+                    node
+            );
+
+            primacyEngines.put(zonePartitionId, primacyEngine);
+        }
+
         lenient().doAnswer(invocation -> {
             ReplicaRequest request = invocation.getArgument(1);
 
-            var tablePartitionId = (PartitionGroupId) request.groupId().asReplicationGroupId();
+            var zonePartitionId = (ZonePartitionId) request.groupId().asReplicationGroupId();
 
-            return partitionReplicaListeners.get(tablePartitionId.partitionId())
-                    .invoke(request, node.id())
+            return primacyEngines.get(zonePartitionId)
+                    .validatePrimacy(request)
+                    .thenCompose(
+                            primacy -> tablePartitionReplicaProcessors.get(
+                                    zonePartitionId.partitionId()).process(request, primacy, node.id()
+                            )
+                    )
                     .thenApply(replicaResult -> new ReplicaMessagesFactory()
                             .replicaResponse()
                             .result(replicaResult.result())
@@ -274,7 +290,7 @@ public class InternalTableEstimatedSizeTest extends BaseIgniteAbstractTest {
         assertThat(stopAsync(componentContext, components), willCompleteSuccessfully());
     }
 
-    private PartitionReplicaListener createPartitionReplicaListener(
+    private DefaultTablePartitionReplicaProcessor createPartitionReplicaListener(
             int partId,
             TxManager txManager,
             LockManager lockManager,
@@ -295,7 +311,7 @@ public class InternalTableEstimatedSizeTest extends BaseIgniteAbstractTest {
 
         partitionStorages.add(partitionStorage);
 
-        return new PartitionReplicaListener(
+        return new DefaultTablePartitionReplicaProcessor(
                 partitionStorage,
                 new RaftCommandRunner() {
                     @Override
@@ -311,13 +327,14 @@ public class InternalTableEstimatedSizeTest extends BaseIgniteAbstractTest {
                 txManager,
                 lockManager,
                 ForkJoinPool.commonPool(),
+                ForkJoinPool.commonPool(),
                 new ZonePartitionId(ZONE_ID, partId),
                 TABLE_ID,
-                Map::of,
+                Int2ObjectMaps::emptyMap,
                 new Lazy<>(() -> null),
-                Map::of,
+                Int2ObjectMaps::emptyMap,
                 clockService,
-                new PendingComparableValuesTracker<>(HybridTimestamp.MIN_VALUE),
+                new PendingComparableValuesTracker<>(HybridTimestamp.MAX_VALUE),
                 transactionStateResolver,
                 storageUpdateHandler,
                 validationSchemasSource,
@@ -497,5 +514,9 @@ public class InternalTableEstimatedSizeTest extends BaseIgniteAbstractTest {
         }
 
         assertThat(table.estimatedSize(), willBe(expectedSum));
+    }
+
+    private static VolatileTxStateMetaStorage txStateVolatileStorage() {
+        return VolatileTxStateMetaStorage.createStarted();
     }
 }

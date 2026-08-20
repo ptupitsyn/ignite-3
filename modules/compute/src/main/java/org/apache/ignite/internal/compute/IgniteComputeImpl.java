@@ -157,7 +157,9 @@ public class IgniteComputeImpl implements IgniteComputeInternal, StreamerReceive
         Objects.requireNonNull(target);
         Objects.requireNonNull(descriptor);
 
-        ComputeJobDataHolder argHolder = SharedComputeUtils.marshalArgOrResult(arg, descriptor.argumentMarshaller());
+        ComputeJobDataHolder argHolder = SharedComputeUtils.marshalArgOrResult(
+                arg, descriptor.argumentMarshaller(), observableTimestampTracker.getLong());
+
         ExecutionContext executionContext = new ExecutionContext(descriptor, metadataBuilder, argHolder);
 
         if (target instanceof AnyNodeJobTarget) {
@@ -401,13 +403,12 @@ public class IgniteComputeImpl implements IgniteComputeInternal, StreamerReceive
             ExecutionContext executionContext,
             @Nullable CancellationToken cancellationToken
     ) {
-        Set<InternalClusterNode> candidates1 = new HashSet<>();
+        Set<InternalClusterNode> candidates = new HashSet<>();
         for (InternalClusterNode node : nodes) {
             if (topologyService.getByConsistentId(node.name()) != null) {
-                candidates1.add(node);
+                candidates.add(node);
             }
         }
-        Set<InternalClusterNode> candidates = candidates1;
         if (candidates.isEmpty()) {
             Set<String> nodeNames = nodes.stream().map(InternalClusterNode::name).collect(Collectors.toSet());
             return failedFuture(new NodeNotFoundException(nodeNames));
@@ -476,7 +477,7 @@ public class IgniteComputeImpl implements IgniteComputeInternal, StreamerReceive
     }
 
     private boolean isLocal(InternalClusterNode targetNode) {
-        return targetNode.name().equals(topologyService.localMember().name());
+        return targetNode.name().equals(nodeName);
     }
 
     @Override
@@ -685,7 +686,7 @@ public class IgniteComputeImpl implements IgniteComputeInternal, StreamerReceive
                 deploymentUnits,
                 getReceiverJobClassName(options.executorType()),
                 ComputeEventMetadata.builder(Type.DATA_RECEIVER),
-                SharedComputeUtils.marshalArgOrResult(payload, null)
+                SharedComputeUtils.marshalArgOrResult(payload, null, observableTimestampTracker.getLong())
         );
 
         // Use Compute to execute receiver on the target node with failover, class loading, scheduling.
@@ -703,7 +704,7 @@ public class IgniteComputeImpl implements IgniteComputeInternal, StreamerReceive
                         ExceptionUtils.sneakyThrow(err);
                     }
 
-                    byte[] resBytes = SharedComputeUtils.unmarshalArgOrResult(res, null, null);
+                    byte[] resBytes = SharedComputeUtils.unmarshalResult(res, null, null);
 
                     return new IgniteBiTuple<>(resBytes, res.observableTimestamp());
                 });

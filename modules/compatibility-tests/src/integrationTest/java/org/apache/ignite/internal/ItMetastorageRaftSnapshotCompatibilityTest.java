@@ -17,22 +17,18 @@
 
 package org.apache.ignite.internal;
 
-import static org.apache.ignite.internal.AssignmentsTestUtils.awaitAssignmentsStabilization;
 import static org.apache.ignite.internal.CompatibilityTestCommon.TABLE_NAME_TEST;
 import static org.apache.ignite.internal.CompatibilityTestCommon.createDefaultTables;
 import static org.apache.ignite.internal.TestWrappers.unwrapIgniteImpl;
 import static org.apache.ignite.internal.jobs.DeploymentUtils.runJob;
 import static org.awaitility.Awaitility.await;
-import static org.hamcrest.Matchers.is;
 
-import io.micronaut.test.extensions.junit5.annotation.MicronautTest;
 import org.apache.ignite.Ignite;
 import org.apache.ignite.internal.compute.SendAllMetastorageCommandTypesJob;
 import org.apache.ignite.internal.compute.TruncateRaftLogCommand;
 import org.apache.ignite.internal.jobs.DeploymentUtils;
 import org.apache.ignite.internal.metastorage.MetaStorageManager;
 import org.apache.ignite.internal.metastorage.server.raft.MetastorageGroupId;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedClass;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -40,7 +36,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 /** Compatibility tests for metastorage raft snapshot. */
 @ParameterizedClass
 @MethodSource("baseVersions")
-@MicronautTest(rebuildContext = true)
 public class ItMetastorageRaftSnapshotCompatibilityTest extends CompatibilityTestBase {
     @Override
     protected boolean restartWithCurrentEmbeddedVersion() {
@@ -63,12 +58,10 @@ public class ItMetastorageRaftSnapshotCompatibilityTest extends CompatibilityTes
     }
 
     @Test
-    @Disabled("https://issues.apache.org/jira/browse/IGNITE-27185")
-    void testMetastorageRaftSnapshotCompatibility() throws InterruptedException {
+    void testMetastorageRaftSnapshotCompatibility() {
         cluster.stop();
-        cluster.startEmbedded(2);
 
-        awaitAssignmentsStabilization(node(0), TABLE_NAME_TEST);
+        startEmbeddedClusterAndAwaitRebalance(2);
 
         checkMetastorage();
 
@@ -76,7 +69,7 @@ public class ItMetastorageRaftSnapshotCompatibilityTest extends CompatibilityTes
         MetaStorageManager oldNodeMetastorage = unwrapIgniteImpl(cluster.node(0)).metaStorageManager();
 
         // Assert that new node got all log entries from old one.
-        await().until(oldNodeMetastorage::appliedRevision, is(newNodeMetastorage.appliedRevision()));
+        await().until(() -> oldNodeMetastorage.appliedRevision() == newNodeMetastorage.appliedRevision());
     }
 
     private void checkMetastorage() {

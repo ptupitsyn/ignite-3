@@ -59,6 +59,8 @@ final class ScaleCubeTopologyService extends AbstractTopologyService {
      */
     private volatile Cluster cluster;
 
+    private volatile long topologyVersion;
+
     /** Topology members from the network address to the cluster node.. */
     private final ConcurrentMap<NetworkAddress, InternalClusterNode> members = new ConcurrentHashMap<>();
 
@@ -70,6 +72,11 @@ final class ScaleCubeTopologyService extends AbstractTopologyService {
 
     /** Topology members map from the id to the cluster node. */
     private final ConcurrentMap<UUID, InternalClusterNode> idToMemberMap = new ConcurrentHashMap<>();
+
+    @Override
+    public long logicalTopologyVersion() {
+        return topologyVersion;
+    }
 
     /**
      * Sets the ScaleCube's {@link Cluster}. Needed for cyclic dependency injection.
@@ -313,9 +320,12 @@ final class ScaleCubeTopologyService extends AbstractTopologyService {
      * @return Cluster node.
      */
     private static InternalClusterNode fromMember(Member member, @Nullable NodeMetadata nodeMetadata) {
-        var addr = new NetworkAddress(member.address().host(), member.address().port());
-
-        return new ClusterNodeImpl(UUID.fromString(member.id()), member.alias(), addr, nodeMetadata);
+        return new ClusterNodeImpl(
+                UUID.fromString(member.id()),
+                member.alias(),
+                NetworkAddress.from(member.address()),
+                nodeMetadata
+        );
     }
 
 
@@ -339,18 +349,21 @@ final class ScaleCubeTopologyService extends AbstractTopologyService {
     }
 
     @Override
-    public void onJoined(InternalClusterNode node) {
+    public void onJoined(InternalClusterNode node, long topologyVersion) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Node joined logical topology [node={}]", node);
         }
         membersByConsistentIdInLogicalTopology.put(node.name(), node);
+        this.topologyVersion = topologyVersion;
     }
 
     @Override
-    public void onLeft(InternalClusterNode node) {
+    public void onLeft(InternalClusterNode node, long topologyVersion) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Node left logical topology [node={}]", node);
         }
+
         membersByConsistentIdInLogicalTopology.remove(node.name());
+        this.topologyVersion = topologyVersion;
     }
 }

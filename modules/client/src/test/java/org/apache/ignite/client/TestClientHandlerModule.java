@@ -52,8 +52,8 @@ import org.apache.ignite.internal.catalog.CatalogService;
 import org.apache.ignite.internal.client.proto.ClientMessageDecoder;
 import org.apache.ignite.internal.client.proto.HandshakeExtension;
 import org.apache.ignite.internal.client.proto.ProtocolBitmaskFeature;
-import org.apache.ignite.internal.components.SystemPropertiesNodeProperties;
 import org.apache.ignite.internal.compute.IgniteComputeInternal;
+import org.apache.ignite.internal.eventlog.api.EventLog;
 import org.apache.ignite.internal.hlc.HybridClock;
 import org.apache.ignite.internal.hlc.TestClockService;
 import org.apache.ignite.internal.lowwatermark.TestLowWatermark;
@@ -269,14 +269,15 @@ public class TestClientHandlerModule implements IgniteComponent {
                                                 catalogService,
                                                 clockService,
                                                 new AlwaysSyncedSchemaSyncService(),
-                                                new TestLowWatermark(),
-                                                new SystemPropertiesNodeProperties()
+                                                new TestLowWatermark()
                                         ),
                                         Runnable::run,
                                         features,
                                         randomExtensions(),
                                         unused -> null,
-                                        bootstrapFactory.handshakeEventLoopSwitcher()
+                                        bootstrapFactory.handshakeEventLoopSwitcher(),
+                                        EventLog.NOOP,
+                                        ignore -> {}
                                 )
                         );
                     }

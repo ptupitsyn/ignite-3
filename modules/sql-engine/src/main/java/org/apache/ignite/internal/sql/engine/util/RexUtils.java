@@ -190,13 +190,15 @@ public class RexUtils {
         return true;
     }
 
-    /** Try to transform expression into DNF form.
+    /**
+     * Try to transform expression into DNF form.
      *
      * @param rexBuilder Expression builder.
      * @param node Expression to process.
      * @param maxOrNodes Max OR nodes in output.
      * @return DNF expression representation or {@code null} if limit is reached.
      */
+    @SuppressWarnings("PMD.UnusedFormalParameter")
     public static @Nullable RexNode tryToDnf(RexBuilder rexBuilder, RexNode node, int maxOrNodes) {
         DnfHelper helper = new DnfHelper(Commons.rexBuilder(), maxOrNodes);
 
@@ -212,7 +214,8 @@ public class RexUtils {
         final RexBuilder rexBuilder;
         final int maxOrNodes;
 
-        /** Constructor.
+        /**
+         * Constructor.
          *
          * @param rexBuilder Rex builder.
          * @param maxOrNodes Limit for OR nodes, if limit is reached further processing will be stopped.
@@ -342,7 +345,7 @@ public class RexUtils {
             return null;
         }
 
-        return bounds; 
+        return bounds;
     }
 
     /**
@@ -1440,8 +1443,10 @@ public class RexUtils {
         return wasChanged ? newSearchBounds : searchBounds;
     }
 
-    /** Check if given {@link RexNode} is a 'loss-less' cast, that is, a cast from which
-     * the original value of the field can be certainly recovered. */
+    /**
+     * Check if given {@link RexNode} is a 'loss-less' cast, that is, a cast from which the original value of the field can be certainly
+     * recovered.
+     */
     public static boolean isLosslessCast(RexNode node) {
         if (!node.isA(SqlKind.CAST)) {
             return false;
@@ -1454,23 +1459,14 @@ public class RexUtils {
             return false;
         }
 
-        if (SqlTypeUtil.isExactNumeric(source) && target.getSqlTypeName() == SqlTypeName.DECIMAL) {
-            int tp = target.getPrecision();
-            int ts = target.getScale();
-            int sp = source.getPrecision();
-            int ss = source.getScale();
-
-            return ts >= ss && (tp - ts) >= (sp - ss);
+        if (source.getSqlTypeName() == target.getSqlTypeName() && SqlTypeUtil.isDatetime(source)) {
+            return source.getPrecision() <= target.getPrecision();
         }
 
         if (SqlTypeFamily.CHARACTER.getTypeNames().contains(source.getSqlTypeName())
                 && SqlTypeFamily.CHARACTER.getTypeNames().contains(target.getSqlTypeName())) {
             return target.getSqlTypeName().compareTo(source.getSqlTypeName()) >= 0
                     && (source.getPrecision() <= target.getPrecision() || target.getPrecision() == RelDataType.PRECISION_NOT_SPECIFIED);
-        }
-
-        if (source.getSqlTypeName() == target.getSqlTypeName() && SqlTypeUtil.isDatetime(source)) {
-            return source.getPrecision() <= target.getPrecision();
         }
 
         return RexUtil.isLosslessCast(source, target);

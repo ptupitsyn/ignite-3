@@ -45,14 +45,17 @@ import org.apache.ignite.internal.metastorage.MetaStorageManager;
 import org.apache.ignite.internal.metastorage.Revisions;
 import org.apache.ignite.internal.metrics.MetricManager;
 import org.apache.ignite.internal.network.ClusterService;
+import org.apache.ignite.internal.partition.replicator.PartitionReplicaLifecycleManager;
 import org.apache.ignite.internal.placementdriver.PlacementDriver;
 import org.apache.ignite.internal.placementdriver.wrappers.ExecutorInclinedPlacementDriver;
 import org.apache.ignite.internal.replicator.ReplicaService;
 import org.apache.ignite.internal.table.distributed.index.IndexMetaStorage;
-import org.apache.ignite.internal.table.distributed.replicator.TransactionStateResolver;
 import org.apache.ignite.internal.thread.IgniteThreadFactory;
 import org.apache.ignite.internal.tx.TxManager;
+import org.apache.ignite.internal.tx.impl.PlacementDriverHelper;
+import org.apache.ignite.internal.tx.impl.TransactionStateResolver;
 import org.apache.ignite.internal.tx.impl.TxMessageSender;
+import org.apache.ignite.internal.tx.impl.TxRecoveryEngine;
 import org.apache.ignite.internal.util.IgniteSpinBusyLock;
 
 /**
@@ -95,6 +98,7 @@ public class IndexBuildingManager implements IgniteComponent {
             FailureProcessor failureProcessor,
             LowWatermark lowWatermark,
             TxManager txManager,
+            PartitionReplicaLifecycleManager partitionReplicaLifecycleManager,
             MetricManager metricManager
     ) {
         this.metaStorageManager = metaStorageManager;
@@ -117,8 +121,11 @@ public class IndexBuildingManager implements IgniteComponent {
                 clockService,
                 clusterService.topologyService(),
                 clusterService.messagingService(),
-                new ExecutorInclinedPlacementDriver(placementDriver, executor),
-                new TxMessageSender(clusterService.messagingService(), replicaService, clockService)
+                new PlacementDriverHelper(new ExecutorInclinedPlacementDriver(placementDriver, executor), clockService),
+                new TxMessageSender(clusterService.messagingService(), replicaService, clockService),
+                new TxRecoveryEngine(txManager, clusterService.topologyService()),
+                clusterService.staticLocalNode(),
+                executor
         );
 
         indexBuilder = new IndexBuilder(
@@ -139,6 +146,7 @@ public class IndexBuildingManager implements IgniteComponent {
                 clusterService,
                 placementDriver,
                 clockService,
+                partitionReplicaLifecycleManager,
                 failureProcessor
         );
 

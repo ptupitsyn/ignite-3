@@ -45,6 +45,7 @@ import org.apache.ignite.internal.cluster.management.ClusterInitializer;
 import org.apache.ignite.internal.cluster.management.ClusterManagementGroupManager;
 import org.apache.ignite.internal.cluster.management.NodeAttributesCollector;
 import org.apache.ignite.internal.cluster.management.configuration.NodeAttributesConfiguration;
+import org.apache.ignite.internal.cluster.management.raft.PhysicalTopologyAwareRaftGroupServiceFactory;
 import org.apache.ignite.internal.cluster.management.raft.TestClusterStateStorage;
 import org.apache.ignite.internal.cluster.management.topology.LogicalTopologyImpl;
 import org.apache.ignite.internal.cluster.management.topology.LogicalTopologyServiceImpl;
@@ -72,10 +73,10 @@ import org.apache.ignite.internal.network.utils.ClusterServiceTestUtils;
 import org.apache.ignite.internal.raft.Loza;
 import org.apache.ignite.internal.raft.RaftGroupOptionsConfigurer;
 import org.apache.ignite.internal.raft.TestLozaFactory;
-import org.apache.ignite.internal.raft.client.TopologyAwareRaftGroupServiceFactory;
+import org.apache.ignite.internal.raft.configuration.LogStorageConfiguration;
 import org.apache.ignite.internal.raft.configuration.RaftConfiguration;
-import org.apache.ignite.internal.raft.storage.LogStorageFactory;
-import org.apache.ignite.internal.raft.util.SharedLogStorageFactoryUtils;
+import org.apache.ignite.internal.raft.storage.LogStorageManager;
+import org.apache.ignite.internal.raft.util.SharedLogStorageManagerUtils;
 import org.apache.ignite.internal.storage.configurations.StorageConfiguration;
 import org.apache.ignite.internal.testframework.BaseIgniteAbstractTest;
 import org.apache.ignite.internal.testframework.WorkDirectory;
@@ -108,6 +109,9 @@ public class ItDistributedConfigurationPropertiesTest extends BaseIgniteAbstract
     private static RaftConfiguration raftConfiguration;
 
     @InjectConfiguration
+    private static LogStorageConfiguration logStorageConfiguration;
+
+    @InjectConfiguration
     private static NodeAttributesConfiguration nodeAttributes;
 
     @InjectConfiguration
@@ -129,11 +133,11 @@ public class ItDistributedConfigurationPropertiesTest extends BaseIgniteAbstract
 
         private final Loza raftManager;
 
-        private final LogStorageFactory partitionsLogStorageFactory;
+        private final LogStorageManager partitionsLogStorageManager;
 
-        private final LogStorageFactory cmgLogStorageFactory;
+        private final LogStorageManager cmgLogStorageManager;
 
-        private final LogStorageFactory msLogStorageFactory;
+        private final LogStorageManager msLogStorageManager;
 
         private final ClusterManagementGroupManager cmgManager;
 
@@ -141,7 +145,7 @@ public class ItDistributedConfigurationPropertiesTest extends BaseIgniteAbstract
 
         private final ConfigurationTreeGenerator generator;
 
-        private final ConfigurationManager distributedCfgManager;
+        private final ConfigurationRegistry distributedConfigRegistry;
 
         /** The future have to be complete after the node start and all Meta storage watches are deployd. */
         private final CompletableFuture<Void> deployWatchesFut;
@@ -176,10 +180,9 @@ public class ItDistributedConfigurationPropertiesTest extends BaseIgniteAbstract
 
             ComponentWorkingDir workingDir = new ComponentWorkingDir(workDir);
 
-            partitionsLogStorageFactory = SharedLogStorageFactoryUtils.create(
-                    clusterService.nodeName(),
-                    workingDir.raftLogPath()
-            );
+            String nodeName = clusterService.staticLocalNode().name();
+
+            partitionsLogStorageManager = SharedLogStorageManagerUtils.create(nodeName, workingDir.raftLogPath(), logStorageConfiguration);
 
             raftManager = TestLozaFactory.create(
                     clusterService,
@@ -202,11 +205,10 @@ public class ItDistributedConfigurationPropertiesTest extends BaseIgniteAbstract
 
             ComponentWorkingDir cmgWorkDir = new ComponentWorkingDir(workDir.resolve("cmg"));
 
-            cmgLogStorageFactory =
-                    SharedLogStorageFactoryUtils.create(clusterService.nodeName(), cmgWorkDir.raftLogPath());
+            cmgLogStorageManager = SharedLogStorageManagerUtils.create(nodeName, cmgWorkDir.raftLogPath(), logStorageConfiguration);
 
             RaftGroupOptionsConfigurer cmgRaftConfigurer =
-                    RaftGroupOptionsConfigHelper.configureProperties(cmgLogStorageFactory, cmgWorkDir.metaPath());
+                    RaftGroupOptionsConfigHelper.configureProperties(cmgLogStorageManager, cmgWorkDir.metaPath());
 
             MetricManager metricManager = new NoOpMetricManager();
 
@@ -220,6 +222,7 @@ public class ItDistributedConfigurationPropertiesTest extends BaseIgniteAbstract
                     logicalTopology,
                     new NodeAttributesCollector(nodeAttributes, storageConfiguration),
                     failureManager,
+                    raftGroupEventsClientListener,
                     new ClusterIdHolder(),
                     cmgRaftConfigurer,
                     metricManager
@@ -227,25 +230,23 @@ public class ItDistributedConfigurationPropertiesTest extends BaseIgniteAbstract
 
             var logicalTopologyService = new LogicalTopologyServiceImpl(logicalTopology, cmgManager);
 
-            var topologyAwareRaftGroupServiceFactory = new TopologyAwareRaftGroupServiceFactory(
+            var topologyAwareRaftGroupServiceFactory = new PhysicalTopologyAwareRaftGroupServiceFactory(
                     clusterService,
-                    logicalTopologyService,
-                    Loza.FACTORY,
-                    raftGroupEventsClientListener
+                    raftGroupEventsClientListener,
+                    failureManager
             );
 
             ComponentWorkingDir metastorageWorkDir = new ComponentWorkingDir(workDir.resolve("metastorage"));
 
-            msLogStorageFactory =
-                    SharedLogStorageFactoryUtils.create(clusterService.nodeName(), metastorageWorkDir.raftLogPath());
+            msLogStorageManager = SharedLogStorageManagerUtils.create(nodeName, metastorageWorkDir.raftLogPath(), logStorageConfiguration);
 
             RaftGroupOptionsConfigurer msRaftConfigurer =
-                    RaftGroupOptionsConfigHelper.configureProperties(msLogStorageFactory, metastorageWorkDir.metaPath());
+                    RaftGroupOptionsConfigHelper.configureProperties(msLogStorageManager, metastorageWorkDir.metaPath());
 
             var readOperationForCompactionTracker = new ReadOperationForCompactionTracker();
 
             metaStorageManager = new MetaStorageManagerImpl(
-                    clusterService,
+                    clusterService.staticLocalNode(),
                     cmgManager,
                     logicalTopologyService,
                     raftManager,
@@ -275,7 +276,7 @@ public class ItDistributedConfigurationPropertiesTest extends BaseIgniteAbstract
             };
 
             generator = new ConfigurationTreeGenerator(DistributedConfiguration.KEY);
-            distributedCfgManager = new ConfigurationManager(
+            distributedConfigRegistry = new ConfigurationRegistry(
                     List.of(DistributedConfiguration.KEY),
                     distributedCfgStorage,
                     generator,
@@ -291,9 +292,9 @@ public class ItDistributedConfigurationPropertiesTest extends BaseIgniteAbstract
                     startAsync(new ComponentContext(),
                             vaultManager,
                             clusterService,
-                            partitionsLogStorageFactory,
-                            cmgLogStorageFactory,
-                            msLogStorageFactory,
+                            partitionsLogStorageManager,
+                            cmgLogStorageManager,
+                            msLogStorageManager,
                             raftManager,
                             failureManager,
                             cmgManager
@@ -309,7 +310,7 @@ public class ItDistributedConfigurationPropertiesTest extends BaseIgniteAbstract
             );
 
             return CompletableFuture.runAsync(() ->
-                    assertThat(distributedCfgManager.startAsync(new ComponentContext()), willCompleteSuccessfully())
+                    assertThat(distributedConfigRegistry.startAsync(new ComponentContext()), willCompleteSuccessfully())
             );
         }
 
@@ -325,14 +326,14 @@ public class ItDistributedConfigurationPropertiesTest extends BaseIgniteAbstract
          */
         void stop() {
             var components = List.of(
-                    distributedCfgManager,
+                    distributedConfigRegistry,
                     cmgManager,
                     failureManager,
                     metaStorageManager,
                     raftManager,
-                    partitionsLogStorageFactory,
-                    cmgLogStorageFactory,
-                    msLogStorageFactory,
+                    partitionsLogStorageManager,
+                    cmgLogStorageManager,
+                    msLogStorageManager,
                     clusterService,
                     vaultManager
             );
@@ -354,7 +355,7 @@ public class ItDistributedConfigurationPropertiesTest extends BaseIgniteAbstract
         }
 
         String name() {
-            return clusterService.nodeName();
+            return clusterService.staticLocalNode().name();
         }
     }
 
@@ -367,9 +368,9 @@ public class ItDistributedConfigurationPropertiesTest extends BaseIgniteAbstract
      */
     @BeforeEach
     void setUp(@WorkDirectory Path workDir, TestInfo testInfo) throws Exception {
-        var firstNodeAddr = new NetworkAddress("localhost", 10000);
+        var firstNodeAddr = new NetworkAddress("127.0.0.1", 10000);
 
-        var secondNodeAddr = new NetworkAddress("localhost", 10001);
+        var secondNodeAddr = new NetworkAddress("127.0.0.1", 10001);
 
         List<NetworkAddress> allNodes = List.of(firstNodeAddr, secondNodeAddr);
 
@@ -425,11 +426,11 @@ public class ItDistributedConfigurationPropertiesTest extends BaseIgniteAbstract
      */
     @Test
     public void testFallingBehindDistributedStorageValue() throws Exception {
-        ConfigurationValue<String> firstValue = firstNode.distributedCfgManager.configurationRegistry()
+        ConfigurationValue<String> firstValue = firstNode.distributedConfigRegistry
                 .getConfiguration(DistributedConfiguration.KEY)
                 .str();
 
-        ConfigurationValue<String> secondValue = secondNode.distributedCfgManager.configurationRegistry()
+        ConfigurationValue<String> secondValue = secondNode.distributedConfigRegistry
                 .getConfiguration(DistributedConfiguration.KEY)
                 .str();
 

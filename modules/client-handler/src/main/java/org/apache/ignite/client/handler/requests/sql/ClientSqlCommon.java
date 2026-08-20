@@ -17,6 +17,8 @@
 
 package org.apache.ignite.client.handler.requests.sql;
 
+import static org.apache.ignite.lang.util.IgniteNameUtils.parseIdentifier;
+
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -34,9 +36,12 @@ import org.apache.ignite.internal.binarytuple.BinaryTupleBuilder;
 import org.apache.ignite.internal.binarytuple.BinaryTupleContainer;
 import org.apache.ignite.internal.binarytuple.BinaryTupleParser;
 import org.apache.ignite.internal.client.proto.ClientMessagePacker;
+import org.apache.ignite.internal.client.proto.ClientOp;
 import org.apache.ignite.internal.client.sql.QueryModifier;
+import org.apache.ignite.internal.hlc.HybridTimestampTracker;
 import org.apache.ignite.internal.lang.IgniteInternalCheckedException;
 import org.apache.ignite.internal.lang.IgniteInternalException;
+import org.apache.ignite.internal.sql.SqlCommon;
 import org.apache.ignite.internal.sql.api.AsyncResultSetImpl;
 import org.apache.ignite.internal.sql.engine.AsyncSqlCursor;
 import org.apache.ignite.internal.sql.engine.InternalSqlRow;
@@ -188,7 +193,7 @@ class ClientSqlCommon {
             int fieldsNum = origin == null ? 6 : 9;
             out.packInt(fieldsNum);
 
-            out.packString(col.name());
+            out.packString(SqlCommon.normalizedColumnName(col));
             out.packBoolean(col.nullable());
             out.packInt(col.type().id());
             out.packInt(col.scale());
@@ -204,23 +209,25 @@ class ClientSqlCommon {
             if (col.name().equals(origin.columnName())) {
                 out.packNil();
             } else {
-                out.packString(origin.columnName());
+                out.packString(parseIdentifier(origin.columnName()));
             }
 
-            Integer schemaIdx = schemas.get(origin.schemaName());
+            String schemaName = parseIdentifier(origin.schemaName());
+            Integer schemaIdx = schemas.get(schemaName);
 
             if (schemaIdx == null) {
-                schemas.put(origin.schemaName(), i);
-                out.packString(origin.schemaName());
+                schemas.put(schemaName, i);
+                out.packString(schemaName);
             } else {
                 out.packInt(schemaIdx);
             }
 
-            Integer tableIdx = tables.get(origin.tableName());
+            String tableName = parseIdentifier(origin.tableName());
+            Integer tableIdx = tables.get(tableName);
 
             if (tableIdx == null) {
-                tables.put(origin.tableName(), i);
-                out.packString(origin.tableName());
+                tables.put(tableName, i);
+                out.packString(tableName);
             } else {
                 out.packInt(tableIdx);
             }
@@ -263,15 +270,17 @@ class ClientSqlCommon {
             ClientResourceRegistry resources,
             AsyncResultSetImpl asyncResultSet,
             ClientHandlerMetricSource metrics,
+            HybridTimestampTracker parentTsTracker,
             int pageSize,
             boolean includePartitionAwarenessMeta,
             boolean sqlDirectTxMappingSupported,
             boolean sqlMultiStatementSupported,
+            boolean sqlPartitionAwarenessQualifiedNameSupported,
             Executor executor
     ) {
         try {
             Long nextResultResourceId = sqlMultiStatementSupported && asyncResultSet.cursor().hasNextResult()
-                    ? saveNextResultResource(asyncResultSet.cursor().nextResult(), pageSize, resources, executor)
+                    ? saveNextResultResource(asyncResultSet.cursor().nextResult(), pageSize, resources, parentTsTracker, executor)
                     : null;
 
             if ((asyncResultSet.hasRowSet() && asyncResultSet.hasMorePages())) {
@@ -287,13 +296,15 @@ class ClientSqlCommon {
 
                 return CompletableFuture.completedFuture(out ->
                         writeResultSet(out, asyncResultSet, resourceId, includePartitionAwarenessMeta,
-                                sqlDirectTxMappingSupported, sqlMultiStatementSupported, nextResultResourceId));
+                                sqlDirectTxMappingSupported, sqlMultiStatementSupported, sqlPartitionAwarenessQualifiedNameSupported,
+                                nextResultResourceId));
             }
 
             return asyncResultSet.closeAsync()
                     .thenApply(v -> (ResponseWriter) out ->
                             writeResultSet(out, asyncResultSet, null, includePartitionAwarenessMeta,
-                                    sqlDirectTxMappingSupported, sqlMultiStatementSupported, nextResultResourceId));
+                                    sqlDirectTxMappingSupported, sqlMultiStatementSupported, sqlPartitionAwarenessQualifiedNameSupported,
+                                    nextResultResourceId));
 
         } catch (IgniteInternalCheckedException e) {
             // Resource registry was closed.
@@ -309,10 +320,11 @@ class ClientSqlCommon {
             CompletableFuture<AsyncSqlCursor<InternalSqlRow>> nextResultFuture,
             int pageSize,
             ClientResourceRegistry resources,
+            HybridTimestampTracker parentTsTracker,
             Executor executor
     ) throws IgniteInternalCheckedException {
         ClientResource resource = new ClientResource(
-                new CursorWithPageSize(nextResultFuture, pageSize),
+                new NextCursorContext(parentTsTracker, pageSize, nextResultFuture),
                 () -> nextResultFuture.thenAccept(cur -> iterateThroughResultsAndCloseThem(cur, executor))
         );
 
@@ -344,6 +356,7 @@ class ClientSqlCommon {
             boolean includePartitionAwarenessMeta,
             boolean sqlDirectTxMappingSupported,
             boolean sqlMultiStatementsSupported,
+            boolean sqlPartitionAwarenessQualifiedNameSupported,
             @Nullable Long nextResultResourceId
     ) {
         out.packLongNullable(resourceId);
@@ -356,7 +369,8 @@ class ClientSqlCommon {
         packMeta(out, res.metadata());
 
         if (includePartitionAwarenessMeta) {
-            packPartitionAwarenessMeta(out, res.partitionAwarenessMetadata(), sqlDirectTxMappingSupported);
+            packPartitionAwarenessMeta(out, res.partitionAwarenessMetadata(), sqlDirectTxMappingSupported,
+                    sqlPartitionAwarenessQualifiedNameSupported);
         }
 
         if (sqlMultiStatementsSupported) {
@@ -381,7 +395,8 @@ class ClientSqlCommon {
     private static void packPartitionAwarenessMeta(
             ClientMessagePacker out,
             @Nullable PartitionAwarenessMetadata meta,
-            boolean sqlDirectTxMappingSupported
+            boolean sqlDirectTxMappingSupported,
+            boolean sqlPartitionAwarenessQualifiedNameSupported
     ) {
         if (meta == null) {
             out.packNil();
@@ -389,6 +404,12 @@ class ClientSqlCommon {
         }
 
         out.packInt(meta.tableId());
+
+        if (sqlPartitionAwarenessQualifiedNameSupported) {
+            out.packString(meta.tableName().schemaName());
+            out.packString(meta.tableName().objectName());
+        }
+
         out.packIntArray(meta.indexes());
         out.packIntArray(meta.hash());
 
@@ -397,22 +418,33 @@ class ClientSqlCommon {
         }
     }
 
-    /** Holder of the cursor future and page size. */
-    static class CursorWithPageSize {
+    /** Holder of the context for future result set retrieval. */
+    static class NextCursorContext {
         private final CompletableFuture<AsyncSqlCursor<InternalSqlRow>> cursorFuture;
         private final int pageSize;
+        private final HybridTimestampTracker parentTsTracker;
 
-        CursorWithPageSize(CompletableFuture<AsyncSqlCursor<InternalSqlRow>> cursorFuture, int pageSize) {
-            this.cursorFuture = cursorFuture;
+        NextCursorContext(
+                HybridTimestampTracker parentTsTracker,
+                int pageSize,
+                CompletableFuture<AsyncSqlCursor<InternalSqlRow>> cursorFuture
+        ) {
+            this.parentTsTracker = parentTsTracker;
             this.pageSize = pageSize;
+            this.cursorFuture = cursorFuture;
         }
 
-        CompletableFuture<AsyncSqlCursor<InternalSqlRow>> cursorFuture() {
-            return cursorFuture;
+        /** Tracker of the request that initiated query processing (i.e. {@link ClientOp#SQL_EXEC}). */
+        HybridTimestampTracker parentTsTracker() {
+            return parentTsTracker;
         }
 
         int pageSize() {
             return pageSize;
+        }
+
+        CompletableFuture<AsyncSqlCursor<InternalSqlRow>> cursorFuture() {
+            return cursorFuture;
         }
     }
 }

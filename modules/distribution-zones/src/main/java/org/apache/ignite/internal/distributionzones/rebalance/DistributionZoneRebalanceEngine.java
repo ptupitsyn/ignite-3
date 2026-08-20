@@ -158,9 +158,7 @@ public class DistributionZoneRebalanceEngine {
             // It is safe to get the latest version of the catalog as we are in the metastore thread.
             // TODO: IGNITE-22723 Potentially unsafe to use the latest catalog version, as the tables might not already present
             //  in the catalog. Better to store this version when writing datanodes.
-            int catalogVersion = catalogService.latestCatalogVersion();
-
-            Catalog catalog = catalogService.catalog(catalogVersion);
+            Catalog catalog = catalogService.latestCatalog();
 
             long assignmentsTimestamp = catalog.time();
 
@@ -280,11 +278,11 @@ public class DistributionZoneRebalanceEngine {
      * @param recoveryRevision Recovery revision.
      */
     // TODO: https://issues.apache.org/jira/browse/IGNITE-21058 At the moment this method produce many metastore multi-invokes
-    // TODO: which can be avoided by the local logic, which mirror the logic of metastore invokes.
-    // TODO: And then run the remote invoke, only if needed.
+    //  which can be avoided by the local logic, which mirror the logic of metastore invokes.
+    //  And then run the remote invoke, only if needed.
     private CompletableFuture<Void> recoveryRebalanceTrigger(long recoveryRevision) {
         if (recoveryRevision > 0) {
-            Catalog catalog = catalogService.catalog(catalogService.latestCatalogVersion());
+            Catalog catalog = catalogService.latestCatalog();
 
             HybridTimestamp recoveryTimestamp = metaStorageManager.timestampByRevisionLocally(recoveryRevision);
 

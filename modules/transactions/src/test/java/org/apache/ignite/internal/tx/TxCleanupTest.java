@@ -21,6 +21,8 @@ import static java.util.UUID.randomUUID;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.concurrent.CompletableFuture.failedFuture;
 import static org.apache.ignite.internal.hlc.HybridTimestamp.hybridTimestamp;
+import static org.apache.ignite.internal.testframework.IgniteTestUtils.testSyncExecutorService;
+import static org.apache.ignite.internal.testframework.IgniteTestUtils.testSyncScheduledExecutorService;
 import static org.apache.ignite.internal.testframework.matchers.CompletableFutureMatcher.willCompleteSuccessfully;
 import static org.apache.ignite.internal.util.CompletableFutures.nullCompletedFuture;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -64,6 +66,8 @@ import org.apache.ignite.internal.tx.impl.TransactionIdGenerator;
 import org.apache.ignite.internal.tx.impl.TxCleanupRequestSender;
 import org.apache.ignite.internal.tx.impl.TxMessageSender;
 import org.apache.ignite.internal.tx.impl.VolatileTxStateMetaStorage;
+import org.apache.ignite.internal.util.retry.KeyBasedRetryContext;
+import org.apache.ignite.internal.util.retry.NoopTimeoutStrategy;
 import org.apache.ignite.network.NetworkAddress;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -125,8 +129,6 @@ public class TxCleanupTest extends IgniteAbstractTest {
     /** Init test callback. */
     @BeforeEach
     public void setup() {
-        when(topologyService.localMember().address()).thenReturn(LOCAL_NODE.address());
-
         when(messagingService.invoke(anyString(), any(), anyLong())).thenReturn(nullCompletedFuture());
 
         idGenerator = new TransactionIdGenerator(LOCAL_NODE.name().hashCode());
@@ -141,8 +143,15 @@ public class TxCleanupTest extends IgniteAbstractTest {
 
         PlacementDriverHelper placementDriverHelper = new PlacementDriverHelper(placementDriver, clockService);
 
-        cleanupRequestSender = new TxCleanupRequestSender(txMessageSender, placementDriverHelper, mock(
-                VolatileTxStateMetaStorage.class));
+        cleanupRequestSender = new TxCleanupRequestSender(
+                txMessageSender,
+                placementDriverHelper,
+                mock(VolatileTxStateMetaStorage.class),
+                testSyncExecutorService(),
+                testSyncScheduledExecutorService(),
+                topologyService,
+                new KeyBasedRetryContext(new NoopTimeoutStrategy())
+        );
     }
 
     @Test

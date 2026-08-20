@@ -17,8 +17,8 @@
 
 package org.apache.ignite.internal.table.distributed.index;
 
+import org.apache.ignite.internal.binarytuple.BinaryTuple;
 import org.apache.ignite.internal.schema.BinaryRow;
-import org.apache.ignite.internal.schema.BinaryTuple;
 import org.apache.ignite.internal.schema.ColumnsExtractor;
 
 /**
@@ -38,6 +38,11 @@ class VersionedConverter implements ColumnsExtractor {
     @Override
     public BinaryTuple extractColumns(BinaryRow row) {
         return delegate.extractColumns(row);
+    }
+
+    @Override
+    public boolean columnsMatch(BinaryRow tableRow, BinaryTuple indexColumns) {
+        return delegate.columnsMatch(tableRow, indexColumns);
     }
 
     int version() {

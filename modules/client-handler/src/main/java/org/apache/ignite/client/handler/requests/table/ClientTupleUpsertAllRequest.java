@@ -21,7 +21,9 @@ import static java.util.EnumSet.noneOf;
 import static org.apache.ignite.client.handler.requests.table.ClientTableCommon.writeTxMeta;
 import static org.apache.ignite.client.handler.requests.table.ClientTuplesRequestBase.readAsync;
 
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import org.apache.ignite.client.handler.ClientHandlerMetricSource;
 import org.apache.ignite.client.handler.ClientResourceRegistry;
 import org.apache.ignite.client.handler.NotificationSender;
 import org.apache.ignite.client.handler.ResponseWriter;
@@ -43,22 +45,39 @@ public class ClientTupleUpsertAllRequest {
      * @param tables Ignite tables.
      * @param resources Resource registry.
      * @param txManager Ignite transactions.
+     * @param requestId Id of the request.
+     * @param reqToTxMap Tracker for first request of direct transactions.
      * @return Future.
      */
     public static CompletableFuture<ResponseWriter> process(
             ClientMessageUnpacker in,
             IgniteTables tables,
             ClientResourceRegistry resources,
+            ClientHandlerMetricSource metrics,
             TxManager txManager,
             ClockService clockService,
             NotificationSender notificationSender,
-            HybridTimestampTracker tsTracker
+            HybridTimestampTracker tsTracker,
+            long requestId,
+            Map<Long, Long> reqToTxMap
     ) {
-        return readAsync(in, tables, resources, txManager, notificationSender, tsTracker, noneOf(RequestOptions.class))
+        return readAsync(
+                in,
+                tables,
+                resources,
+                metrics,
+                txManager,
+                notificationSender,
+                tsTracker,
+                noneOf(RequestOptions.class),
+                requestId,
+                reqToTxMap
+        )
                 .thenCompose(req -> req.table().recordView().upsertAllAsync(req.tx(), req.tuples())
                         .thenApply(v -> out -> {
                             writeTxMeta(out, tsTracker, clockService, req);
                             out.packInt(req.table().schemaView().lastKnownSchemaVersion());
-                        }));
+                        })
+                );
     }
 }

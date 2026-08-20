@@ -21,6 +21,7 @@ import static org.apache.ignite.client.handler.requests.cluster.ClientClusterGet
 import static org.apache.ignite.client.handler.requests.compute.ClientComputeGetStateRequest.packJobState;
 import static org.apache.ignite.internal.client.proto.ClientComputeJobUnpacker.unpackJob;
 import static org.apache.ignite.internal.client.proto.ClientComputeJobUnpacker.unpackTaskId;
+import static org.apache.ignite.internal.client.proto.ProtocolBitmaskFeature.COMPUTE_OBSERVABLE_TS;
 import static org.apache.ignite.internal.client.proto.ProtocolBitmaskFeature.COMPUTE_TASK_ID;
 import static org.apache.ignite.internal.client.proto.ProtocolBitmaskFeature.PLATFORM_COMPUTE_JOB;
 import static org.apache.ignite.internal.hlc.HybridTimestamp.NULL_HYBRID_TIMESTAMP;
@@ -29,7 +30,6 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
 import org.apache.ignite.client.handler.ClientContext;
 import org.apache.ignite.client.handler.NotificationSender;
 import org.apache.ignite.client.handler.ResponseWriter;
@@ -79,7 +79,9 @@ public class ClientComputeExecuteRequest {
     ) {
         Set<InternalClusterNode> candidates = unpackCandidateNodes(in, cluster);
 
-        Job job = unpackJob(in, clientContext.hasFeature(PLATFORM_COMPUTE_JOB));
+        boolean enablePlatformJobs = clientContext.hasFeature(PLATFORM_COMPUTE_JOB);
+        boolean enableObservableTs = clientContext.hasFeature(COMPUTE_OBSERVABLE_TS);
+        Job job = unpackJob(in, enablePlatformJobs, enableObservableTs);
         UUID taskId = unpackTaskId(in, clientContext.hasFeature(COMPUTE_TASK_ID));
 
         ComputeEventMetadataBuilder metadataBuilder = ComputeEventMetadata.builder(taskId != null ? Type.BROADCAST : Type.SINGLE)
@@ -128,12 +130,8 @@ public class ClientComputeExecuteRequest {
             CompletableFuture<JobExecution<ComputeJobDataHolder>> executionFut,
             NotificationSender notificationSender
     ) {
-        return executionFut.handle((execution, throwable) -> {
-            if (throwable != null) {
-                notificationSender.sendNotification(null, throwable, NULL_HYBRID_TIMESTAMP);
-                return CompletableFuture.<ComputeJobDataHolder>failedFuture(throwable);
-            } else {
-                return execution.resultAsync().whenComplete((val, err) ->
+        return executionFut.thenCompose(execution ->
+                execution.resultAsync().whenComplete((val, err) ->
                         execution.stateAsync().whenComplete((state, errState) -> {
                             try {
                                 notificationSender.sendNotification(
@@ -147,9 +145,7 @@ public class ClientComputeExecuteRequest {
                             } catch (Throwable e) {
                                 LOG.error("Failed to send job result notification: " + e.getMessage(), e);
                             }
-                        }));
-            }
-        }).thenCompose(Function.identity());
+                        })));
     }
 
     static void packSubmitResult(ClientMessagePacker out, UUID jobId, ClusterNode node) {

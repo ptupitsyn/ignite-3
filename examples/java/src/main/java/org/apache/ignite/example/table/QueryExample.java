@@ -39,9 +39,9 @@ public class QueryExample {
                 .addresses("127.0.0.1:10800")
                 .build()) {
             System.out.println("Creating Person table");
-            client.sql().execute(null, "CREATE TABLE IF NOT EXISTS Person (id int primary key,  city varchar,  name varchar,  age int,  company varchar, city_id int);");
-            client.sql().execute(null, "INSERT INTO Person (id, city, name, age, company, city_id) VALUES (1, 'London', 'John Doe', 42, 'Apache', 101);");
-            client.sql().execute(null, "INSERT INTO Person (id, city, name, age, company, city_id) VALUES (2, 'New York', 'Jane Doe', 36, 'Apache', 102);");
+            client.sql().execute("CREATE TABLE IF NOT EXISTS Person (id int primary key,  city varchar,  name varchar,  age int,  company varchar, city_id int);");
+            client.sql().execute("INSERT INTO Person (id, city, name, age, company, city_id) VALUES (1, 'London', 'John Doe', 42, 'Apache', 101);");
+            client.sql().execute("INSERT INTO Person (id, city, name, age, company, city_id) VALUES (2, 'New York', 'Jane Doe', 36, 'Apache', 102);");
 
             // Get a table
             IgniteTables tablesApi = client.tables();
@@ -57,18 +57,20 @@ public class QueryExample {
             performQueryAsync(myTable);
 
             System.out.println("Dropping Person table.");
-            client.sql().execute(null, "DROP TABLE IF EXISTS PERSON;");
+            client.sql().execute("DROP TABLE IF EXISTS PERSON;");
         }
     }
 
     /**
      * Demonstrates querying with an implicit transaction.
+     *
+     * @param table  Table instance to query.
      */
     public static void performQueryWithoutTransaction(Table table) {
         System.out.println("[ Example 1 ] Performing query without transaction");
 
         try (Cursor<Entry<Tuple, Tuple>> cursor = table.keyValueView().query(
-                null, // Implicit transaction
+                (Transaction) null, // Implicit transaction
                 // Query criteria
                 and(
                         columnValue("name", equalTo("John Doe")),
@@ -85,6 +87,9 @@ public class QueryExample {
 
     /**
      * Demonstrates querying with an explicit transaction.
+     *
+     * @param client Ignite client used to start the transaction.
+     * @param table  Table instance to query.
      */
     public static void performQueryWithTransaction(IgniteClient client, Table table) {
         System.out.println("[ Example 2 ] Performing query with transaction");
@@ -117,8 +122,7 @@ public class QueryExample {
     public static void performQueryAsync(Table table) {
         System.out.println("[ Example 3 ] Performing asynchronous query");
 
-        AsyncCursor<Entry<Tuple, Tuple>> result = table.keyValueView().queryAsync(
-                        null, // Implicit transaction
+        AsyncCursor<Entry<Tuple, Tuple>> result = table.keyValueView().queryAsync(null, // Implicit transaction
                         and(
                                 columnValue("name", equalTo("John Doe")),
                                 columnValue("age", greaterThan(20))

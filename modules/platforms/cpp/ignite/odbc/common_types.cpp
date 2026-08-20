@@ -210,6 +210,9 @@ sql_state error_code_to_sql_state(error::code code) {
         case error::code::TX_STALE_READ_ONLY_OPERATION:
         case error::code::TX_ALREADY_FINISHED_WITH_TIMEOUT:
         case error::code::TX_DELAYED_ACK:
+        case error::code::TX_KILLED:
+        case error::code::TX_ALREADY_FINISHED_WITH_EXCEPTION:
+        case error::code::TX_ABORTED_DUE_TO_RECOVERY:
             return sql_state::S25000_INVALID_TRANSACTION_STATE;
 
         // Replicator group. Group code: 8
@@ -224,6 +227,8 @@ sql_state error_code_to_sql_state(error::code code) {
         case error::code::REPLICA_MISS:
         case error::code::REPLICA_STOPPING:
         case error::code::GROUP_OVERLOADED:
+        case error::code::GROUP_UNAVAILABLE:
+        case error::code::REPLICA_ABSENT:
             return sql_state::SHY000_GENERAL_ERROR;
 
         // Storage group. Group code: 9
@@ -239,8 +244,6 @@ sql_state error_code_to_sql_state(error::code code) {
         // Network group. Group code: 11
         case error::code::UNRESOLVABLE_CONSISTENT_ID:
         case error::code::BIND:
-        case error::code::FILE_TRANSFER:
-        case error::code::FILE_VALIDATION:
         case error::code::RECIPIENT_LEFT:
         case error::code::ADDRESS_UNRESOLVED:
             return sql_state::S08001_CANNOT_CONNECT;
@@ -260,6 +263,7 @@ sql_state error_code_to_sql_state(error::code code) {
         case error::code::UNIT_UNAVAILABLE:
         case error::code::UNIT_ZIP:
         case error::code::UNIT_WRITE:
+        case error::code::UNIT_NON_UNIQUE_FILENAMES:
             return sql_state::SHY000_GENERAL_ERROR;
 
         // GarbageCollector group. Group code: 14
@@ -314,6 +318,7 @@ sql_state error_code_to_sql_state(error::code code) {
         case error::code::NOT_ENOUGH_ALIVE_NODES:
         case error::code::ILLEGAL_NODES_SET:
         case error::code::REQUEST_FORWARD:
+        case error::code::REMOTE_NODE:
             return sql_state::SHY000_GENERAL_ERROR;
 
         // Embedded group. Group code: 21

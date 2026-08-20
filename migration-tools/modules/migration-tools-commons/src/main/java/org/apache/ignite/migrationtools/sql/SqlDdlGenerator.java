@@ -26,6 +26,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -388,6 +389,9 @@ public class SqlDdlGenerator {
             }
         }
 
+        // Tracks whether this QE maps a POJO on either Key/Value.
+        boolean mapsPojo = false;
+
         // Go over existing fields in the QE to they are correct and there are not silly nulls.
         {
             // AI2 may define primitive field types, however, they still mark them as nullable somehow.
@@ -430,6 +434,29 @@ public class SqlDdlGenerator {
 
             // Mark keyFields as not nullable.
             qe.getNotNullFields().addAll(qe.getKeyFields());
+
+            // We also want to remove fields non-compliant with AI3 so that they are handled in the extra fields.
+            for (Iterator<Entry<String, String>> it = qe.getFields().entrySet().iterator(); it.hasNext(); ) {
+                Entry<String, String> e = it.next();
+                String fieldType = ClassnameUtils.ensureWrapper(e.getValue());
+
+                boolean isNativelySupportedType;
+                try {
+                    Class<?> type = ClassUtils.getClass(this.clientClassLoader, fieldType);
+                    isNativelySupportedType = TypeInspector.isPrimitiveType(type);
+                } catch (ClassNotFoundException ignored) {
+                    // All natively supported types should be in the classpath.
+                    // Some enums might still slip through.
+                    isNativelySupportedType = false;
+                }
+
+                // Remove from the field list, we will need to map it in the extra fields.
+                if (!isNativelySupportedType) {
+                    mapsPojo = true;
+                    it.remove();
+                    qe.getKeyFields().remove(e.getKey());
+                }
+            }
         }
 
         @Nullable Map<InspectedField, String> keyFieldToColumnMap;
@@ -508,7 +535,7 @@ public class SqlDdlGenerator {
                 Entry entry = it.next();
                 InspectedField inspectedField = entry.inspectedField;
 
-                // TODO: May be refactored
+                // TODO: https://issues.apache.org/jira/browse/IGNITE-28141 May be refactored.
                 @Nullable String fieldName = inspectedField.fieldName();
                 if (fieldName != null) {
                     String fieldNameUpperCase = fieldName.toUpperCase();
@@ -558,7 +585,7 @@ public class SqlDdlGenerator {
         }
 
         // Empty field lists means that the class for the type is not available on the classpath so it must be a pojo.
-        boolean mapsPojo = keyFields.isEmpty() || valFields.isEmpty();
+        mapsPojo = mapsPojo || keyFields.isEmpty() || valFields.isEmpty();
 
         // Process key fields
         {
@@ -583,7 +610,7 @@ public class SqlDdlGenerator {
 
         // Process value fields
         {
-            if (valFields.size() == 1) {
+            if (valFields.size() == 1 && !mapsPojo) {
                 InspectedField inspectedField = valFields.get(0);
                 String columnName = valFieldToColumnMap.get(inspectedField);
 
@@ -600,7 +627,7 @@ public class SqlDdlGenerator {
         }
 
         if (mapsPojo && allowExtraFields) {
-            // TODO: GG-40813 Use a default field value instead of nullable.
+            // TODO: IGNITE-27632 Use a default field value instead of nullable.
             qe.getFieldsPrecision().putIfAbsent(EXTRA_FIELDS_COLUMN_NAME, DEFAULT_BINARY_FIELD_LENGTH);
             qe.getFields().put(EXTRA_FIELDS_COLUMN_NAME, byte[].class.getName());
         }
@@ -706,7 +733,7 @@ public class SqlDdlGenerator {
     // TODO: https://issues.apache.org/jira/browse/IGNITE-26177
     @SuppressWarnings("PMD.UnnecessaryCast")
     private QueryEntityEvaluation getOrCreateQueryEntity(CacheConfiguration cacheCfg) throws FieldNameConflictException {
-        // TODO: Map the whole object and key instead of the query entities
+        // TODO: https://issues.apache.org/jira/browse/IGNITE-28142 Map the whole object and key instead of the query entities.
         QueryEntity qe;
 
         Map.Entry<Class<?>, Class<?>> typeHints = null;
@@ -724,13 +751,13 @@ public class SqlDdlGenerator {
             qe = new QueryEntity(typeHints.getKey(), typeHints.getValue());
         } else if (cacheCfg.getQueryEntities().isEmpty()) {
             // This should return a KeyValue Binary Cache
-            // TODO: Check if the value type should be null or not.
+            // TODO: https://issues.apache.org/jira/browse/IGNITE-28143 Check if the value type should be null or not.
             qe = new QueryEntity();
             var binaryClsName = byte[].class.getName();
             qe.setKeyType(binaryClsName);
             qe.setValueType(binaryClsName);
 
-            // TODO: Check this default precision for binary caches
+            // TODO: https://issues.apache.org/jira/browse/IGNITE-28144 Check this default precision for binary caches.
             Map<String, Integer> precision = new HashMap<>();
             precision.put("ID", DEFAULT_BINARY_FIELD_LENGTH);
             precision.put("VAL", DEFAULT_BINARY_FIELD_LENGTH);
@@ -740,7 +767,7 @@ public class SqlDdlGenerator {
         } else {
             LOGGER.warn("Unexpected number of entities (Only 0, 1 QueryEntity is support ATM): {}:{}", cacheCfg.getName(),
                     cacheCfg.getQueryEntities().size());
-            // TODO: Throw a better checked exception
+            // TODO: https://issues.apache.org/jira/browse/IGNITE-28145 Throw a better checked exception.
             throw new RuntimeException("Unsupported number of queryEntities in cache configuration: " + cacheCfg.getQueryEntities().size());
         }
 

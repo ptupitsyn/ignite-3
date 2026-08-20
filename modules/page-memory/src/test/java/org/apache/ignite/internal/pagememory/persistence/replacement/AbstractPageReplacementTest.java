@@ -17,7 +17,15 @@
 
 package org.apache.ignite.internal.pagememory.persistence.replacement;
 
+import static org.apache.ignite.internal.metrics.MetricMatchers.hasMetric;
+import static org.apache.ignite.internal.metrics.MetricMatchers.hasValue;
 import static org.apache.ignite.internal.pagememory.PageIdAllocator.FLAG_DATA;
+import static org.apache.ignite.internal.pagememory.persistence.PersistentPageMemoryMetricSource.DIRTY_PAGES;
+import static org.apache.ignite.internal.pagememory.persistence.PersistentPageMemoryMetricSource.LOADED_PAGES;
+import static org.apache.ignite.internal.pagememory.persistence.PersistentPageMemoryMetricSource.PAGES_READ;
+import static org.apache.ignite.internal.pagememory.persistence.PersistentPageMemoryMetricSource.PAGES_WRITTEN;
+import static org.apache.ignite.internal.pagememory.persistence.PersistentPageMemoryMetricSource.PAGE_CACHE_MISSES;
+import static org.apache.ignite.internal.pagememory.persistence.PersistentPageMemoryMetricSource.PAGE_REPLACEMENTS;
 import static org.apache.ignite.internal.pagememory.persistence.checkpoint.CheckpointState.FINISHED;
 import static org.apache.ignite.internal.pagememory.util.PageIdUtils.pageIndex;
 import static org.apache.ignite.internal.testframework.IgniteTestUtils.runAsync;
@@ -28,6 +36,8 @@ import static org.apache.ignite.internal.util.Constants.MiB;
 import static org.apache.ignite.internal.util.GridUnsafe.allocateBuffer;
 import static org.apache.ignite.internal.util.GridUnsafe.freeBuffer;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -51,12 +61,16 @@ import org.apache.ignite.internal.configuration.testframework.ConfigurationExten
 import org.apache.ignite.internal.failure.FailureManager;
 import org.apache.ignite.internal.fileio.RandomAccessFileIoFactory;
 import org.apache.ignite.internal.lang.RunnableX;
+import org.apache.ignite.internal.metrics.MetricSet;
 import org.apache.ignite.internal.pagememory.DataRegion;
+import org.apache.ignite.internal.pagememory.PartitionPageMemory;
+import org.apache.ignite.internal.pagememory.TestDataRegion;
 import org.apache.ignite.internal.pagememory.TestPageIoModule.TestSimpleValuePageIo;
 import org.apache.ignite.internal.pagememory.TestPageIoRegistry;
 import org.apache.ignite.internal.pagememory.configuration.CheckpointConfiguration;
 import org.apache.ignite.internal.pagememory.configuration.PersistentDataRegionConfiguration;
 import org.apache.ignite.internal.pagememory.configuration.ReplacementMode;
+import org.apache.ignite.internal.pagememory.metrics.CollectionMetricSource;
 import org.apache.ignite.internal.pagememory.persistence.FakePartitionMeta;
 import org.apache.ignite.internal.pagememory.persistence.GroupPartitionId;
 import org.apache.ignite.internal.pagememory.persistence.PartitionMeta;
@@ -64,7 +78,6 @@ import org.apache.ignite.internal.pagememory.persistence.PartitionMetaManager;
 import org.apache.ignite.internal.pagememory.persistence.PersistentPageMemory;
 import org.apache.ignite.internal.pagememory.persistence.PersistentPageMemoryMetricSource;
 import org.apache.ignite.internal.pagememory.persistence.checkpoint.CheckpointManager;
-import org.apache.ignite.internal.pagememory.persistence.checkpoint.CheckpointMetricSource;
 import org.apache.ignite.internal.pagememory.persistence.checkpoint.CheckpointProgress;
 import org.apache.ignite.internal.pagememory.persistence.store.DeltaFilePageStoreIo;
 import org.apache.ignite.internal.pagememory.persistence.store.FilePageStore;
@@ -74,6 +87,7 @@ import org.apache.ignite.internal.testframework.IgniteAbstractTest;
 import org.apache.ignite.internal.testframework.InjectExecutorService;
 import org.apache.ignite.internal.util.IgniteUtils;
 import org.apache.ignite.internal.util.OffheapReadWriteLock;
+import org.hamcrest.Matcher;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -105,9 +119,13 @@ public abstract class AbstractPageReplacementTest extends IgniteAbstractTest {
     private CheckpointManager checkpointManager;
 
     private PersistentPageMemory pageMemory;
+    private PartitionPageMemory partitionPageMemory;
 
     @InjectExecutorService
     private ExecutorService executorService;
+
+    private PersistentPageMemoryMetricSource metricSource;
+    private MetricSet metricSet;
 
     protected abstract ReplacementMode replacementMode();
 
@@ -142,14 +160,16 @@ public abstract class AbstractPageReplacementTest extends IgniteAbstractTest {
                 ioRegistry,
                 mock(LogSyncer.class),
                 executorService,
-                new CheckpointMetricSource("test"),
+                new CollectionMetricSource("test", "storage", null),
                 PAGE_SIZE
         );
+
+        metricSource = new PersistentPageMemoryMetricSource("test");
 
         pageMemory = new PersistentPageMemory(
                 PersistentDataRegionConfiguration.builder()
                         .pageSize(PAGE_SIZE).size(MAX_MEMORY_SIZE).replacementMode(replacementMode()).build(),
-                new PersistentPageMemoryMetricSource("test"),
+                metricSource,
                 ioRegistry,
                 new long[]{MAX_MEMORY_SIZE},
                 10 * MiB,
@@ -160,11 +180,13 @@ public abstract class AbstractPageReplacementTest extends IgniteAbstractTest {
                 checkpointManager.partitionDestructionLockManager()
         );
 
-        dataRegionList.add(() -> pageMemory);
+        partitionPageMemory = pageMemory.createPartitionPageMemory(GROUP_ID, PARTITION_ID);
+
+        dataRegionList.add(new TestDataRegion<>(pageMemory));
 
         filePageStoreManager.start();
         checkpointManager.start();
-        pageMemory.start();
+        metricSet = metricSource.enable();
 
         createPartitionFilePageStoresIfMissing();
     }
@@ -343,21 +365,37 @@ public abstract class AbstractPageReplacementTest extends IgniteAbstractTest {
         verify(deltaFileIoFuture.join()).sync();
     }
 
+    @Test
+    void verifyPageMemoryMetrics() throws Throwable {
+        testPageReplacement();
+
+        assertMetricValue(PAGES_READ, is(0L)); // Since there are no existing pages on disk.
+        assertMetricValue(PAGES_WRITTEN, is(1L));
+        assertMetricValue(PAGE_REPLACEMENTS, is(1L));
+        assertMetricValue(PAGE_CACHE_MISSES, is(greaterThan(1L)));
+        assertMetricValue(DIRTY_PAGES, is(greaterThan(1L)));
+        assertMetricValue(LOADED_PAGES, is(greaterThan(1L)));
+    }
+
+    private void assertMetricValue(String metricName, Matcher<Long> valueMatcher) {
+        assertThat(metricSet, hasMetric(metricName, hasValue(valueMatcher)));
+    }
+
     private void createAndFillTestSimpleValuePage(long pageId) throws Exception {
-        long page = pageMemory.acquirePage(GROUP_ID, pageId);
+        long page = partitionPageMemory.acquirePage(GROUP_ID, pageId);
 
         try {
-            long pageAddr = pageMemory.writeLock(GROUP_ID, pageId, page);
+            long pageAddr = partitionPageMemory.writeLock(GROUP_ID, pageId, page);
 
             try {
                 new TestSimpleValuePageIo().initNewPage(pageAddr, pageId, PAGE_SIZE);
 
                 TestSimpleValuePageIo.setLongValue(pageAddr, pageIndex(pageId) * 3L);
             } finally {
-                pageMemory.writeUnlock(GROUP_ID, pageId, page, true);
+                partitionPageMemory.writeUnlock(GROUP_ID, pageId, page, true);
             }
         } finally {
-            pageMemory.releasePage(GROUP_ID, pageId, page);
+            partitionPageMemory.releasePage(GROUP_ID, pageId, page);
         }
     }
 
@@ -420,13 +458,13 @@ public abstract class AbstractPageReplacementTest extends IgniteAbstractTest {
 
     private void createAndFillTestSimpleValuePages(int pageCount) throws Exception {
         for (int i = 0; i < pageCount; i++) {
-            createAndFillTestSimpleValuePage(pageMemory.allocatePage(null, GROUP_ID, PARTITION_ID, FLAG_DATA));
+            createAndFillTestSimpleValuePage(partitionPageMemory.allocatePage(null, GROUP_ID, PARTITION_ID, FLAG_DATA));
         }
     }
 
     private void createAndFillTestSimpleValuePages(BooleanSupplier continuePredicate) throws Exception {
         while (continuePredicate.getAsBoolean()) {
-            createAndFillTestSimpleValuePage(pageMemory.allocatePage(null, GROUP_ID, PARTITION_ID, FLAG_DATA));
+            createAndFillTestSimpleValuePage(partitionPageMemory.allocatePage(null, GROUP_ID, PARTITION_ID, FLAG_DATA));
         }
     }
 }

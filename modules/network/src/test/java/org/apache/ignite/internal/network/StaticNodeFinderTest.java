@@ -24,29 +24,29 @@ import static java.util.stream.Collectors.toList;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.apache.ignite.internal.lang.IgniteInternalException;
-import org.apache.ignite.internal.testframework.WorkDirectory;
-import org.apache.ignite.internal.testframework.WorkDirectoryExtension;
+import org.apache.ignite.internal.network.StaticNodeFinder.HostNameResolver;
+import org.apache.ignite.internal.testframework.IgniteAbstractTest;
 import org.apache.ignite.network.NetworkAddress;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 
-@ExtendWith(WorkDirectoryExtension.class)
-class StaticNodeFinderTest {
-    @WorkDirectory
-    private Path workDir;
-
+class StaticNodeFinderTest extends IgniteAbstractTest {
     @Test
     void returnsIpAddresses() {
         NetworkAddress ipv4 = new NetworkAddress("1.2.3.4", 3001);
@@ -86,7 +86,6 @@ class StaticNodeFinderTest {
         NetworkAddress ip2 = new NetworkAddress("1.2.3.4", 3001);
         NodeFinder finder = new StaticNodeFinder(List.of(ip1, ip2));
 
-        assertDoesNotThrow(finder::findNodes);
         assertThat(finder.findNodes(), contains(ip2));
     }
 
@@ -146,6 +145,23 @@ class StaticNodeFinderTest {
         assertThat(foundAddresses, contains(new NetworkAddress("1.2.3.4", 3001)));
     }
 
+    @Test
+    void makesSeveralAttemptsToResolveHost() throws Exception {
+        NetworkAddress addr = new NetworkAddress("unknownHost", 3001);
+
+        HostNameResolver hostNameResolver = mock(HostNameResolver.class);
+
+        when(hostNameResolver.getAllByName(anyString())).thenThrow(new UnknownHostException());
+
+        int nameResolutionAttempts = 3;
+
+        NodeFinder finder = new StaticNodeFinder(List.of(addr), hostNameResolver, nameResolutionAttempts);
+
+        assertThrows(IgniteInternalException.class, finder::findNodes);
+
+        verify(hostNameResolver, times(nameResolutionAttempts)).getAllByName(addr.host());
+    }
+
     /**
      * Invokes {@link StaticNodeFinder} with name resolving overridden with our name->ips mapping.
      * Does this by starting {@link StaticNodeFinderMain} in another JVM to allow jdk.net.hosts.file property
@@ -182,7 +198,9 @@ class StaticNodeFinderTest {
                     + ", stdout: " + stdoutString(process) + ", stderr: " + stderrString(process));
         }
 
-        String output = stdoutString(process);
+        // Take only the last line of stdout: log frameworks (e.g. log4j with IGNITE_CI=true) may write
+        // warnings to stdout before the actual output produced by StaticNodeFinderMain.
+        String output = lastLine(stdoutString(process));
         return Arrays.stream(output.split(","))
                 .map(NetworkAddress::from)
                 .collect(toList());
@@ -204,5 +222,11 @@ class StaticNodeFinderTest {
         try (InputStream stderr = process.getErrorStream()) {
             return new String(stderr.readAllBytes(), UTF_8);
         }
+    }
+
+    private static String lastLine(String text) {
+        String trimmed = text.trim();
+        int lastNewline = trimmed.lastIndexOf('\n');
+        return lastNewline < 0 ? trimmed : trimmed.substring(lastNewline + 1).trim();
     }
 }

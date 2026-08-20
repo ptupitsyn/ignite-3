@@ -41,10 +41,10 @@ import java.util.stream.IntStream;
 import org.apache.ignite.internal.catalog.commands.CatalogUtils;
 import org.apache.ignite.internal.hlc.HybridClock;
 import org.apache.ignite.internal.sql.engine.InternalSqlRow;
+import org.apache.ignite.internal.sql.engine.api.expressions.RowFactory;
 import org.apache.ignite.internal.sql.engine.exec.AsyncDataCursor;
 import org.apache.ignite.internal.sql.engine.exec.ExecutionContext;
 import org.apache.ignite.internal.sql.engine.exec.PartitionWithConsistencyToken;
-import org.apache.ignite.internal.sql.engine.exec.RowFactory;
 import org.apache.ignite.internal.sql.engine.exec.ScannableTable;
 import org.apache.ignite.internal.sql.engine.exec.exp.RangeCondition;
 import org.apache.ignite.internal.sql.engine.prepare.KeyValueGetPlan;
@@ -93,7 +93,7 @@ public class TestClusterTest extends BaseIgniteAbstractTest {
 
         @Override
         public <RowT> Publisher<RowT> indexRangeScan(ExecutionContext<RowT> ctx, PartitionWithConsistencyToken partWithConsistencyToken,
-                RowFactory<RowT> rowFactory, int indexId, List<String> columns, @Nullable RangeCondition<RowT> cond,
+                RowFactory<RowT> rowFactory, int indexId, @Nullable RangeCondition<RowT> cond,
 
                 int @Nullable [] requiredColumns) {
 
@@ -108,7 +108,7 @@ public class TestClusterTest extends BaseIgniteAbstractTest {
 
         @Override
         public <RowT> Publisher<RowT> indexLookup(ExecutionContext<RowT> ctx, PartitionWithConsistencyToken partWithConsistencyToken,
-                RowFactory<RowT> rowFactory, int indexId, List<String> columns, RowT key,
+                RowFactory<RowT> rowFactory, int indexId, RowT key,
                 int @Nullable [] requiredColumns) {
 
             return new TransformingPublisher<>(

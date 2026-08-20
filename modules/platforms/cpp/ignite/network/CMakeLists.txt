@@ -15,9 +15,52 @@
 # limitations under the License.
 #
 
-project(ignite-network)
+set(TARGET ignite-network)
 
-set(TARGET ${PROJECT_NAME})
+set(PUBLIC_HEADERS)
+
+set(PRIVATE_HEADERS
+    async_client_pool.h
+    async_client_pool_adapter.h
+    async_handler.h
+    codec.h
+    codec_data_filter.h
+    data_buffer.h
+    data_filter.h
+    data_filter_adapter.h
+    data_sink.h
+    detail/linux/connecting_context.h
+    detail/linux/dynamic_module.h
+    detail/linux/linux_async_client.h
+    detail/linux/linux_async_client_pool.h
+    detail/linux/linux_async_worker_thread.h
+    detail/linux/sockets.h
+    detail/linux/tcp_socket_client.h
+    detail/sockets.h
+    detail/utils.h
+    detail/win/dynamic_module.h
+    detail/win/sockets.h
+    detail/win/tcp_socket_client.h
+    detail/win/win_async_client.h
+    detail/win/win_async_client_pool.h
+    detail/win/win_async_connecting_thread.h
+    detail/win/win_async_worker_thread.h
+    error_handling_filter.h
+    length_prefix_codec.h
+    network.h
+    socket_client.h
+    ssl/secure_configuration.h
+    ssl/secure_data_filter.h
+    ssl/secure_socket_client.h
+    ssl/secure_utils.h
+    ssl/ssl_connection.h
+    ssl/ssl_gateway.h
+    tcp_range.h
+)
+
+ignite_check_headers(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR} PUBLIC ${PUBLIC_HEADERS} PRIVATE ${PRIVATE_HEADERS})
+
+ignite_collect_public_headers(network PUBLIC_HEADERS)
 
 find_package(OpenSSL)
 if (EXISTS ${OPENSSL_INCLUDE_DIR})
@@ -36,6 +79,7 @@ set(SOURCES
     ssl/secure_data_filter.cpp
     ssl/secure_socket_client.cpp
     ssl/secure_utils.cpp
+    ssl/ssl_connection.cpp
     ssl/ssl_gateway.cpp
 )
 
@@ -84,7 +128,7 @@ elseif(APPLE)
         find_package(epoll-shim REQUIRED)
         target_link_libraries(${TARGET} PUBLIC epoll-shim::epoll-shim ${CMAKE_DL_LIBS})
     else()
-        fetch_dependency(epoll-shim https://github.com/jiixyj/epoll-shim/archive/refs/tags/v0.0.20240608.tar.gz 9751ab5cad7bff8a1388a951276247bf)
+        fetch_dependency(epoll-shim https://github.com/jiixyj/epoll-shim/archive/refs/tags/v0.0.20240608.tar.gz 8f5125217e4a0eeb96ab01f9dfd56c38f85ac3e8f26ef2578e538e72e87862cb TRUE)
         target_link_libraries(${TARGET} PUBLIC epoll-shim)
     endif()
     add_compile_definitions(EPOLL_SHIM_NO_VARIADICS)

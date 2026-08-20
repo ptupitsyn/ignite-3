@@ -22,6 +22,7 @@ import static org.apache.ignite.internal.client.proto.ClientMessageCommon.NO_VAL
 import static org.apache.ignite.internal.client.proto.tx.ClientTxUtils.TX_ID_DIRECT;
 import static org.apache.ignite.internal.client.proto.tx.ClientTxUtils.TX_ID_FIRST_DIRECT;
 import static org.apache.ignite.internal.hlc.HybridTimestamp.NULL_HYBRID_TIMESTAMP;
+import static org.apache.ignite.internal.tx.TransactionErrors.MESSAGE_TX_ALREADY_FINISHED_DUE_TO_TIMEOUT;
 import static org.apache.ignite.internal.util.CompletableFutures.nullCompletedFuture;
 import static org.apache.ignite.lang.ErrorGroups.Client.TABLE_ID_NOT_FOUND_ERR;
 import static org.apache.ignite.lang.ErrorGroups.Transactions.TX_ALREADY_FINISHED_WITH_TIMEOUT_ERR;
@@ -29,8 +30,10 @@ import static org.apache.ignite.lang.ErrorGroups.Transactions.TX_ALREADY_FINISHE
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.EnumSet;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import org.apache.ignite.client.handler.ClientHandlerMetricSource;
 import org.apache.ignite.client.handler.ClientResource;
 import org.apache.ignite.client.handler.ClientResourceRegistry;
 import org.apache.ignite.client.handler.NotificationSender;
@@ -57,9 +60,11 @@ import org.apache.ignite.internal.table.TableViewInternal;
 import org.apache.ignite.internal.tx.InternalTransaction;
 import org.apache.ignite.internal.tx.InternalTxOptions;
 import org.apache.ignite.internal.tx.PendingTxPartitionEnlistment;
+import org.apache.ignite.internal.tx.TransactionKilledException;
 import org.apache.ignite.internal.tx.TxManager;
 import org.apache.ignite.internal.tx.TxPriority;
 import org.apache.ignite.internal.tx.TxState;
+import org.apache.ignite.internal.tx.impl.FullyQualifiedResourceId;
 import org.apache.ignite.internal.type.DecimalNativeType;
 import org.apache.ignite.internal.type.NativeType;
 import org.apache.ignite.internal.type.TemporalNativeType;
@@ -383,7 +388,13 @@ public class ClientTableCommon {
             out.packLong(tx.getTimeout());
         } else if (tx.remote()) {
             PendingTxPartitionEnlistment token = tx.enlistedPartition(null);
-            out.packString(token.primaryNodeConsistentId());
+            String consistentId = token.primaryNodeConsistentId();
+
+            if (consistentId == null) {
+                throw new IllegalStateException("Primary node consistent ID must not be null for remote transactions: " + tx);
+            }
+
+            out.packString(consistentId);
             out.packLong(token.consistencyToken());
             out.packBoolean(TxState.ABORTED == tx.state()); // No-op enlistment.
 
@@ -412,25 +423,33 @@ public class ClientTableCommon {
      * @param txManager Tx manager.
      * @param notificationSender Notification sender.
      * @param resourceIdHolder Resource id holder.
+     * @param requestId Id of the request.
+     * @param reqToTxMap Tracker for first request of direct transactions.
      * @return Transaction, if present, or null.
      */
     public static CompletableFuture<@Nullable InternalTransaction> readTx(
             ClientMessageUnpacker in,
             HybridTimestampTracker tsUpdater,
             ClientResourceRegistry resources,
+            ClientHandlerMetricSource metrics,
             @Nullable TxManager txManager,
             @Nullable IgniteTables tables,
             @Nullable NotificationSender notificationSender,
-            long[] resourceIdHolder
+            long[] resourceIdHolder,
+            long requestId,
+            Map<Long, Long> reqToTxMap
     ) {
         return readTx(
                 in,
                 tsUpdater,
                 resources,
+                metrics,
                 txManager,
                 tables,
                 notificationSender,
                 resourceIdHolder,
+                requestId,
+                reqToTxMap,
                 EnumSet.noneOf(RequestOptions.class)
         );
     }
@@ -444,6 +463,8 @@ public class ClientTableCommon {
      * @param txManager Tx manager.
      * @param notificationSender Notification sender.
      * @param resourceIdHolder Resource id holder.
+     * @param requestId Id of the request.
+     * @param reqToTxMap Tracker for first request of direct transactions.
      * @param options Request options. Defines how a request is processed.
      * @return Transaction, if present, or null.
      */
@@ -451,10 +472,13 @@ public class ClientTableCommon {
             ClientMessageUnpacker in,
             HybridTimestampTracker tsUpdater,
             ClientResourceRegistry resources,
+            ClientHandlerMetricSource metrics,
             @Nullable TxManager txManager,
             @Nullable IgniteTables tables,
             @Nullable NotificationSender notificationSender,
             long[] resourceIdHolder,
+            long requestId,
+            Map<Long, Long> reqToTxMap,
             EnumSet<RequestOptions> options
     ) {
         if (in.tryUnpackNil()) {
@@ -488,11 +512,27 @@ public class ClientTableCommon {
                     builder = builder.timeoutMillis(timeoutMillis);
                 }
 
+                builder.killClosure(notificationSender == null ? tx -> {} : tx -> {
+                    // Exception will be ignored if a client doesn't support it.
+                    TransactionKilledException err = new TransactionKilledException(tx.id(), txManager);
+
+                    notificationSender.sendNotification(w -> {}, err, NULL_HYBRID_TIMESTAMP);
+                });
+
                 InternalTxOptions txOptions = builder.build();
-                var tx = startExplicitTx(tsUpdater, txManager, HybridTimestamp.nullableHybridTimestamp(observableTs), readOnly, txOptions);
+                var tx = new DirectTransactionWithFirstRequest(
+                        startExplicitTx(tsUpdater, txManager, HybridTimestamp.nullableHybridTimestamp(observableTs), readOnly, txOptions),
+                        reqToTxMap,
+                        requestId
+                );
 
                 // Attach resource id only on first direct request.
                 resourceIdHolder[0] = resources.put(new ClientResource(tx, tx::rollbackAsync));
+
+                // Record the mapping between first request and resourceId.
+                reqToTxMap.put(requestId, resourceIdHolder[0]);
+
+                metrics.transactionsActiveIncrement();
 
                 return completedFuture(tx);
             } else if (id == TX_ID_DIRECT) {
@@ -526,8 +566,26 @@ public class ClientTableCommon {
                             // Remote transaction will be synchronously rolled back if the timeout has exceeded.
                             if (remote.isRolledBackWithTimeoutExceeded()) {
                                 throw new TransactionException(TX_ALREADY_FINISHED_WITH_TIMEOUT_ERR,
-                                        "Transaction is already finished [tx=" + remote + "].");
+                                        MESSAGE_TX_ALREADY_FINISHED_DUE_TO_TIMEOUT + " [tx=" + remote + "].");
                             }
+
+                            // Track this remote enlistment for cleanup if client disconnects.
+                            try {
+                                resources.addTxCleaner(txId, tableId, commitPart, txManager, (IgniteTablesInternal) tables);
+                            } catch (IgniteInternalCheckedException e) {
+                                // Client disconnected (resource registry closed).
+                                try {
+                                    remote.rollback();
+                                } catch (Exception ex) {
+                                    e.addSuppressed(ex);
+                                }
+
+                                throw new IgniteException(e.traceId(), e.code(), "Client disconnected, tx rolled back: " + remote, e);
+                            }
+
+                            // Stop tracking on tx finish.
+                            txManager.resourceRegistry().register(
+                                    new FullyQualifiedResourceId(txId, txId), txId, () -> () -> resources.removeTxCleaner(txId));
 
                             return remote;
                         });
@@ -551,13 +609,28 @@ public class ClientTableCommon {
             ClientMessageUnpacker in,
             HybridTimestampTracker readTs,
             ClientResourceRegistry resources,
+            ClientHandlerMetricSource metrics,
             TxManager txManager,
             IgniteTables tables,
             EnumSet<RequestOptions> options,
             @Nullable NotificationSender notificationSender,
-            long[] resourceIdHolder
+            long[] resourceIdHolder,
+            long requestId,
+            Map<Long, Long> reqToTxMap
     ) {
-        return readTx(in, readTs, resources, txManager, tables, notificationSender, resourceIdHolder, options)
+        return readTx(
+                in,
+                readTs,
+                resources,
+                metrics,
+                txManager,
+                tables,
+                notificationSender,
+                resourceIdHolder,
+                requestId,
+                reqToTxMap,
+                options
+        )
                 .thenApply(tx -> {
                     if (tx == null) {
                         // Implicit transactions do not use an observation timestamp because RW never depends on it,

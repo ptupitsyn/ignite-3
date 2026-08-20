@@ -132,7 +132,7 @@ public class ItZoneInMemoryTest extends ItAbstractColocationTest {
     }
 
     private static List<CatalogStorageProfileDescriptor> extractZoneProfiles(Node node, int zoneId) {
-        CatalogZoneDescriptor zoneDescriptor = node.catalogManager.catalog(node.catalogManager.latestCatalogVersion()).zone(zoneId);
+        CatalogZoneDescriptor zoneDescriptor = node.catalogManager.latestCatalog().zone(zoneId);
 
         assertNotNull(zoneDescriptor);
 
@@ -159,7 +159,7 @@ public class ItZoneInMemoryTest extends ItAbstractColocationTest {
     private static boolean isRaftLogStorageVolatile(Node node, int zoneId) {
         ZonePartitionId zonePartitionId = new ZonePartitionId(zoneId, 0);
 
-        String singlePeerConsistentId = node.clusterService.topologyService().localMember().name();
+        String singlePeerConsistentId = node.clusterService.staticLocalNode().name();
 
         RaftNodeId raftNodeId = new RaftNodeId(zonePartitionId, new Peer(singlePeerConsistentId));
 

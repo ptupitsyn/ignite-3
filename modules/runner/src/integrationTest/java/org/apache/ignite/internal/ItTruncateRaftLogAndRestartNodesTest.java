@@ -23,8 +23,10 @@ import static org.apache.ignite.internal.catalog.CatalogService.DEFAULT_STORAGE_
 import static org.apache.ignite.internal.testframework.flow.TestFlowUtils.subscribeToList;
 import static org.apache.ignite.internal.testframework.matchers.CompletableFutureMatcher.willCompleteSuccessfully;
 import static org.apache.ignite.internal.util.CompletableFutures.allOf;
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.arrayWithSize;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
@@ -48,14 +50,18 @@ import java.util.stream.IntStream;
 import org.apache.ignite.internal.app.IgniteImpl;
 import org.apache.ignite.internal.binarytuple.BinaryTupleReader;
 import org.apache.ignite.internal.close.ManuallyCloseable;
+import org.apache.ignite.internal.configuration.testframework.ConfigurationExtension;
+import org.apache.ignite.internal.configuration.testframework.InjectConfiguration;
 import org.apache.ignite.internal.logger.IgniteLogger;
 import org.apache.ignite.internal.logger.Loggers;
 import org.apache.ignite.internal.manager.ComponentContext;
 import org.apache.ignite.internal.network.InternalClusterNode;
-import org.apache.ignite.internal.raft.storage.LogStorageFactory;
+import org.apache.ignite.internal.raft.configuration.LogStorageConfiguration;
+import org.apache.ignite.internal.raft.storage.LogStorageManager;
 import org.apache.ignite.internal.raft.storage.impl.IgniteJraftServiceFactory;
-import org.apache.ignite.internal.raft.util.SharedLogStorageFactoryUtils;
+import org.apache.ignite.internal.raft.util.SharedLogStorageManagerUtils;
 import org.apache.ignite.internal.replicator.ReplicationGroupId;
+import org.apache.ignite.internal.replicator.ZonePartitionId;
 import org.apache.ignite.internal.schema.BinaryRow;
 import org.apache.ignite.internal.schema.Column;
 import org.apache.ignite.internal.schema.SchemaDescriptor;
@@ -71,20 +77,22 @@ import org.apache.ignite.internal.tx.InternalTransaction;
 import org.apache.ignite.internal.util.IgniteUtils;
 import org.apache.ignite.raft.jraft.conf.ConfigurationManager;
 import org.apache.ignite.raft.jraft.core.NodeImpl;
+import org.apache.ignite.raft.jraft.core.State;
 import org.apache.ignite.raft.jraft.option.LogStorageOptions;
 import org.apache.ignite.raft.jraft.option.NodeOptions;
 import org.apache.ignite.raft.jraft.option.RaftOptions;
 import org.apache.ignite.raft.jraft.storage.LogStorage;
 import org.apache.ignite.tx.TransactionOptions;
 import org.hamcrest.Matchers;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
  * Class for testing various scenarios with raft log truncation and node restarts that emulate the situation with fsync disabled for raft
  * groups associated with tables.
  */
 // TODO: IGNITE-25501 Fix partition state after snapshot
+@ExtendWith(ConfigurationExtension.class)
 public class ItTruncateRaftLogAndRestartNodesTest extends ClusterPerTestIntegrationTest {
     private static final IgniteLogger LOG = Loggers.forClass(ItTruncateRaftLogAndRestartNodesTest.class);
 
@@ -92,31 +100,33 @@ public class ItTruncateRaftLogAndRestartNodesTest extends ClusterPerTestIntegrat
 
     private static final String TABLE_NAME = "TEST_TABLE";
 
+    @InjectConfiguration
+    private static LogStorageConfiguration logStorageConfiguration;
+
     @Override
     protected int initialNodes() {
         return 0;
     }
 
-    @Disabled("https://issues.apache.org/jira/browse/IGNITE-25502")
     @Test
     void enterNodeWithIndexGreaterThanCurrentMajority() throws Exception {
         cluster.startAndInit(3);
 
         createZoneAndTablePerson(ZONE_NAME, TABLE_NAME, 3, 1);
 
-        cluster.transferLeadershipTo(2, cluster.solePartitionId(ZONE_NAME, TABLE_NAME));
+        cluster.transferLeadershipTo(2, cluster.solePartitionId(ZONE_NAME));
 
         var closableResources = new ArrayList<ManuallyCloseable>();
 
         try {
-            ReplicationGroupId replicationGroup = cluster.solePartitionId(ZONE_NAME, TABLE_NAME);
+            ZonePartitionId replicationGroup = cluster.solePartitionId(ZONE_NAME);
 
-            TestLogStorageFactory testLogStorageFactoryNode0 = createTestLogStorageFactory(0, replicationGroup);
+            TestLogStorageManager testLogStorageManagerNode0 = createTestLogStorageManager(0, replicationGroup);
 
-            closableResources.add(testLogStorageFactoryNode0);
+            closableResources.add(testLogStorageManagerNode0);
 
-            TestLogStorageFactory testLogStorageFactoryNode1 = createTestLogStorageFactory(1, replicationGroup);
-            closableResources.add(testLogStorageFactoryNode1);
+            TestLogStorageManager testLogStorageManagerNode1 = createTestLogStorageManager(1, replicationGroup);
+            closableResources.add(testLogStorageManagerNode1);
 
             long lastLogIndexBeforeInsertNode0 = raftNodeImpl(0, replicationGroup).lastLogIndex();
             long lastLogIndexBeforeInsertNode1 = raftNodeImpl(1, replicationGroup).lastLogIndex();
@@ -129,10 +139,10 @@ public class ItTruncateRaftLogAndRestartNodesTest extends ClusterPerTestIntegrat
 
             stopNodes(0, 1, 2);
 
-            LogStorage logStorageNode0 = testLogStorageFactoryNode0.createLogStorage();
+            LogStorage logStorageNode0 = testLogStorageManagerNode0.createLogStorage();
             closableResources.add(logStorageNode0::shutdown);
 
-            LogStorage logStorageNode1 = testLogStorageFactoryNode1.createLogStorage();
+            LogStorage logStorageNode1 = testLogStorageManagerNode1.createLogStorage();
             closableResources.add(logStorageNode1::shutdown);
 
             truncateRaftLogSuffixHalfOfChanges(logStorageNode0, lastLogIndexBeforeInsertNode0);
@@ -143,16 +153,25 @@ public class ItTruncateRaftLogAndRestartNodesTest extends ClusterPerTestIntegrat
 
             startNodes(0, 1);
 
-            awaitMajority(cluster.solePartitionId(ZONE_NAME, TABLE_NAME));
+            awaitMajority(cluster.solePartitionId(ZONE_NAME));
 
             startNode(2);
 
+            // Node 2 has applied entries that the new majority (nodes 0, 1) doesn't have,
+            // so it must go to ERROR state when the leader tries to overwrite those entries.
+            await()
+                    .timeout(10, TimeUnit.SECONDS)
+                    .untilAsserted(() ->
+                            assertThat(raftNodeImpl(2, replicationGroup).getState(), equalTo(State.STATE_ERROR))
+                    );
+
+            // SQL should still work via the healthy majority.
             assertThat(
                     toPeopleFromSqlRows(executeSql(selectPeopleDml(TABLE_NAME))),
                     arrayWithSize(Matchers.allOf(greaterThan(0), lessThan(people.length)))
             );
 
-            for (int nodeIndex = 0; nodeIndex < 3; nodeIndex++) {
+            for (int nodeIndex = 0; nodeIndex < 2; nodeIndex++) {
                 assertThat(
                         "nodeIndex=" + nodeIndex,
                         scanPeopleFromAllPartitions(nodeIndex, TABLE_NAME),
@@ -197,20 +216,21 @@ public class ItTruncateRaftLogAndRestartNodesTest extends ClusterPerTestIntegrat
     }
 
     /**
-     * Creates and prepares {@link TestLogStorageFactory} for {@link TestLogStorageFactory#createLogStorage} creation after the
+     * Creates and prepares {@link TestLogStorageManager} for {@link TestLogStorageManager#createLogStorage} creation after the
      * corresponding node is stopped, so that there are no errors.
      */
-    private TestLogStorageFactory createTestLogStorageFactory(int nodeIndex, ReplicationGroupId replicationGroupId) {
+    private TestLogStorageManager createTestLogStorageManager(int nodeIndex, ReplicationGroupId replicationGroupId) {
         IgniteImpl ignite = igniteImpl(nodeIndex);
 
-        LogStorageFactory logStorageFactory = SharedLogStorageFactoryUtils.create(
+        LogStorageManager logStorageManager = SharedLogStorageManagerUtils.create(
                 ignite.name(),
-                ignite.partitionsWorkDir().raftLogPath()
+                ignite.partitionsWorkDir().raftLogPath(),
+                logStorageConfiguration
         );
 
         NodeImpl nodeImpl = raftNodeImpl(nodeIndex, replicationGroupId);
 
-        return new TestLogStorageFactory(logStorageFactory, nodeImpl.getOptions(), nodeImpl.getRaftOptions());
+        return new TestLogStorageManager(logStorageManager, nodeImpl.getOptions(), nodeImpl.getRaftOptions());
     }
 
     private void awaitMajority(ReplicationGroupId replicationGroupId) {
@@ -393,8 +413,8 @@ public class ItTruncateRaftLogAndRestartNodesTest extends ClusterPerTestIntegrat
         IgniteUtils.closeAllManually(manuallyCloseables);
     }
 
-    private static class TestLogStorageFactory implements ManuallyCloseable {
-        private final LogStorageFactory logStorageFactory;
+    private static class TestLogStorageManager implements ManuallyCloseable {
+        private final LogStorageManager logStorageManager;
 
         private final NodeOptions nodeOptions;
 
@@ -402,26 +422,26 @@ public class ItTruncateRaftLogAndRestartNodesTest extends ClusterPerTestIntegrat
 
         private final AtomicBoolean closeGuard = new AtomicBoolean();
 
-        private TestLogStorageFactory(
-                LogStorageFactory logStorageFactory,
+        private TestLogStorageManager(
+                LogStorageManager logStorageManager,
                 NodeOptions nodeOptions,
                 RaftOptions raftOptions
         ) {
-            this.logStorageFactory = logStorageFactory;
+            this.logStorageManager = logStorageManager;
             this.nodeOptions = nodeOptions;
             this.raftOptions = raftOptions;
         }
 
         /**
          * Creates and initializes {@link LogStorage}. Should be created only after the corresponding node is stopped to avoid errors.
-         * Currently can only create one instance before it and {@link TestLogStorageFactory} are closed.
+         * Currently can only create one instance before it and {@link TestLogStorageManager} are closed.
          */
         LogStorage createLogStorage() {
-            assertThat(logStorageFactory.startAsync(new ComponentContext()), willCompleteSuccessfully());
+            assertThat(logStorageManager.startAsync(new ComponentContext()), willCompleteSuccessfully());
 
-            LogStorage storage = logStorageFactory.createLogStorage(nodeOptions.getLogUri(), raftOptions);
+            LogStorage storage = logStorageManager.createLogStorage(nodeOptions.getLogUri(), raftOptions);
 
-            var igniteJraftServiceFactory = new IgniteJraftServiceFactory(logStorageFactory);
+            var igniteJraftServiceFactory = new IgniteJraftServiceFactory(logStorageManager);
 
             var logStorageOptions = new LogStorageOptions();
             logStorageOptions.setConfigurationManager(new ConfigurationManager());
@@ -443,7 +463,7 @@ public class ItTruncateRaftLogAndRestartNodesTest extends ClusterPerTestIntegrat
                 return;
             }
 
-            assertThat(logStorageFactory.stopAsync(), willCompleteSuccessfully());
+            assertThat(logStorageManager.stopAsync(), willCompleteSuccessfully());
         }
     }
 

@@ -36,6 +36,7 @@ import org.apache.ignite.deployment.DeploymentUnit;
 import org.apache.ignite.internal.client.proto.ClientComputeJobPacker;
 import org.apache.ignite.internal.client.proto.ClientMessagePacker;
 import org.apache.ignite.internal.client.proto.ClientMessageUnpacker;
+import org.apache.ignite.internal.client.proto.ProtocolBitmaskFeature;
 import org.apache.ignite.internal.compute.ComputeJobDataHolder;
 import org.apache.ignite.internal.compute.HybridTimestampProvider;
 import org.apache.ignite.internal.compute.IgniteComputeInternal;
@@ -70,7 +71,9 @@ public class ClientComputeExecuteMapReduceRequest {
     ) {
         List<DeploymentUnit> deploymentUnits = in.unpackDeploymentUnits();
         String taskClassName = in.unpackString();
-        ComputeJobDataHolder arg = unpackJobArgumentWithoutMarshaller(in);
+
+        boolean enableObservableTs = clientContext.hasFeature(ProtocolBitmaskFeature.COMPUTE_OBSERVABLE_TS);
+        ComputeJobDataHolder arg = unpackJobArgumentWithoutMarshaller(in, enableObservableTs);
 
         TaskDescriptor<Object, Object> taskDescriptor = TaskDescriptor.builder(taskClassName).units(deploymentUnits).build();
 
@@ -79,7 +82,6 @@ public class ClientComputeExecuteMapReduceRequest {
                 .clientAddress(clientContext.remoteAddress().toString());
 
         TaskExecution<Object> execution = compute.submitMapReduceInternal(taskDescriptor, metadataBuilder, arg, null);
-        sendTaskResult(execution, notificationSender);
 
         var idsAsync = execution.idsAsync()
                 .handle((ids, ex) -> {
@@ -87,10 +89,14 @@ public class ClientComputeExecuteMapReduceRequest {
                     return ex == null ? ids : Collections.<UUID>emptyList();
                 });
 
-        return execution.idAsync().thenCompose(id -> idsAsync.thenApply(ids -> out -> {
-            //noinspection DataFlowIssue
-            out.packUuid(id);
-            packJobIds(out, ids);
+        return execution.idAsync().thenCompose(id -> idsAsync.thenApply(ids -> {
+            sendTaskResult(execution, notificationSender);
+
+            return out -> {
+                //noinspection DataFlowIssue
+                out.packUuid(id);
+                packJobIds(out, ids);
+            };
         }));
     }
 

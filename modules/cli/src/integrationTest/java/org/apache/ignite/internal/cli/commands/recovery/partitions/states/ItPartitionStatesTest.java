@@ -35,15 +35,13 @@ import org.apache.ignite.internal.cli.CliIntegrationTest;
 import org.apache.ignite.internal.util.CollectionUtils;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledIf;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /** Base test class for Cluster Recovery partition states commands. */
 // TODO IGNITE-23617 refactor to use more flexible output matching.
-
 public abstract class ItPartitionStatesTest extends CliIntegrationTest {
-    private static final int DEFAULT_PARTITION_COUNT = 25;
+    private static final int PARTITIONS_COUNT = 10;
 
     private static final Set<String> ZONES = Set.of("first_ZONE", "second_ZONE", "third_ZONE");
 
@@ -59,7 +57,7 @@ public abstract class ItPartitionStatesTest extends CliIntegrationTest {
     private static final int DONT_CHECK_PARTITIONS = -1;
 
     private static final String GLOBAL_PARTITION_STATE_FIELDS =
-            "Zone name\tSchema name\tTable ID\tTable name\tPartition ID\tState" + System.lineSeparator();
+            "Zone name\tPartition ID\tState" + System.lineSeparator();
 
     private static final String LOCAL_PARTITION_STATE_FIELDS = "Node name\t" + GLOBAL_PARTITION_STATE_FIELDS;
 
@@ -68,11 +66,21 @@ public abstract class ItPartitionStatesTest extends CliIntegrationTest {
     @BeforeAll
     public static void createTables() {
         ZONES_CONTAINING_TABLES.forEach(name -> {
-            sql(String.format("CREATE ZONE \"%s\" storage profiles ['%s']", name, DEFAULT_AIPERSIST_PROFILE_NAME));
+            sql(String.format(
+                    "CREATE ZONE \"%s\" (PARTITIONS %d) storage profiles ['%s']",
+                    name,
+                    PARTITIONS_COUNT,
+                    DEFAULT_AIPERSIST_PROFILE_NAME
+            ));
             sql(String.format("CREATE TABLE \"%s_table\" (id INT PRIMARY KEY, val INT) ZONE \"%1$s\"", name));
         });
 
-        sql(String.format("CREATE ZONE \"%s\" storage profiles ['%s']", EMPTY_ZONE, DEFAULT_AIPERSIST_PROFILE_NAME));
+        sql(String.format(
+                "CREATE ZONE \"%s\" (PARTITIONS %d) storage profiles ['%s']",
+                EMPTY_ZONE,
+                PARTITIONS_COUNT,
+                DEFAULT_AIPERSIST_PROFILE_NAME
+        ));
 
         nodeNames = CLUSTER.runningNodes().map(Ignite::name).collect(toSet());
     }
@@ -84,7 +92,7 @@ public abstract class ItPartitionStatesTest extends CliIntegrationTest {
                 global ? RECOVERY_PARTITION_GLOBAL_OPTION : RECOVERY_PARTITION_LOCAL_OPTION,
                 PLAIN_OPTION);
 
-        checkOutput(global, ZONES_CONTAINING_TABLES, nodeNames, DEFAULT_PARTITION_COUNT);
+        checkOutput(global, ZONES_CONTAINING_TABLES, nodeNames, PARTITIONS_COUNT);
     }
 
     @ParameterizedTest
@@ -96,7 +104,7 @@ public abstract class ItPartitionStatesTest extends CliIntegrationTest {
                 PLAIN_OPTION
         );
 
-        checkOutput(global, ZONES, nodeNames, DEFAULT_PARTITION_COUNT);
+        checkOutput(global, ZONES, nodeNames, PARTITIONS_COUNT);
     }
 
     @ParameterizedTest
@@ -152,7 +160,7 @@ public abstract class ItPartitionStatesTest extends CliIntegrationTest {
                 PLAIN_OPTION
         );
 
-        checkOutput(global, MIXED_CASE_ZONES, nodeNames, DEFAULT_PARTITION_COUNT);
+        checkOutput(global, MIXED_CASE_ZONES, nodeNames, PARTITIONS_COUNT);
     }
 
     @ParameterizedTest
@@ -190,8 +198,11 @@ public abstract class ItPartitionStatesTest extends CliIntegrationTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void testLocalPartitionStatesPartitionOutOfRange(boolean global) {
-        String partitions = "0,1," + DEFAULT_PARTITION_COUNT;
         String zoneName = ZONES_CONTAINING_TABLES.stream().findAny().get();
+
+        int partitionCount = partitionsCount(zoneName);
+
+        String partitions = "0,1," + partitionCount;
 
         execute(CLUSTER_URL_OPTION, NODE_URL,
                 RECOVERY_PARTITION_IDS_OPTION, partitions,
@@ -202,9 +213,9 @@ public abstract class ItPartitionStatesTest extends CliIntegrationTest {
 
         assertErrOutputContains(String.format(
                 "Partition IDs should be in range [0, %d] for zone %s, found: %d",
-                DEFAULT_PARTITION_COUNT - 1,
+                partitionCount - 1,
                 zoneName,
-                DEFAULT_PARTITION_COUNT
+                partitionCount
         ));
 
         assertOutputIsEmpty();
@@ -224,21 +235,6 @@ public abstract class ItPartitionStatesTest extends CliIntegrationTest {
         assertOutputIsEmpty();
     }
 
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    @DisabledIf("org.apache.ignite.internal.lang.IgniteSystemProperties#colocationEnabled")
-    void testPartitionStatesEmptyResult(boolean global) {
-        // This test is not applicable for colocation enabled because empty zones are still have partitions.
-
-        execute(CLUSTER_URL_OPTION, NODE_URL,
-                RECOVERY_ZONE_NAMES_OPTION, EMPTY_ZONE,
-                global ? RECOVERY_PARTITION_GLOBAL_OPTION : RECOVERY_PARTITION_LOCAL_OPTION,
-                PLAIN_OPTION
-        );
-
-        assertOutputIs(global ? GLOBAL_PARTITION_STATE_FIELDS : LOCAL_PARTITION_STATE_FIELDS);
-    }
-
     @Test
     void testOutputFormatGlobal() {
         String zoneName = ZONES.stream().findAny().get();
@@ -252,7 +248,7 @@ public abstract class ItPartitionStatesTest extends CliIntegrationTest {
         assertErrOutputIsEmpty();
 
         assertOutputMatches(String.format(
-                "%1$s%2$s\tPUBLIC\t[0-9]+\t%2$s_table\t1\t(HEALTHY|AVAILABLE)%3$s",
+                "%1$s%2$s\t1\t(HEALTHY|AVAILABLE)%3$s",
                 GLOBAL_PARTITION_STATE_FIELDS,
                 zoneName,
                 System.lineSeparator()
@@ -275,7 +271,7 @@ public abstract class ItPartitionStatesTest extends CliIntegrationTest {
         assertErrOutputIsEmpty();
 
         assertOutputMatches(String.format(
-                "%1$s(%2$s)\t%3$s\tPUBLIC\t[0-9]+\t%3$s_table\t1\t(HEALTHY|AVAILABLE)%4$s",
+                "%1$s(%2$s)\t%3$s\t1\t(HEALTHY|AVAILABLE)%4$s",
                 LOCAL_PARTITION_STATE_FIELDS,
                 possibleNodeNames,
                 zoneName,

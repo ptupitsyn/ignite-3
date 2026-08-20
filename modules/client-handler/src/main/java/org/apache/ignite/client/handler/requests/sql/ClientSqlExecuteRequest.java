@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import org.apache.ignite.client.handler.ClientHandlerMetricSource;
 import org.apache.ignite.client.handler.ClientResourceRegistry;
@@ -42,6 +43,7 @@ import org.apache.ignite.internal.sql.engine.AsyncSqlCursor;
 import org.apache.ignite.internal.sql.engine.InternalSqlRow;
 import org.apache.ignite.internal.sql.engine.QueryProcessor;
 import org.apache.ignite.internal.sql.engine.SqlProperties;
+import org.apache.ignite.internal.sql.engine.SqlQueryType;
 import org.apache.ignite.internal.tx.InternalTransaction;
 import org.apache.ignite.internal.tx.TxManager;
 import org.apache.ignite.internal.util.ArrayUtils;
@@ -77,6 +79,7 @@ public class ClientSqlExecuteRequest {
      *         transaction.
      * @param notificationSender Notification sender is required to send acknowledge for underlying write operation within a remote
      *         transaction.
+     * @param reqToTxMap Tracker for first request of direct transactions.
      * @param username Authenticated user name or {@code null} for unknown user.
      * @return Future representing result of operation.
      */
@@ -95,8 +98,11 @@ public class ClientSqlExecuteRequest {
             IgniteTables tables,
             ClockService clockService,
             NotificationSender notificationSender,
+            Map<Long, Long> reqToTxMap,
             @Nullable String username,
-            boolean sqlMultistatementsSupported
+            boolean sqlMultistatementSupported,
+            boolean sqlPartitionAwarenessQualifiedNameSupported,
+            Consumer<SqlQueryType> queryTypeListener
     ) {
         CancelHandle cancelHandle = CancelHandle.create();
         cancelHandles.put(requestId, cancelHandle);
@@ -111,13 +117,16 @@ public class ClientSqlExecuteRequest {
                 in,
                 timestampTracker,
                 resources,
+                metrics,
                 txManager,
                 tables,
                 notificationSender,
-                resIdHolder
+                resIdHolder,
+                requestId,
+                reqToTxMap
         );
 
-        ClientSqlProperties props = new ClientSqlProperties(in, sqlMultistatementsSupported);
+        ClientSqlProperties props = new ClientSqlProperties(in, sqlMultistatementSupported);
         String statement = in.unpackString();
         Object[] arguments = readArgsNotNull(in);
 
@@ -135,10 +144,20 @@ public class ClientSqlExecuteRequest {
                 props.pageSize(),
                 props.toSqlProps().userName(username),
                 () -> cancelHandles.remove(requestId),
+                queryTypeListener,
                 arguments
         ).thenCompose(asyncResultSet ->
-                        ClientSqlCommon.writeResultSetAsync(resources, asyncResultSet, metrics, props.pageSize(),
-                                includePartitionAwarenessMeta, sqlDirectTxMappingSupported, sqlMultistatementsSupported, operationExecutor))
+                        ClientSqlCommon.writeResultSetAsync(
+                                resources,
+                                asyncResultSet,
+                                metrics,
+                                timestampTracker,
+                                props.pageSize(),
+                                includePartitionAwarenessMeta,
+                                sqlDirectTxMappingSupported,
+                                sqlMultistatementSupported,
+                                sqlPartitionAwarenessQualifiedNameSupported,
+                                operationExecutor))
                 .thenApply(rsWriter -> out -> {
                     if (tx != null) {
                         writeTxMeta(out, timestampTracker, clockService, tx, resIdHolder[0]);
@@ -165,6 +184,7 @@ public class ClientSqlExecuteRequest {
             int pageSize,
             SqlProperties props,
             Runnable onComplete,
+            Consumer<SqlQueryType> queryTypeListener,
             @Nullable Object... arguments
     ) {
         try {
@@ -177,6 +197,8 @@ public class ClientSqlExecuteRequest {
                         arguments
                     )
                     .thenCompose(cur -> {
+                                queryTypeListener.accept(cur.queryType());
+
                                 doWhenAllCursorsComplete(cur, onComplete);
 
                                 return cur.requestNextAsync(pageSize)

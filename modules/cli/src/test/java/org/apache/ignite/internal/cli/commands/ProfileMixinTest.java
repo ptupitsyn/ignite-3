@@ -28,6 +28,8 @@ import java.util.stream.Stream;
 import org.apache.ignite.internal.cli.call.cluster.ClusterInitCall;
 import org.apache.ignite.internal.cli.call.cluster.ClusterInitCallFactory;
 import org.apache.ignite.internal.cli.call.cluster.ClusterInitCallInput;
+import org.apache.ignite.internal.cli.call.cluster.rename.ClusterRenameCall;
+import org.apache.ignite.internal.cli.call.cluster.rename.ClusterRenameCallInput;
 import org.apache.ignite.internal.cli.call.cluster.status.ClusterStatusCall;
 import org.apache.ignite.internal.cli.call.cluster.topology.LogicalTopologyCall;
 import org.apache.ignite.internal.cli.call.cluster.topology.PhysicalTopologyCall;
@@ -269,6 +271,12 @@ public class ProfileMixinTest extends CliCommandTestBase {
                         (Function<ClusterConfigUpdateCallInput, String>) ClusterConfigUpdateCallInput::getClusterUrl
                 ),
                 arguments(
+                        "cluster rename --name=cluster2",
+                        ClusterRenameCall.class,
+                        ClusterRenameCallInput.class,
+                        (Function<ClusterRenameCallInput, String>) ClusterRenameCallInput::getClusterUrl
+                ),
+                arguments(
                         "cluster topology physical",
                         PhysicalTopologyCall.class,
                         UrlCallInput.class,
@@ -305,13 +313,13 @@ public class ProfileMixinTest extends CliCommandTestBase {
                         (Function<PartitionStatesCallInput, String>) PartitionStatesCallInput::clusterUrl
                 ),
                 arguments(
-                        "recovery partitions reset --table test --zone test",
+                        "recovery partitions reset --zone test",
                         ResetPartitionsCall.class,
                         ResetPartitionsCallInput.class,
                         (Function<ResetPartitionsCallInput, String>) ResetPartitionsCallInput::clusterUrl
                 ),
                 arguments(
-                        "recovery partitions restart --table test --zone test",
+                        "recovery partitions restart --zone test",
                         RestartPartitionsCall.class,
                         RestartPartitionsCallInput.class,
                         (Function<RestartPartitionsCallInput, String>) RestartPartitionsCallInput::clusterUrl

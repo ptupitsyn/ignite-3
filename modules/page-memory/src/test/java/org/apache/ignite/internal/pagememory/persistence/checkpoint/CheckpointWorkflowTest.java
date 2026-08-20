@@ -37,7 +37,6 @@ import static org.apache.ignite.internal.pagememory.util.PageIdUtils.pageId;
 import static org.apache.ignite.internal.testframework.IgniteTestUtils.await;
 import static org.apache.ignite.internal.testframework.IgniteTestUtils.runAsync;
 import static org.apache.ignite.internal.util.CompletableFutures.nullCompletedFuture;
-import static org.apache.ignite.internal.util.FastTimestamps.coarseCurrentTimeMillis;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
@@ -70,6 +69,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.stream.IntStream;
 import org.apache.ignite.internal.lang.IgniteInternalCheckedException;
 import org.apache.ignite.internal.pagememory.DataRegion;
+import org.apache.ignite.internal.pagememory.TestDataRegion;
 import org.apache.ignite.internal.pagememory.persistence.DirtyFullPageId;
 import org.apache.ignite.internal.pagememory.persistence.PersistentPageMemory;
 import org.apache.ignite.internal.pagememory.persistence.checkpoint.CheckpointDirtyPages.CheckpointDirtyPagesView;
@@ -106,9 +106,9 @@ public class CheckpointWorkflowTest extends BaseIgniteAbstractTest {
         PersistentPageMemory pageMemory1 = mock(PersistentPageMemory.class);
         PersistentPageMemory pageMemory2 = mock(PersistentPageMemory.class);
 
-        DataRegion<PersistentPageMemory> dataRegion0 = () -> pageMemory0;
-        DataRegion<PersistentPageMemory> dataRegion1 = () -> pageMemory1;
-        DataRegion<PersistentPageMemory> dataRegion2 = () -> pageMemory2;
+        DataRegion<PersistentPageMemory> dataRegion0 = new TestDataRegion<>(pageMemory0);
+        DataRegion<PersistentPageMemory> dataRegion1 = new TestDataRegion<>(pageMemory1);
+        DataRegion<PersistentPageMemory> dataRegion2 = new TestDataRegion<>(pageMemory2);
 
         workflow = new CheckpointWorkflow(
                 "test",
@@ -189,7 +189,7 @@ public class CheckpointWorkflowTest extends BaseIgniteAbstractTest {
 
         PersistentPageMemory pageMemory = newPageMemory(dirtyPages);
 
-        DataRegion<PersistentPageMemory> dataRegion = () -> pageMemory;
+        DataRegion<PersistentPageMemory> dataRegion = new TestDataRegion<>(pageMemory);
 
         workflow = new CheckpointWorkflow(
                 "test",
@@ -308,7 +308,6 @@ public class CheckpointWorkflowTest extends BaseIgniteAbstractTest {
         }, dataRegion);
 
         Checkpoint checkpoint = workflow.markCheckpointBegin(
-                coarseCurrentTimeMillis(),
                 progressImpl,
                 tracker,
                 () -> {},
@@ -351,7 +350,7 @@ public class CheckpointWorkflowTest extends BaseIgniteAbstractTest {
 
         PersistentPageMemory pageMemory = mock(PersistentPageMemory.class);
 
-        DataRegion<PersistentPageMemory> dataRegion = () -> pageMemory;
+        DataRegion<PersistentPageMemory> dataRegion = new TestDataRegion<>(pageMemory);
 
         workflow = new CheckpointWorkflow(
                 "test",
@@ -525,7 +524,7 @@ public class CheckpointWorkflowTest extends BaseIgniteAbstractTest {
     void testDirtyPartitionWithoutDirtyPages() throws Exception {
         PersistentPageMemory pageMemory = mock(PersistentPageMemory.class);
 
-        DataRegion<PersistentPageMemory> dataRegion = () -> pageMemory;
+        DataRegion<PersistentPageMemory> dataRegion = new TestDataRegion<>(pageMemory);
 
         workflow = new CheckpointWorkflow(
                 "test",
@@ -546,7 +545,6 @@ public class CheckpointWorkflowTest extends BaseIgniteAbstractTest {
         workflow.markPartitionAsDirty(dataRegion, groupId, partitionId, partitionGeneration);
 
         Checkpoint checkpoint = workflow.markCheckpointBegin(
-                coarseCurrentTimeMillis(),
                 mock(CheckpointProgressImpl.class),
                 mock(CheckpointMetricsTracker.class),
                 () -> {},
@@ -568,7 +566,7 @@ public class CheckpointWorkflowTest extends BaseIgniteAbstractTest {
     void testDirtyPartitionWithDirtyPages() throws Exception {
         PersistentPageMemory pageMemory = mock(PersistentPageMemory.class);
 
-        DataRegion<PersistentPageMemory> dataRegion = () -> pageMemory;
+        DataRegion<PersistentPageMemory> dataRegion = new TestDataRegion<>(pageMemory);
 
         workflow = new CheckpointWorkflow(
                 "test",
@@ -592,7 +590,6 @@ public class CheckpointWorkflowTest extends BaseIgniteAbstractTest {
         workflow.markPartitionAsDirty(dataRegion, groupId, partitionId, partitionGeneration);
 
         Checkpoint checkpoint = workflow.markCheckpointBegin(
-                coarseCurrentTimeMillis(),
                 mock(CheckpointProgressImpl.class),
                 mock(CheckpointMetricsTracker.class),
                 () -> {},
@@ -653,7 +650,6 @@ public class CheckpointWorkflowTest extends BaseIgniteAbstractTest {
         Runnable updateHeartbeat = mock(Runnable.class);
 
         CompletableFuture<Checkpoint> markCheckpointBeginFuture = runAsync(() -> workflow.markCheckpointBegin(
-                coarseCurrentTimeMillis(),
                 mock(CheckpointProgressImpl.class),
                 mock(CheckpointMetricsTracker.class),
                 updateHeartbeat,

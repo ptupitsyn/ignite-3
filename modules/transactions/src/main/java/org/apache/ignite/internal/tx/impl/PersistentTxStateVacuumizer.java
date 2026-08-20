@@ -25,6 +25,7 @@ import static org.apache.ignite.internal.util.ExceptionUtils.hasCause;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,13 +33,12 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.apache.ignite.internal.failure.FailureContext;
-import org.apache.ignite.internal.failure.FailureProcessor;
 import org.apache.ignite.internal.hlc.ClockService;
 import org.apache.ignite.internal.hlc.HybridTimestamp;
 import org.apache.ignite.internal.lang.ComponentStoppingException;
 import org.apache.ignite.internal.lang.NodeStoppingException;
 import org.apache.ignite.internal.logger.IgniteLogger;
+import org.apache.ignite.internal.logger.IgniteThrottledLogger;
 import org.apache.ignite.internal.logger.Loggers;
 import org.apache.ignite.internal.network.InternalClusterNode;
 import org.apache.ignite.internal.placementdriver.PlacementDriver;
@@ -47,6 +47,7 @@ import org.apache.ignite.internal.replicator.ReplicaService;
 import org.apache.ignite.internal.replicator.ZonePartitionId;
 import org.apache.ignite.internal.replicator.exception.AwaitReplicaTimeoutException;
 import org.apache.ignite.internal.replicator.exception.PrimaryReplicaMissException;
+import org.apache.ignite.internal.replicator.exception.ReplicaUnavailableException;
 import org.apache.ignite.internal.replicator.message.ReplicaMessagesFactory;
 import org.apache.ignite.internal.tx.message.TxMessagesFactory;
 import org.apache.ignite.internal.tx.message.VacuumTxStateReplicaRequest;
@@ -57,6 +58,11 @@ import org.jetbrains.annotations.Nullable;
  */
 public class PersistentTxStateVacuumizer {
     private static final IgniteLogger LOG = Loggers.forClass(PersistentTxStateVacuumizer.class);
+
+    private static final String VACUUM_THROTTLE_KEY = "vacuum-failed";
+
+    /** Maximum number of transaction IDs per vacuum request to avoid serialization timeouts. */
+    static final int VACUUM_BATCH_SIZE = 1000;
 
     private static final TxMessagesFactory TX_MESSAGES_FACTORY = new TxMessagesFactory();
 
@@ -70,7 +76,7 @@ public class PersistentTxStateVacuumizer {
 
     private final PlacementDriver placementDriver;
 
-    private final FailureProcessor failureProcessor;
+    private final IgniteThrottledLogger throttledLogger = Loggers.toThrottledLogger(LOG);
 
     /**
      * Constructor.
@@ -79,20 +85,17 @@ public class PersistentTxStateVacuumizer {
      * @param localNode Local node.
      * @param clockService Clock service.
      * @param placementDriver Placement driver.
-     * @param failureProcessor Failure processor.
      */
     public PersistentTxStateVacuumizer(
             ReplicaService replicaService,
             InternalClusterNode localNode,
             ClockService clockService,
-            PlacementDriver placementDriver,
-            FailureProcessor failureProcessor
+            PlacementDriver placementDriver
     ) {
         this.replicaService = replicaService;
         this.localNode = localNode;
         this.clockService = clockService;
         this.placementDriver = placementDriver;
-        this.failureProcessor = failureProcessor;
     }
 
     /**
@@ -135,29 +138,13 @@ public class PersistentTxStateVacuumizer {
                                 return nullCompletedFuture();
                             }
 
-                            VacuumTxStateReplicaRequest request = TX_MESSAGES_FACTORY.vacuumTxStateReplicaRequest()
-                                    .enlistmentConsistencyToken(replicaMeta.getStartTime().longValue())
-                                    .groupId(toZonePartitionIdMessage(REPLICA_MESSAGES_FACTORY, commitPartitionId))
-                                    .transactionIds(filteredTxIds)
-                                    .build();
-
-                            return replicaService.invoke(localNode, request).whenComplete((v, e) -> {
-                                if (e == null) {
-                                    successful.addAll(filteredTxIds);
-                                    vacuumizedPersistentTxnStatesCount.addAndGet(filteredTxIds.size());
-                                } else if (expectedException(e)) {
-                                    // We can log the exceptions without further handling because failed requests' txns are not added
-                                    // to the set of successful and will be retried. PrimaryReplicaMissException can be considered as
-                                    // a part of regular flow and doesn't need to be logged. NodeStoppingException should be ignored as
-                                    // vacuumization will be retried after restart.
-                                    LOG.debug("Failed to vacuum tx states from the persistent storage.", e);
-                                } else {
-                                    failureProcessor.process(new FailureContext(
-                                            e,
-                                            "Failed to vacuum tx states from the persistent storage."
-                                    ));
-                                }
-                            });
+                            return sendBatchedVacuumRequests(
+                                    replicaMeta.getStartTime().longValue(),
+                                    commitPartitionId,
+                                    filteredTxIds,
+                                    successful,
+                                    vacuumizedPersistentTxnStatesCount
+                            );
                         } else {
                             successful.addAll(txs.stream().map(v -> v.txId).collect(toSet()));
 
@@ -170,6 +157,56 @@ public class PersistentTxStateVacuumizer {
 
         return allOf(futures)
                 .handle((unused, unusedEx) -> new PersistentTxStateVacuumResult(successful, vacuumizedPersistentTxnStatesCount.get()));
+    }
+
+    private CompletableFuture<Void> sendBatchedVacuumRequests(
+            long enlistmentConsistencyToken,
+            ZonePartitionId commitPartitionId,
+            Set<UUID> txIds,
+            Set<UUID> successful,
+            AtomicInteger vacuumizedCount
+    ) {
+        List<CompletableFuture<?>> batchFutures = new ArrayList<>();
+        Iterator<UUID> it = txIds.iterator();
+
+        while (it.hasNext()) {
+            Set<UUID> batch = new HashSet<>(Math.min(VACUUM_BATCH_SIZE, txIds.size()));
+
+            for (int j = 0; j < VACUUM_BATCH_SIZE && it.hasNext(); j++) {
+                batch.add(it.next());
+            }
+
+            batchFutures.add(sendVacuumBatch(enlistmentConsistencyToken, commitPartitionId, batch, successful, vacuumizedCount));
+        }
+
+        return allOf(batchFutures);
+    }
+
+    private CompletableFuture<?> sendVacuumBatch(
+            long enlistmentConsistencyToken,
+            ZonePartitionId commitPartitionId,
+            Set<UUID> batch,
+            Set<UUID> successful,
+            AtomicInteger vacuumizedCount
+    ) {
+        VacuumTxStateReplicaRequest request = TX_MESSAGES_FACTORY.vacuumTxStateReplicaRequest()
+                .enlistmentConsistencyToken(enlistmentConsistencyToken)
+                .groupId(toZonePartitionIdMessage(REPLICA_MESSAGES_FACTORY, commitPartitionId))
+                .transactionIds(batch)
+                .build();
+
+        return replicaService.invoke(localNode, request).whenComplete((v, e) -> {
+            if (e == null) {
+                successful.addAll(batch);
+                vacuumizedCount.addAndGet(batch.size());
+            } else if (expectedException(e)) {
+                // Failed requests' txns are not added to the set of successful and will be retried.
+                LOG.debug("Failed to vacuum tx states from the persistent storage.", e);
+            } else {
+                throttledLogger.warn(VACUUM_THROTTLE_KEY,
+                        "Failed to vacuum tx states from the persistent storage.", e);
+            }
+        });
     }
 
     private static boolean expectedException(Throwable e) {
@@ -186,7 +223,8 @@ public class PersistentTxStateVacuumizer {
                 // the persistent tx state.
                 // Also, replica calls from PersistentTxStateVacuumizer are local, so retry with new primary replica most likely will
                 // happen on another node.
-                AwaitReplicaTimeoutException.class
+                AwaitReplicaTimeoutException.class,
+                ReplicaUnavailableException.class
         );
     }
 

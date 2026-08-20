@@ -17,13 +17,19 @@
 
 package org.apache.ignite.internal.client.sql;
 
+import static java.util.concurrent.CompletableFuture.completedFuture;
+import static java.util.concurrent.CompletableFuture.failedFuture;
+import static java.util.function.Function.identity;
 import static org.apache.ignite.internal.client.proto.ProtocolBitmaskFeature.SQL_DIRECT_TX_MAPPING;
 import static org.apache.ignite.internal.client.proto.ProtocolBitmaskFeature.SQL_MULTISTATEMENT_SUPPORT;
 import static org.apache.ignite.internal.client.proto.ProtocolBitmaskFeature.SQL_PARTITION_AWARENESS;
 import static org.apache.ignite.internal.client.proto.ProtocolBitmaskFeature.TX_DELAYED_ACKS;
 import static org.apache.ignite.internal.client.proto.ProtocolBitmaskFeature.TX_DIRECT_MAPPING;
 import static org.apache.ignite.internal.client.proto.ProtocolBitmaskFeature.TX_PIGGYBACK;
+import static org.apache.ignite.internal.util.ExceptionUtils.sneakyThrow;
 import static org.apache.ignite.internal.util.ExceptionUtils.unwrapCause;
+import static org.apache.ignite.internal.util.ViewUtils.ensurePublicException;
+import static org.apache.ignite.internal.util.ViewUtils.sync;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -34,8 +40,8 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiFunction;
 import org.apache.ignite.internal.binarytuple.BinaryTupleBuilder;
 import org.apache.ignite.internal.client.ClientUtils;
 import org.apache.ignite.internal.client.PartitionMapping;
@@ -56,7 +62,6 @@ import org.apache.ignite.internal.marshaller.MarshallersProvider;
 import org.apache.ignite.internal.sql.StatementBuilderImpl;
 import org.apache.ignite.internal.sql.StatementImpl;
 import org.apache.ignite.internal.sql.SyncResultSetAdapter;
-import org.apache.ignite.internal.util.ExceptionUtils;
 import org.apache.ignite.lang.CancelHandleHelper;
 import org.apache.ignite.lang.CancellationToken;
 import org.apache.ignite.lang.ErrorGroups.Sql;
@@ -143,12 +148,7 @@ public class ClientSql implements IgniteSql {
             @Nullable Object... arguments
     ) {
         Objects.requireNonNull(query);
-
-        try {
-            return new SyncResultSetAdapter<>(executeAsync(transaction, cancellationToken, query, arguments).join());
-        } catch (CompletionException e) {
-            throw ExceptionUtils.sneakyThrow(ExceptionUtils.copyExceptionWithCause(e));
-        }
+        return new SyncResultSetAdapter<>(sync(executeAsync(transaction, cancellationToken, query, arguments)));
     }
 
     /** {@inheritDoc} */
@@ -160,12 +160,7 @@ public class ClientSql implements IgniteSql {
             @Nullable Object... arguments
     ) {
         Objects.requireNonNull(statement);
-
-        try {
-            return new SyncResultSetAdapter<>(executeAsync(transaction, cancellationToken, statement, arguments).join());
-        } catch (CompletionException e) {
-            throw ExceptionUtils.sneakyThrow(ExceptionUtils.copyExceptionWithCause(e));
-        }
+        return new SyncResultSetAdapter<>(sync(executeAsync(transaction, cancellationToken, statement, arguments)));
     }
 
     /** {@inheritDoc} */
@@ -178,12 +173,7 @@ public class ClientSql implements IgniteSql {
             @Nullable Object... arguments
     ) {
         Objects.requireNonNull(query);
-
-        try {
-            return new SyncResultSetAdapter<>(executeAsync(transaction, mapper, cancellationToken, query, arguments).join());
-        } catch (CompletionException e) {
-            throw ExceptionUtils.sneakyThrow(ExceptionUtils.copyExceptionWithCause(e));
-        }
+        return new SyncResultSetAdapter<>(sync(executeAsync(transaction, mapper, cancellationToken, query, arguments)));
     }
 
     /** {@inheritDoc} */
@@ -196,12 +186,7 @@ public class ClientSql implements IgniteSql {
             @Nullable Object... arguments
     ) {
         Objects.requireNonNull(statement);
-
-        try {
-            return new SyncResultSetAdapter<>(executeAsync(transaction, mapper, cancellationToken, statement, arguments).join());
-        } catch (CompletionException e) {
-            throw ExceptionUtils.sneakyThrow(ExceptionUtils.copyExceptionWithCause(e));
-        }
+        return new SyncResultSetAdapter<>(sync(executeAsync(transaction, mapper, cancellationToken, statement, arguments)));
     }
 
     /** {@inheritDoc} */
@@ -223,11 +208,7 @@ public class ClientSql implements IgniteSql {
             Statement dmlStatement,
             BatchedArguments batch
     ) {
-        try {
-            return executeBatchAsync(transaction, cancellationToken, dmlStatement, batch).join();
-        } catch (CompletionException e) {
-            throw ExceptionUtils.sneakyThrow(ExceptionUtils.copyExceptionWithCause(e));
-        }
+        return sync(executeBatchAsync(transaction, cancellationToken, dmlStatement, batch));
     }
 
     /** {@inheritDoc} */
@@ -240,12 +221,7 @@ public class ClientSql implements IgniteSql {
     @Override
     public void executeScript(@Nullable CancellationToken cancellationToken, String query, @Nullable Object... arguments) {
         Objects.requireNonNull(query);
-
-        try {
-            executeScriptAsync(cancellationToken, query, arguments).join();
-        } catch (CompletionException e) {
-            throw ExceptionUtils.sneakyThrow(ExceptionUtils.copyExceptionWithCause(e));
-        }
+        sync(executeScriptAsync(cancellationToken, query, arguments));
     }
 
     /** {@inheritDoc} */
@@ -361,12 +337,48 @@ public class ClientSql implements IgniteSql {
 
         return txStartFut.thenCompose(tx -> ch.serviceAsync(
                 ClientOp.SQL_EXEC,
-                payloadWriter(ctx, transaction, cancellationToken, queryModifiers, statement, arguments, shouldTrackOperation),
+                DirectTxUtils.payloadWriter(
+                        ctx,
+                        transaction,
+                        payloadWriter(ctx, transaction, cancellationToken, queryModifiers, statement, arguments, shouldTrackOperation)
+                ),
                 payloadReader(ctx, mapper, tx, statement),
                 () -> DirectTxUtils.resolveChannel(ctx, ch, shouldTrackOperation, tx, mapping),
                 null,
                 false
-        )).exceptionally(ClientSql::handleException);
+        ).handle((BiFunction<AsyncResultSet<T>, Throwable, CompletableFuture<AsyncResultSet<T>>>) (r, err) -> {
+            if (err != null) {
+                if (DirectTxUtils.tryHandleErrorOnFirstRequest(ctx, ch)) {
+                    return failedFuture(err);
+                }
+
+                if (tx != null && shouldRecordTransactionFailure(err)) {
+                    tx.recordOperationFailure(err);
+                }
+
+                if (tx == null || !shouldTrackOperation) {
+                    return failedFuture(err);
+                }
+
+                return DirectTxUtils.handleErrorOnOtherRequests(ctx, tx, err);
+            }
+
+            return completedFuture(r);
+        })).thenCompose(identity()).exceptionally(ClientSql::handleException);
+    }
+
+    private static boolean shouldRecordTransactionFailure(Throwable err) {
+        Throwable cause = unwrapCause(err);
+
+        if (!(cause instanceof SqlException)) {
+            return true;
+        }
+
+        SqlException sqlEx = (SqlException) cause;
+
+        return sqlEx.code() != Sql.STMT_PARSE_ERR
+                && sqlEx.code() != Sql.STMT_VALIDATION_ERR
+                && sqlEx.code() != Sql.TX_CONTROL_INSIDE_EXTERNAL_TX_ERR;
     }
 
     private static @Nullable PartitionMapping resolveMapping(
@@ -404,7 +416,7 @@ public class ClientSql implements IgniteSql {
             boolean sqlDirectMappingSupported = r.clientChannel().protocolContext().isFeatureSupported(SQL_DIRECT_TX_MAPPING);
             boolean sqlMultistatementsSupported = r.clientChannel().protocolContext().allFeaturesSupported(SQL_MULTISTATEMENT_SUPPORT);
 
-            DirectTxUtils.readTx(r, ctx, tx, ch.observableTimestamp());
+            DirectTxUtils.readTx(r, ch, ctx, tx, ch.observableTimestamp());
             ClientAsyncResultSet<T> rs = new ClientAsyncResultSet<>(
                     r.clientChannel(), marshallers, r.in(), mapper, tryUnpackPaMeta, sqlDirectMappingSupported, sqlMultistatementsSupported
             );
@@ -556,7 +568,7 @@ public class ClientSql implements IgniteSql {
                         .thenCompose(tx -> tx.channel().serviceAsync(ClientOp.SQL_EXEC_BATCH, payloadWriter, payloadReader))
                         .exceptionally(ClientSql::handleException);
             } catch (TransactionException e) {
-                return CompletableFuture.failedFuture(new SqlException(e.traceId(), e.code(), e.getMessage(), e));
+                return failedFuture(new SqlException(e.traceId(), e.code(), e.getMessage(), e));
             }
         }
 
@@ -599,7 +611,7 @@ public class ClientSql implements IgniteSql {
     private static void addCancelAction(CancellationToken cancellationToken, PayloadOutputChannel ch) {
         CompletableFuture<Void> cancelFuture = new CompletableFuture<>();
 
-        if (CancelHandleHelper.isCancelled(cancellationToken)) {
+        if (cancellationToken.isCancelled()) {
             throw new SqlException(Sql.EXECUTION_CANCELLED_ERR, "The query was cancelled while executing.");
         }
 
@@ -641,13 +653,14 @@ public class ClientSql implements IgniteSql {
     }
 
     private static <T> T handleException(Throwable e) {
-        Throwable ex = unwrapCause(e);
+        Throwable ex = ensurePublicException(unwrapCause(e));
+
         if (ex instanceof TransactionException) {
             var te = (TransactionException) ex;
             throw new SqlException(te.traceId(), te.code(), te.getMessage(), te);
         }
 
-        throw ExceptionUtils.sneakyThrow(ex);
+        throw sneakyThrow(ex);
     }
 
     private static class PaCacheKey {

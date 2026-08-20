@@ -98,16 +98,12 @@ public interface RaftGroupListener {
     void onShutdown();
 
     /**
-     * Invoked when the belonging node becomes the leader of the group.
+     * Returns the last applied index persisted by the state machine.
+     * Called during Raft node initialization to prevent truncation of already-applied log entries.
+     *
+     * @return persisted applied index, or 0 if unknown.
      */
-    default void onLeaderStart() {
-        // No-op.
-    }
-
-    /**
-     * Invoked when the belonging node stops being the leader of the group.
-     */
-    default void onLeaderStop() {
-        // No-op.
+    default long getPersistedAppliedIndex() {
+        return 0;
     }
 }

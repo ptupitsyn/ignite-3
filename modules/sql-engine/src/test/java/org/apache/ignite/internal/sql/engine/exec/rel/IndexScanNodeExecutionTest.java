@@ -42,11 +42,11 @@ import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory.Builder;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.ignite.internal.sql.engine.api.expressions.RowFactory;
+import org.apache.ignite.internal.sql.engine.api.expressions.RowFactoryFactory;
 import org.apache.ignite.internal.sql.engine.exec.ExecutionContext;
 import org.apache.ignite.internal.sql.engine.exec.PartitionProvider;
 import org.apache.ignite.internal.sql.engine.exec.PartitionWithConsistencyToken;
-import org.apache.ignite.internal.sql.engine.exec.RowFactory;
-import org.apache.ignite.internal.sql.engine.exec.RowFactoryFactory;
 import org.apache.ignite.internal.sql.engine.exec.RowHandler;
 import org.apache.ignite.internal.sql.engine.exec.ScannableTable;
 import org.apache.ignite.internal.sql.engine.exec.exp.RangeCondition;
@@ -64,7 +64,7 @@ import org.apache.ignite.internal.sql.engine.trait.TraitUtils;
 import org.apache.ignite.internal.sql.engine.util.Commons;
 import org.apache.ignite.internal.tx.InternalTransaction;
 import org.apache.ignite.internal.type.NativeTypes;
-import org.apache.ignite.internal.type.NativeTypes.RowTypeBuilder;
+import org.apache.ignite.internal.type.NativeTypes.StructTypeBuilder;
 import org.apache.ignite.internal.type.StructNativeType;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
@@ -97,7 +97,7 @@ public class IndexScanNodeExecutionTest extends AbstractExecutionTest<Object[]> 
 
         Comparator<Object[]> cmp = Comparator.comparing(row -> (Comparable<Object>) row[0]);
 
-        IndexScanNode<Object[]> node = tester.createSortedIndex(indexDescriptor, tableDescriptor, scannableTable, cmp);
+        IndexScanNode<Object[]> node = tester.createSortedIndex(indexDescriptor, scannableTable, cmp);
         List<Object[]> result = tester.execute(node);
 
         validateResult(result, List.of(new Object[]{1}, new Object[]{2}, new Object[]{4}, new Object[]{5}));
@@ -121,7 +121,7 @@ public class IndexScanNodeExecutionTest extends AbstractExecutionTest<Object[]> 
         scannableTable.setPartitionData(0, new Object[]{2}, new Object[]{1});
         scannableTable.setPartitionData(2, new Object[]{0});
 
-        IndexScanNode<Object[]> node = tester.createHashIndex(indexDescriptor, tableDescriptor, scannableTable);
+        IndexScanNode<Object[]> node = tester.createHashIndex(indexDescriptor, scannableTable);
         List<Object[]> result = tester.execute(node);
 
         validateResult(result, List.of(new Object[]{2}, new Object[]{1}, new Object[]{0}));
@@ -164,7 +164,7 @@ public class IndexScanNodeExecutionTest extends AbstractExecutionTest<Object[]> 
 
         SingleRangeIterable<Object[]> conditions = new SingleRangeIterable<>(new Object[]{}, null, false, false);
 
-        StructNativeType schema = NativeTypes.rowBuilder().addField("C1", NativeTypes.INT32, false).build();
+        StructNativeType schema = NativeTypes.structBuilder().addField("C1", NativeTypes.INT32, false).build();
         RowFactory<Object[]> rowFactory = ctx.rowFactoryFactory().create(schema);
 
         TableDescriptor tableDescriptor = createTableDescriptor(columns);
@@ -180,7 +180,7 @@ public class IndexScanNodeExecutionTest extends AbstractExecutionTest<Object[]> 
                 ? TestBuilders.indexRangeScan(DataProvider.fromRow(new Object[]{42}, partDataSize))
                 : TestBuilders.indexLookup(DataProvider.fromRow(new Object[]{42}, partDataSize));
 
-        IndexScanNode<Object[]> scanNode = new IndexScanNode<>(ctx, rowFactory, indexDescriptor, scannableIndex, tableDescriptor,
+        IndexScanNode<Object[]> scanNode = new IndexScanNode<>(ctx, rowFactory, indexDescriptor, scannableIndex,
                 c -> partitions, comparator, conditions, null, null, null);
         RootNode<Object[]> rootNode = new RootNode<>(ctx);
 
@@ -232,14 +232,13 @@ public class IndexScanNodeExecutionTest extends AbstractExecutionTest<Object[]> 
             this.ctx = ctx;
         }
 
-        IndexScanNode<Object[]> createSortedIndex(IgniteIndex indexDescriptor, TableDescriptor tableDescriptor,
+        IndexScanNode<Object[]> createSortedIndex(IgniteIndex indexDescriptor,
                 TestScannableTable<?> scannableTable, Comparator<Object[]> cmp) {
-            return createIndexNode(ctx, indexDescriptor, tableDescriptor, scannableTable, cmp);
+            return createIndexNode(ctx, indexDescriptor, scannableTable, cmp);
         }
 
-        IndexScanNode<Object[]> createHashIndex(IgniteIndex desc, TableDescriptor tableDescriptor,
-                TestScannableTable<?> scannableTable) {
-            return createIndexNode(ctx, desc, tableDescriptor, scannableTable, null);
+        IndexScanNode<Object[]> createHashIndex(IgniteIndex desc, TestScannableTable<?> scannableTable) {
+            return createIndexNode(ctx, desc, scannableTable, null);
         }
 
         List<Object[]> execute(IndexScanNode<Object[]> indexNode) {
@@ -271,9 +270,9 @@ public class IndexScanNodeExecutionTest extends AbstractExecutionTest<Object[]> 
     }
 
     private static IndexScanNode<Object[]> createIndexNode(ExecutionContext<Object[]> ctx, IgniteIndex indexDescriptor,
-            TableDescriptor tableDescriptor, TestScannableTable<?> scannableTable, @Nullable Comparator<Object[]> comparator) {
+            TestScannableTable<?> scannableTable, @Nullable Comparator<Object[]> comparator) {
 
-        RowTypeBuilder rowSchemaBuilder = NativeTypes.rowBuilder();
+        StructTypeBuilder rowSchemaBuilder = NativeTypes.structBuilder();
 
         int idx = 0;
         for (RelFieldCollation ignored : indexDescriptor.collation().getFieldCollations()) {
@@ -287,7 +286,7 @@ public class IndexScanNodeExecutionTest extends AbstractExecutionTest<Object[]> 
         List<PartitionWithConsistencyToken> partitions = scannableTable.getPartitions();
         PartitionProvider<Object[]> partitionProvider = PartitionProvider.fromPartitions(partitions);
 
-        return new IndexScanNode<>(ctx, rowFactory, indexDescriptor, scannableTable, tableDescriptor, partitionProvider,
+        return new IndexScanNode<>(ctx, rowFactory, indexDescriptor, scannableTable, partitionProvider,
                 comparator, conditions, null, null, null);
     }
 
@@ -325,7 +324,6 @@ public class IndexScanNodeExecutionTest extends AbstractExecutionTest<Object[]> 
                 PartitionWithConsistencyToken partWithConsistencyToken,
                 RowFactory<RowT> rowFactory,
                 int indexId,
-                List<String> columns,
                 @Nullable RangeCondition<RowT> cond,
                 int @Nullable [] requiredColumns
         ) {
@@ -340,7 +338,6 @@ public class IndexScanNodeExecutionTest extends AbstractExecutionTest<Object[]> 
                 PartitionWithConsistencyToken partWithConsistencyToken,
                 RowFactory<RowT> rowFactory,
                 int indexId,
-                List<String> columns,
                 RowT key,
                 int @Nullable [] requiredColumns
         ) {

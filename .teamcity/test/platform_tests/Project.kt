@@ -9,18 +9,23 @@ object Project : Project({
     id(getId(this::class))
     name = "[Platform Tests]"
 
+    subProject(test.platform_tests.python_tests.Project)
+
     /**
      * List of platform linux tests
      */
 
     listOf(
         PlatformCppTestsLinux,
+        PlatformCppOdbcTestsDebLinux,
+        PlatformCppOdbcTestsRpmLinux,
+        PlatformCppOdbcTestsTgzLinux,
         PlatformDotnetTestsLinux,
-        PlatformPythonTestsLinux
+        RunPythonTests
     ).forEach {
         buildType(
             ApacheIgnite3CustomBuildType.Builder(it)
-                .ignite3VCS().ignite3BuildDependency()
+                .ignite3VCS().ignite3BuildDependency().setupMavenProxy()
                 .defaultBuildTypeSettings().requireLinux()
                 .build().buildType
         )

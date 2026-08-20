@@ -5,6 +5,7 @@ import jetbrains.buildServer.configs.kotlin.AbsoluteId
 import jetbrains.buildServer.configs.kotlin.BuildType
 import jetbrains.buildServer.configs.kotlin.FailureAction
 import jetbrains.buildServer.configs.kotlin.buildFeatures.commitStatusPublisher
+import jetbrains.buildServer.configs.kotlin.buildSteps.script
 import org.apache.ignite.teamcity.Teamcity.Companion.hiddenText
 
 
@@ -16,7 +17,7 @@ class ApacheIgnite3CustomBuildType(override val buildType: BuildType) : CustomBu
         fun ignite3VCS() = apply {
             buildType.params {
                 hiddenText("VCSROOT__IGNITE3", "ignite-3")
-                hiddenText("env.JAVA_HOME", "%env.JDK_ORA_11%")
+                hiddenText("env.JAVA_HOME", "%env.JDK_ORA_17%")
             }
             buildType.vcs {
                 root(AbsoluteId("GitHubApacheIgnite3"), "+:. => %VCSROOT__IGNITE3%")

@@ -41,7 +41,7 @@ import org.apache.calcite.rel.RelVisitor;
 import org.apache.ignite.internal.configuration.testframework.ConfigurationExtension;
 import org.apache.ignite.internal.configuration.testframework.InjectConfiguration;
 import org.apache.ignite.internal.event.AbstractEventProducer;
-import org.apache.ignite.internal.metrics.MetricManagerImpl;
+import org.apache.ignite.internal.metrics.NoOpMetricManager;
 import org.apache.ignite.internal.sql.configuration.distributed.StatisticsConfiguration;
 import org.apache.ignite.internal.sql.engine.SqlOperationContext;
 import org.apache.ignite.internal.sql.engine.framework.PredefinedSchemaManager;
@@ -90,7 +90,7 @@ public class PlannerTimeoutTest extends AbstractPlannerTest {
                 plannerTimeout,
                 1,
                 Integer.MAX_VALUE,
-                new MetricManagerImpl(),
+                new NoOpMetricManager(),
                 new PredefinedSchemaManager(schema),
                 mock(LongSupplier.class),
                 mock(ScheduledExecutorService.class),
@@ -126,7 +126,7 @@ public class PlannerTimeoutTest extends AbstractPlannerTest {
         PlanningContext ctx = PlanningContext.builder()
                 .plannerTimeout(plannerTimeout)
                 .frameworkConfig(newConfigBuilder(FRAMEWORK_CONFIG)
-                        .defaultSchema(createRootSchema(List.of(schema)).getSubSchema(schema.getName()))
+                        .defaultSchema(createRootSchema(List.of(schema)).subSchemas().get(schema.getName()))
                         .build())
                 .defaultSchemaName(schema.getName())
                 .query(sql)
@@ -194,4 +194,3 @@ public class PlannerTimeoutTest extends AbstractPlannerTest {
         return spyTable;
     }
 }
-

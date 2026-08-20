@@ -35,14 +35,14 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.IntStream;
+import org.apache.ignite.internal.binarytuple.BinaryTuple;
 import org.apache.ignite.internal.binarytuple.BinaryTupleBuilder;
 import org.apache.ignite.internal.lang.InternalTuple;
-import org.apache.ignite.internal.schema.BinaryTuple;
 import org.apache.ignite.internal.schema.BinaryTupleSchema;
 import org.apache.ignite.internal.schema.BinaryTupleSchema.Element;
+import org.apache.ignite.internal.sql.engine.api.expressions.RowFactory;
+import org.apache.ignite.internal.sql.engine.api.expressions.RowFactoryFactory;
 import org.apache.ignite.internal.sql.engine.exec.ExecutionContext;
-import org.apache.ignite.internal.sql.engine.exec.RowFactory;
-import org.apache.ignite.internal.sql.engine.exec.RowFactoryFactory;
 import org.apache.ignite.internal.sql.engine.exec.RowHandler;
 import org.apache.ignite.internal.sql.engine.exec.ScannableDataSource;
 import org.apache.ignite.internal.sql.engine.exec.SqlRowHandler;
@@ -57,7 +57,7 @@ import org.junit.jupiter.api.Test;
  */
 @SuppressWarnings("NumericCastThatLosesPrecision")
 class AsyncRootNodeTest extends AbstractExecutionTest<RowWrapper> {
-    private static final StructNativeType SINGLE_INT_ROW_SCHEMA = NativeTypes.rowBuilder()
+    private static final StructNativeType SINGLE_INT_ROW_SCHEMA = NativeTypes.structBuilder()
             .addField("C1", NativeTypes.INT32, true)
             .build();
 
@@ -80,7 +80,7 @@ class AsyncRootNodeTest extends AbstractExecutionTest<RowWrapper> {
                 null
         );
 
-        var rootNode = new AsyncRootNode<>(dataSourceScanNode, Function.identity());
+        var rootNode = new AsyncRootNode<>(context, dataSourceScanNode, Function.identity());
 
         rootNode.requestNextAsync(1);
 
@@ -123,7 +123,7 @@ class AsyncRootNodeTest extends AbstractExecutionTest<RowWrapper> {
                 null
         );
 
-        AsyncRootNode<RowWrapper, RowWrapper> rootNode = new AsyncRootNode<>(dataSourceScanNode, Function.identity());
+        AsyncRootNode<RowWrapper, RowWrapper> rootNode = new AsyncRootNode<>(context, dataSourceScanNode, Function.identity());
         dataSourceScanNode.onRegister(rootNode);
 
         // trigger prefetch
@@ -171,7 +171,7 @@ class AsyncRootNodeTest extends AbstractExecutionTest<RowWrapper> {
             return IntStream.range(0, 76).mapToObj(factory::create).iterator();
         });
 
-        AsyncRootNode<RowWrapper, RowWrapper> rootNode = new AsyncRootNode<>(scanNode, Function.identity());
+        AsyncRootNode<RowWrapper, RowWrapper> rootNode = new AsyncRootNode<>(context, scanNode, Function.identity());
         scanNode.onRegister(rootNode);
 
         // trigger prefetch

@@ -66,11 +66,15 @@ import org.apache.ignite.internal.pagememory.DataRegion;
 import org.apache.ignite.internal.pagememory.FullPageId;
 import org.apache.ignite.internal.pagememory.PageIdAllocator;
 import org.apache.ignite.internal.pagememory.PageMemory;
+import org.apache.ignite.internal.pagememory.PartitionPageMemory;
+import org.apache.ignite.internal.pagememory.TestDataRegion;
 import org.apache.ignite.internal.pagememory.configuration.CheckpointConfiguration;
 import org.apache.ignite.internal.pagememory.configuration.PersistentDataRegionConfiguration;
 import org.apache.ignite.internal.pagememory.io.PageIoRegistry;
+import org.apache.ignite.internal.pagememory.metrics.CollectionMetricSource;
 import org.apache.ignite.internal.pagememory.persistence.DirtyFullPageId;
 import org.apache.ignite.internal.pagememory.persistence.GroupPartitionId;
+import org.apache.ignite.internal.pagememory.persistence.PageWriteTarget;
 import org.apache.ignite.internal.pagememory.persistence.PartitionDestructionLockManager;
 import org.apache.ignite.internal.pagememory.persistence.PartitionMeta.PartitionMetaSnapshot;
 import org.apache.ignite.internal.pagememory.persistence.PartitionMetaManager;
@@ -79,7 +83,6 @@ import org.apache.ignite.internal.pagememory.persistence.PersistentPageMemoryMet
 import org.apache.ignite.internal.pagememory.persistence.TestPageReadWriteManager;
 import org.apache.ignite.internal.pagememory.persistence.WriteDirtyPage;
 import org.apache.ignite.internal.pagememory.persistence.checkpoint.CheckpointManager;
-import org.apache.ignite.internal.pagememory.persistence.checkpoint.CheckpointMetricSource;
 import org.apache.ignite.internal.pagememory.persistence.checkpoint.CheckpointMetricsTracker;
 import org.apache.ignite.internal.pagememory.persistence.checkpoint.CheckpointProgress;
 import org.apache.ignite.internal.pagememory.persistence.checkpoint.CheckpointProgressImpl;
@@ -170,13 +173,13 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
                 shouldNotHappenFlushDirtyPageForReplacement()
         );
 
-        dataRegions.add(() -> pageMemory);
+        PartitionPageMemory partitionPageMemory = pageMemory.createPartitionPageMemory(GRP_ID, PARTITION_ID);
+
+        dataRegions.add(new TestDataRegion<>(pageMemory));
 
         filePageStoreManager.start();
 
         checkpointManager.start();
-
-        pageMemory.start();
 
         try {
             initGroupFilePageStores(filePageStoreManager, partitionMetaManager, checkpointManager, pageMemory);
@@ -184,12 +187,15 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
             checkpointManager.checkpointTimeoutLock().checkpointReadLock();
 
             try {
-                Set<DirtyFullPageId> dirtyPages = Set.of(createDirtyPage(pageMemory), createDirtyPage(pageMemory));
+                Set<DirtyFullPageId> dirtyPages = Set.of(createDirtyPage(partitionPageMemory), createDirtyPage(partitionPageMemory));
                 assertThat(pageMemory.dirtyPages(), equalTo(dirtyPages));
 
                 assertEquals(2, pageMemory.invalidate(GRP_ID, PARTITION_ID));
 
-                Set<DirtyFullPageId> dirtyPagesAfterInvalidation = Set.of(createDirtyPage(pageMemory), createDirtyPage(pageMemory));
+                Set<DirtyFullPageId> dirtyPagesAfterInvalidation = Set.of(
+                        createDirtyPage(partitionPageMemory),
+                        createDirtyPage(partitionPageMemory)
+                );
                 assertThat(pageMemory.dirtyPages(), equalTo(union(dirtyPages, dirtyPagesAfterInvalidation)));
             } finally {
                 checkpointManager.checkpointTimeoutLock().checkpointReadUnlock();
@@ -237,13 +243,13 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
                 shouldNotHappenFlushDirtyPageForReplacement()
         );
 
-        dataRegions.add(() -> pageMemory);
+        PartitionPageMemory partitionPageMemory = pageMemory.createPartitionPageMemory(GRP_ID, PARTITION_ID);
+
+        dataRegions.add(new TestDataRegion<>(pageMemory));
 
         filePageStoreManager.start();
 
         checkpointManager.start();
-
-        pageMemory.start();
 
         try {
             initGroupFilePageStores(filePageStoreManager, partitionMetaManager, checkpointManager, pageMemory);
@@ -262,19 +268,19 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
                 int i = 0;
 
                 for (; i < dirtyPagesSoftThreshold - 1; i++) {
-                    createDirtyPage(pageMemory);
+                    createDirtyPage(partitionPageMemory);
 
                     assertEquals(NOT_REQUIRED, pageMemory.checkpointUrgency(), "i=" + i);
                 }
 
                 for (; i < dirtyPagesHardThreshold - 1; i++) {
-                    createDirtyPage(pageMemory);
+                    createDirtyPage(partitionPageMemory);
 
                     assertEquals(SHOULD_TRIGGER, pageMemory.checkpointUrgency(), "i=" + i);
                 }
 
                 for (; i < maxPages; i++) {
-                    createDirtyPage(pageMemory);
+                    createDirtyPage(partitionPageMemory);
 
                     assertEquals(MUST_TRIGGER, pageMemory.checkpointUrgency(), "i=" + i);
                 }
@@ -320,13 +326,13 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
                 shouldNotHappenFlushDirtyPageForReplacement()
         );
 
-        dataRegions.add(() -> pageMemory);
+        PartitionPageMemory partitionPageMemory = pageMemory.createPartitionPageMemory(GRP_ID, PARTITION_ID);
+
+        dataRegions.add(new TestDataRegion<>(pageMemory));
 
         filePageStoreManager.start();
 
         checkpointManager.start();
-
-        pageMemory.start();
 
         try {
             initGroupFilePageStores(filePageStoreManager, partitionMetaManager, checkpointManager, pageMemory);
@@ -334,9 +340,9 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
             checkpointManager.checkpointTimeoutLock().checkpointReadLock();
 
             try {
-                createDirtyPage(pageMemory);
-                createDirtyPage(pageMemory);
-                createDirtyPage(pageMemory);
+                createDirtyPage(partitionPageMemory);
+                createDirtyPage(partitionPageMemory);
+                createDirtyPage(partitionPageMemory);
             } finally {
                 checkpointManager.checkpointTimeoutLock().checkpointReadUnlock();
             }
@@ -381,16 +387,19 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
                 defaultCheckpointBufferSize(),
                 filePageStoreManager,
                 checkpointManager,
-                (pageMemory0, fullPageId, buffer) -> flushDirtyPageForReplacementFuture.complete(null)
+                (pageMemory0, fullPageId, buffer) -> {
+                    flushDirtyPageForReplacementFuture.complete(null);
+                    return PageWriteTarget.NONE;
+                }
         );
 
-        dataRegions.add(() -> pageMemory);
+        PartitionPageMemory partitionPageMemory = pageMemory.createPartitionPageMemory(GRP_ID, PARTITION_ID);
+
+        dataRegions.add(new TestDataRegion<>(pageMemory));
 
         filePageStoreManager.start();
 
         checkpointManager.start();
-
-        pageMemory.start();
 
         CompletableFuture<?> startWriteMetaToBufferFuture = new CompletableFuture<>();
         CompletableFuture<?> finishWaitWriteMetaToBufferFuture = new CompletableFuture<>();
@@ -413,7 +422,7 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
 
             try {
                 for (int i = 0; i < 1_000; i++) {
-                    createDirtyPage(pageMemory);
+                    createDirtyPage(partitionPageMemory);
                 }
             } finally {
                 checkpointManager.checkpointTimeoutLock().checkpointReadUnlock();
@@ -432,7 +441,7 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
 
                 do {
                     // We create new dirty pages so that we get to the end of the data region and start page replacing.
-                    createDirtyPage(pageMemory);
+                    createDirtyPage(partitionPageMemory);
                 } while (!flushDirtyPageForReplacementFuture.isDone());
 
                 // Let's write the dirty pages to disk and complete the checkpoint.
@@ -454,7 +463,7 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
     }
 
     /**
-     * Tests that {@link PersistentPageMemory#acquirePage(int, long)} works correctly when multiple threads try to acquire the same page
+     * Tests that {@link PartitionPageMemory#acquirePage(int, long)} works correctly when multiple threads try to acquire the same page
      * using different {@code pageId} values, assuming that one of the threads simply has an invalid identifier from some obsolete source.
      */
     @Test
@@ -485,11 +494,12 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
                 shouldNotHappenFlushDirtyPageForReplacement()
         );
 
-        dataRegions.add(() -> pageMemory);
+        PartitionPageMemory partitionPageMemory = pageMemory.createPartitionPageMemory(GRP_ID, PARTITION_ID);
+
+        dataRegions.add(new TestDataRegion<>(pageMemory));
 
         filePageStoreManager.start();
         checkpointManager.start();
-        pageMemory.start();
 
         try {
             initGroupFilePageStores(filePageStoreManager, partitionMetaManager, checkpointManager, pageMemory);
@@ -498,7 +508,7 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
 
             try {
                 for (int i = 0; i < pages; i++) {
-                    createDirtyPage(pageMemory);
+                    createDirtyPage(partitionPageMemory);
                 }
             } finally {
                 checkpointManager.checkpointTimeoutLock().checkpointReadUnlock();
@@ -526,10 +536,10 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
                 checkpointManager,
                 shouldNotHappenFlushDirtyPageForReplacement()
         );
+        PartitionPageMemory partitionPageMemory2 = pageMemory2.createPartitionPageMemory(GRP_ID, PARTITION_ID);
 
         filePageStoreManager.start();
         checkpointManager.start();
-        pageMemory2.start();
 
         try {
             initGroupFilePageStores(filePageStoreManager, partitionMetaManager, checkpointManager, pageMemory2);
@@ -542,11 +552,11 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
                 // Step 3. Run the race for all pages in the partition.
                 // It's fine to not release/unlock these pages, we stop the region immediately after.
                 IgniteTestUtils.runRace(
-                        () -> pageMemory2.acquirePage(GRP_ID, fakePageId),
+                        () -> partitionPageMemory2.acquirePage(GRP_ID, fakePageId),
                         () -> {
-                            long page = pageMemory2.acquirePage(GRP_ID, realPageId);
+                            long page = partitionPageMemory2.acquirePage(GRP_ID, realPageId);
 
-                            assertNotEquals(0L, pageMemory2.readLock(GRP_ID, realPageId, page));
+                            assertNotEquals(0L, partitionPageMemory2.readLock(GRP_ID, realPageId, page));
                         }
                 );
             }
@@ -580,7 +590,7 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
         );
     }
 
-    private DirtyFullPageId createDirtyPage(PersistentPageMemory pageMemory) throws Exception {
+    private DirtyFullPageId createDirtyPage(PartitionPageMemory pageMemory) throws Exception {
         FullPageId fullPageId = allocatePage(pageMemory);
 
         long page = pageMemory.acquirePage(fullPageId.groupId(), fullPageId.pageId());
@@ -623,7 +633,7 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
                 ioRegistry,
                 mock(LogSyncer.class),
                 executorService,
-                new CheckpointMetricSource("test"),
+                new CollectionMetricSource("test", "storage", null),
                 PAGE_SIZE
         );
     }
@@ -696,14 +706,14 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
     public void testLoadedPagesCount() {
         PageMemory mem = memory();
 
-        mem.start();
+        PartitionPageMemory partitionPageMemory = mem.createPartitionPageMemory(GRP_ID, PARTITION_ID);
 
         int expPages = MAX_MEMORY_SIZE / mem.systemPageSize();
 
         try {
             assertDoesNotThrow(() -> {
                 for (int i = 0; i < expPages * 2; i++) {
-                    allocatePage(mem);
+                    allocatePage(partitionPageMemory);
                 }
             });
         } finally {
@@ -714,10 +724,12 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
     @Test
     void testPartitionGenerationAfterAllocatePage() throws Exception {
         runWithStartedPersistentPageMemory(mem -> {
-            FullPageId fullPageId = allocatePage(mem);
+            PartitionPageMemory partitionPageMemory = mem.createPartitionPageMemory(GRP_ID, PARTITION_ID);
+
+            FullPageId fullPageId = allocatePage(partitionPageMemory);
 
             // Absolute memory pointer to page with header.
-            long absPtr = mem.acquirePage(fullPageId.groupId(), fullPageId.pageId());
+            long absPtr = partitionPageMemory.acquirePage(fullPageId.groupId(), fullPageId.pageId());
 
             assertEquals(1, partitionGeneration(absPtr));
         });
@@ -728,10 +740,12 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
         runWithStartedPersistentPageMemory(mem -> {
             assertEquals(2, mem.invalidate(GRP_ID, PARTITION_ID));
 
-            FullPageId fullPageId = allocatePage(mem);
+            PartitionPageMemory partitionPageMemory = mem.createPartitionPageMemory(GRP_ID, PARTITION_ID);
+
+            FullPageId fullPageId = allocatePage(partitionPageMemory);
 
             // Absolute memory pointer to page with header.
-            long absPtr = mem.acquirePage(fullPageId.groupId(), fullPageId.pageId());
+            long absPtr = partitionPageMemory.acquirePage(fullPageId.groupId(), fullPageId.pageId());
 
             assertEquals(2, partitionGeneration(absPtr));
         });
@@ -740,7 +754,9 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
     @Test
     void testPartitionGenerationAfterCheckpointWritePageAndInvalidatePartition() throws Exception {
         runWithStartedPersistentPageMemory(mem -> {
-            DirtyFullPageId fullPageId = allocateDirtyPage(mem);
+            PartitionPageMemory partitionPageMemory = mem.createPartitionPageMemory(GRP_ID, PARTITION_ID);
+
+            DirtyFullPageId fullPageId = allocateDirtyPage(partitionPageMemory);
 
             mem.beginCheckpoint(new CheckpointProgressImpl(42));
 
@@ -754,8 +770,10 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
                     true
             );
 
+            partitionPageMemory = mem.createPartitionPageMemory(GRP_ID, PARTITION_ID);
+
             // Absolute memory pointer to page with header.
-            long absPtr = mem.acquirePage(fullPageId.groupId(), fullPageId.pageId());
+            long absPtr = partitionPageMemory.acquirePage(fullPageId.groupId(), fullPageId.pageId());
 
             assertEquals(2, partitionGeneration(absPtr));
         });
@@ -763,8 +781,6 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
 
     private void runWithStartedPersistentPageMemory(ConsumerX<PersistentPageMemory> c) throws Exception {
         PersistentPageMemory mem = (PersistentPageMemory) memory();
-
-        mem.start();
 
         try {
             c.accept(mem);
@@ -784,7 +800,7 @@ public class PersistentPageMemoryNoLoadTest extends AbstractPageMemoryNoLoadSelf
      * @param mem Memory.
      * @throws IgniteInternalCheckedException If failed.
      */
-    public static DirtyFullPageId allocateDirtyPage(PersistentPageMemory mem) throws IgniteInternalCheckedException {
+    public static DirtyFullPageId allocateDirtyPage(PartitionPageMemory mem) throws IgniteInternalCheckedException {
         long pageId = mem.allocatePageNoReuse(GRP_ID, PARTITION_ID, PageIdAllocator.FLAG_DATA);
 
         long page = mem.acquirePage(GRP_ID, pageId);

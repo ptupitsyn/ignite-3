@@ -47,6 +47,7 @@ public sealed class IgniteDbConnectionStringBuilder : DbConnectionStringBuilder
         nameof(Username),
         nameof(Password),
         nameof(ReResolveAddressesInterval),
+        nameof(SqlPartitionAwarenessMetadataCacheSize),
         nameof(LoggerFactory)
     };
 
@@ -164,6 +165,17 @@ public sealed class IgniteDbConnectionStringBuilder : DbConnectionStringBuilder
     }
 
     /// <summary>
+    /// Gets or sets the SQL partition awareness metadata cache size. See <see cref="IgniteClientConfiguration.SqlPartitionAwarenessMetadataCacheSize"/> for more details.
+    /// </summary>
+    public int SqlPartitionAwarenessMetadataCacheSize
+    {
+        get => GetString(nameof(SqlPartitionAwarenessMetadataCacheSize)) is { } s
+            ? int.Parse(s, CultureInfo.InvariantCulture)
+            : IgniteClientConfiguration.DefaultSqlPartitionAwarenessMetadataCacheSize;
+        set => this[nameof(SqlPartitionAwarenessMetadataCacheSize)] = value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
     /// Gets or sets the logger factory type name. See <see cref="IgniteClientConfiguration.LoggerFactory"/> for more details.
     /// </summary>
     public string? LoggerFactory
@@ -207,6 +219,7 @@ public sealed class IgniteDbConnectionStringBuilder : DbConnectionStringBuilder
                 Password = Password ?? string.Empty
             },
             ReResolveAddressesInterval = ReResolveAddressesInterval,
+            SqlPartitionAwarenessMetadataCacheSize = SqlPartitionAwarenessMetadataCacheSize,
             LoggerFactory = GetLoggerFactoryInstance()
         };
     }

@@ -19,6 +19,7 @@ package org.apache.ignite.internal.client;
 
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.concurrent.CompletableFuture.failedFuture;
+import static org.apache.ignite.internal.client.proto.ResponseFlags.getErrorFlag;
 import static org.apache.ignite.internal.util.ExceptionUtils.copyExceptionWithCause;
 import static org.apache.ignite.internal.util.ExceptionUtils.sneakyThrow;
 import static org.apache.ignite.internal.util.ExceptionUtils.unwrapRootCause;
@@ -32,6 +33,7 @@ import io.netty.channel.ChannelFuture;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -65,14 +67,17 @@ import org.apache.ignite.internal.client.proto.HandshakeUtils;
 import org.apache.ignite.internal.client.proto.ProtocolBitmaskFeature;
 import org.apache.ignite.internal.client.proto.ProtocolVersion;
 import org.apache.ignite.internal.client.proto.ResponseFlags;
+import org.apache.ignite.internal.client.proto.tx.ErrorFlags;
+import org.apache.ignite.internal.client.tx.ClientTransaction;
+import org.apache.ignite.internal.client.tx.ClientTransactionKilledException;
 import org.apache.ignite.internal.future.timeout.TimeoutObject;
 import org.apache.ignite.internal.logger.IgniteLogger;
 import org.apache.ignite.internal.properties.IgniteProductVersion;
 import org.apache.ignite.internal.thread.PublicApiThreading;
 import org.apache.ignite.internal.tostring.S;
-import org.apache.ignite.internal.util.ViewUtils;
 import org.apache.ignite.lang.ErrorGroups.Table;
 import org.apache.ignite.lang.IgniteException;
+import org.apache.ignite.lang.TraceableException;
 import org.apache.ignite.network.NetworkAddress;
 import org.apache.ignite.sql.SqlBatchException;
 import org.apache.ignite.tx.TransactionException;
@@ -98,7 +103,12 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
             ProtocolBitmaskFeature.SQL_PARTITION_AWARENESS,
             ProtocolBitmaskFeature.SQL_DIRECT_TX_MAPPING,
             ProtocolBitmaskFeature.TX_CLIENT_GETALL_SUPPORTS_TX_OPTIONS,
-            ProtocolBitmaskFeature.SQL_MULTISTATEMENT_SUPPORT
+            ProtocolBitmaskFeature.SQL_MULTISTATEMENT_SUPPORT,
+            ProtocolBitmaskFeature.COMPUTE_OBSERVABLE_TS,
+            ProtocolBitmaskFeature.TX_DIRECT_MAPPING_SEND_REMOTE_WRITES,
+            ProtocolBitmaskFeature.TX_DIRECT_MAPPING_SEND_DISCARD,
+            ProtocolBitmaskFeature.SQL_UPDATE_COUNTERS_2,
+            ProtocolBitmaskFeature.TX_ROLLBACK_USING_FIRST_REQUEST
     ));
 
     /** Minimum supported heartbeat interval. */
@@ -212,7 +222,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
                 })
                 .whenComplete((res, err) -> {
                     if (err != null) {
-                        close();
+                        close(err, false);
                     }
                 })
                 .thenApplyAsync(unused -> {
@@ -258,6 +268,11 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
     private void close(@Nullable Throwable cause, boolean graceful) {
         if (!closed.compareAndSet(false, true)) {
             return;
+        }
+
+        if (log.isDebugEnabled()) {
+            log.debug("Connection closed [remoteAddress=" + cfg.getAddress() + ", graceful=" + graceful + ", message="
+                    + (cause != null ? cause.getMessage() : "") + ']');
         }
 
         if (cause != null && (cause instanceof TimeoutException || cause.getCause() instanceof TimeoutException)) {
@@ -316,11 +331,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
 
     /** {@inheritDoc} */
     @Override
-    public void onDisconnected(@Nullable Exception e) {
-        if (log.isDebugEnabled()) {
-            log.debug("Connection closed [remoteAddress=" + cfg.getAddress() + ']');
-        }
-
+    public void onDisconnected(@Nullable Throwable e) {
         close(e, false);
     }
 
@@ -396,6 +407,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
                 payloadWriter.accept(payloadCh);
             }
 
+            var actions = Collections.unmodifiableList(payloadCh.onSentActions());
             write(req).addListener(f -> {
                 if (!f.isSuccess()) {
                     String msg = "Failed to send request async [id=" + id + ", op=" + opCode + ", remoteAddress=" + cfg.getAddress() + "]";
@@ -411,8 +423,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
                 } else {
                     metrics.requestsSentIncrement();
 
-                    Runnable action = payloadCh.onSentAction();
-                    if (action != null) {
+                    for (Runnable action : actions) {
                         asyncContinuationExecutor.execute(action);
                     }
                 }
@@ -424,10 +435,10 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
                 try {
                     ClientMessageUnpacker unpacker = fut.join();
 
-                    return completedFuture(complete(payloadReader, notificationFut, unpacker));
+                    return completedFuture(complete(payloadReader, notificationFut, unpacker, opCode));
                 } catch (Throwable t) {
                     expectedException = true;
-                    throw sneakyThrow(ViewUtils.ensurePublicException(t));
+                    throw sneakyThrow(t);
                 }
             }
 
@@ -435,7 +446,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
             CompletableFuture<T> resFut = new CompletableFuture<>();
 
             fut.handle((unpacker, err) -> {
-                completeAsync(payloadReader, notificationFut, unpacker, err, resFut);
+                completeAsync(payloadReader, notificationFut, unpacker, err, resFut, opCode);
                 return null;
             });
 
@@ -446,8 +457,12 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
                 throw sneakyThrow(t);
             }
 
-            log.warn("Failed to send request sync [id=" + id + ", op=" + opCode + ", remoteAddress=" + cfg.getAddress() + "]: "
-                    + t.getMessage(), t);
+            //noinspection InstanceofCatchParameter
+            if (t instanceof IgniteClientConnectionException) {
+                // Only log connection errors - consistent with async path.
+                log.warn("Failed to send request sync [id=" + id + ", op=" + opCode + ", remoteAddress=" + cfg.getAddress() + "]: "
+                        + t.getMessage(), t);
+            }
 
             // Close buffer manually on fail. Successful write closes the buffer automatically.
             payloadCh.close();
@@ -455,7 +470,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
 
             metrics.requestsActiveDecrement();
 
-            throw sneakyThrow(ViewUtils.ensurePublicException(t));
+            throw sneakyThrow(t);
         }
     }
 
@@ -464,17 +479,18 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
             @Nullable CompletableFuture<PayloadInputChannel> notificationFut,
             ClientMessageUnpacker unpacker,
             @Nullable Throwable err,
-            CompletableFuture<T> resFut
+            CompletableFuture<T> resFut,
+            int opCode
     ) {
         if (err != null) {
             assert unpacker == null : "unpacker must be null if err is not null";
 
             try {
-                asyncContinuationExecutor.execute(() -> resFut.completeExceptionally(ViewUtils.ensurePublicException(err)));
+                asyncContinuationExecutor.execute(() -> resFut.completeExceptionally(err));
             } catch (Throwable execError) {
                 // Executor error, complete directly.
                 execError.addSuppressed(err);
-                resFut.completeExceptionally(ViewUtils.ensurePublicException(execError));
+                resFut.completeExceptionally(execError);
             }
 
             return;
@@ -485,16 +501,16 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
             // With handleAsync et al we can't close the unpacker in that case.
             asyncContinuationExecutor.execute(() -> {
                 try {
-                    resFut.complete(complete(payloadReader, notificationFut, unpacker));
+                    resFut.complete(complete(payloadReader, notificationFut, unpacker, opCode));
                 } catch (Throwable t) {
-                    resFut.completeExceptionally(ViewUtils.ensurePublicException(t));
+                    resFut.completeExceptionally(t);
                 }
             });
         } catch (Throwable execErr) {
             unpacker.close();
 
             // Executor error, complete directly.
-            resFut.completeExceptionally(ViewUtils.ensurePublicException(execErr));
+            resFut.completeExceptionally(execErr);
         }
     }
 
@@ -504,11 +520,13 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
      * @param payloadReader Payload reader.
      * @param notificationFut Notify future.
      * @param unpacker Unpacked message.
+     * @param opCode Op code.
      */
     private <T> @Nullable T complete(
             @Nullable PayloadReader<T> payloadReader,
             @Nullable CompletableFuture<PayloadInputChannel> notificationFut,
-            ClientMessageUnpacker unpacker
+            ClientMessageUnpacker unpacker,
+            int opCode
     ) {
         try (unpacker) {
             if (payloadReader != null) {
@@ -517,9 +535,14 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
 
             return null;
         } catch (Throwable e) {
-            log.error("Failed to deserialize server response [remoteAddress=" + cfg.getAddress() + "]: " + e.getMessage(), e);
+            if (e instanceof TraceableException) {
+                throw sneakyThrow(e);
+            }
 
-            throw new IgniteException(PROTOCOL_ERR, "Failed to deserialize server response: " + e.getMessage(), e);
+            log.error("Failed to deserialize server response [remoteAddress=" + cfg.getAddress() + ", opCode=" + opCode + "]: "
+                    + e.getMessage(), e);
+
+            throw new IgniteException(PROTOCOL_ERR, "Failed to deserialize server response for op " + opCode + ": " + e.getMessage(), e);
         }
     }
 
@@ -539,7 +562,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
         handlePartitionAssignmentChange(flags, unpacker);
         handleObservableTimestamp(unpacker);
 
-        Throwable err = ResponseFlags.getErrorFlag(flags) ? readError(unpacker) : null;
+        Throwable err = getErrorFlag(flags) ? readError(unpacker) : null;
 
         if (ResponseFlags.getNotificationFlag(flags)) {
             handleNotification(resId, unpacker, err);
@@ -596,6 +619,13 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
                     ClientDelayedAckException err0 = (ClientDelayedAckException) err;
 
                     inflights.removeInflight(err0.txId(), new TransactionException(err0.code(), err0.getMessage(), err0.getCause()));
+                } else if (err instanceof ClientTransactionKilledException) {
+                    ClientTransactionKilledException err0 = (ClientTransactionKilledException) err;
+
+                    ClientTransaction tx = inflights.trackedTransaction(err0.txId());
+                    if (tx != null) {
+                        tx.rollbackAndDiscardDirectMappings(true);
+                    }
                 }
 
                 // Can't do anything to remove stuck inflight.
@@ -623,13 +653,22 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
 
         var errClassName = unpacker.unpackString();
         var errMsg = unpacker.tryUnpackNil() ? null : unpacker.unpackString();
+        @Nullable String causeStr = unpacker.tryUnpackNil() ? null : unpacker.unpackString();
 
-        IgniteException causeWithStackTrace = unpacker.tryUnpackNil() ? null : new IgniteException(traceId, code, unpacker.unpackString());
+        String msg;
+        if (causeStr == null) {
+            msg = errMsg;
+        } else if (errMsg == null) {
+            msg = causeStr;
+        } else {
+            // Remove some duplication between errorMsg and cause.
+            int idx = causeStr.indexOf(errMsg);
+            msg = (idx == -1) ? errMsg + '\n' + causeStr : causeStr.substring(idx);
+        }
 
         int extSize = unpacker.tryUnpackNil() ? 0 : unpacker.unpackInt();
         int expectedSchemaVersion = -1;
-        long[] sqlUpdateCounters = null;
-        UUID txId = null;
+        boolean retriable = false;
 
         for (int i = 0; i < extSize; i++) {
             String key = unpacker.unpackString();
@@ -637,41 +676,54 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
             if (key.equals(ErrorExtensions.EXPECTED_SCHEMA_VERSION)) {
                 expectedSchemaVersion = unpacker.unpackInt();
             } else if (key.equals(ErrorExtensions.SQL_UPDATE_COUNTERS)) {
-                sqlUpdateCounters = unpacker.unpackLongArray();
+                // Deprecated format, keep for compat with older servers.
+                return new SqlBatchException(traceId, code, unpacker.unpackLongArray(),
+                        msg != null ? msg : "SQL batch execution error", null);
+            } else if (key.equals(ErrorExtensions.SQL_UPDATE_COUNTERS_2)) {
+                return new SqlBatchException(traceId, code, unpacker.unpackLongArrayAsBinary(),
+                        msg != null ? msg : "SQL batch execution error", null);
             } else if (key.equals(ErrorExtensions.DELAYED_ACK)) {
-                txId = unpacker.unpackUuid();
+                Throwable causeWithStackTrace = createException(errClassName, traceId, code, msg, false);
+                return new ClientDelayedAckException(traceId, code, errMsg, unpacker.unpackUuid(), causeWithStackTrace);
+            } else if (key.equals(ErrorExtensions.TX_KILL)) {
+                Throwable causeWithStackTrace = createException(errClassName, traceId, code, msg, false);
+                return new ClientTransactionKilledException(traceId, code, msg, unpacker.unpackUuid(), causeWithStackTrace);
+            } else if (key.equals(ErrorExtensions.FLAGS)) {
+                EnumSet<ErrorFlags> flags = ErrorFlags.unpack(unpacker.unpackInt());
+                retriable = flags.contains(ErrorFlags.RETRIABLE);
             } else {
                 // Unknown extension - ignore.
                 unpacker.skipValues(1);
             }
         }
 
-        if (txId != null) {
-            return new ClientDelayedAckException(traceId, code, errMsg, txId, causeWithStackTrace);
-        }
-
-        if (sqlUpdateCounters != null) {
-            errMsg = errMsg != null ? errMsg : "SQL batch execution error";
-            return new SqlBatchException(traceId, code, sqlUpdateCounters, errMsg, causeWithStackTrace);
-        }
-
         if (code == Table.SCHEMA_VERSION_MISMATCH_ERR) {
+            Throwable causeWithStackTrace = createException(errClassName, traceId, code, msg, false);
             if (expectedSchemaVersion == -1) {
                 return new IgniteException(
                         traceId, PROTOCOL_ERR, "Expected schema version is not specified in error extension map.", causeWithStackTrace);
             }
 
-            return new ClientSchemaVersionMismatchException(traceId, code, errMsg, expectedSchemaVersion, causeWithStackTrace);
+            return new ClientSchemaVersionMismatchException(traceId, code, msg, expectedSchemaVersion, null);
         }
 
+        return createException(errClassName, traceId, code, msg, retriable);
+    }
+
+    private static Throwable createException(String errClassName, UUID traceId, int code, String msg, boolean isRetriable) {
         try {
             Class<? extends Throwable> errCls = (Class<? extends Throwable>) Class.forName(errClassName);
-            return copyExceptionWithCause(errCls, traceId, code, errMsg, causeWithStackTrace);
-        } catch (ClassNotFoundException ignored) {
-            // Ignore: incompatible exception class. Fall back to generic exception.
-        }
+            @Nullable Throwable ex = copyExceptionWithCause(errCls, traceId, code, msg, null);
+            if (ex == null) {
+                ex = new IgniteException(traceId, code, msg);
+            }
 
-        return new IgniteException(traceId, code, errClassName + ": " + errMsg, causeWithStackTrace);
+            return isRetriable
+                    ? new ClientRetriableTransactionException(code, msg, ex)
+                    : ex;
+        } catch (ClassNotFoundException ignored) {
+            return new IgniteException(traceId, code, errClassName + ": " + msg);
+        }
     }
 
     /** {@inheritDoc} */
@@ -720,7 +772,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
         CompletableFuture<Object> resFut = new CompletableFuture<>();
 
         fut.handle((unpacker, err) -> {
-            completeAsync(r -> handshakeRes(r.in()), null, unpacker, err, resFut);
+            completeAsync(r -> handshakeRes(r.in()), null, unpacker, err, resFut, -1);
             return null;
         });
 
@@ -729,7 +781,13 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
                 metrics.handshakesFailedTimeoutIncrement();
                 throw new IgniteClientConnectionException(CONNECTION_ERR, "Handshake timeout", endpoint(), err);
             }
+
             metrics.handshakesFailedIncrement();
+
+            if (err instanceof TraceableException) {
+                throw new IgniteClientConnectionException(((TraceableException) err).code(), "Handshake error", endpoint(), err);
+            }
+
             throw new IgniteClientConnectionException(CONNECTION_ERR, "Handshake error", endpoint(), err);
         });
     }
@@ -924,7 +982,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
 
     void checkTimeouts(long now) {
         for (Entry<Long, TimeoutObjectImpl> req : pendingReqs.entrySet()) {
-            TimeoutObject<CompletableFuture<ClientMessageUnpacker>> timeoutObject = req.getValue();
+            TimeoutObject<ClientMessageUnpacker> timeoutObject = req.getValue();
 
             if (timeoutObject != null && timeoutObject.endTime() > 0 && now > timeoutObject.endTime()) {
                 // Client-facing future will fail with a timeout, but internal ClientRequestFuture will stay in the map -
@@ -938,7 +996,7 @@ class TcpClientChannel implements ClientChannel, ClientMessageHandler, ClientCon
     /**
      * Timeout object wrapper for the completable future.
      */
-    private static class TimeoutObjectImpl implements TimeoutObject<CompletableFuture<ClientMessageUnpacker>> {
+    private static class TimeoutObjectImpl implements TimeoutObject<ClientMessageUnpacker> {
         /** End time (milliseconds since Unix epoch). */
         private final long endTime;
 

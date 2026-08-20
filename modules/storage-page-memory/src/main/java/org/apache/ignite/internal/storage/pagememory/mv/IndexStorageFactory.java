@@ -22,7 +22,7 @@ import static org.apache.ignite.internal.storage.util.StorageUtils.initialRowIdT
 import java.util.UUID;
 import org.apache.ignite.internal.lang.IgniteInternalCheckedException;
 import org.apache.ignite.internal.pagememory.PageIdAllocator;
-import org.apache.ignite.internal.pagememory.PageMemory;
+import org.apache.ignite.internal.pagememory.PartitionPageMemory;
 import org.apache.ignite.internal.pagememory.freelist.FreeListImpl;
 import org.apache.ignite.internal.storage.StorageException;
 import org.apache.ignite.internal.storage.index.StorageHashIndexDescriptor;
@@ -41,9 +41,11 @@ import org.apache.ignite.internal.storage.pagememory.index.sorted.SortedIndexTre
  * Class responsible for creating Index B-Trees.
  */
 class IndexStorageFactory {
-    private final AbstractPageMemoryTableStorage tableStorage;
+    private final AbstractPageMemoryTableStorage<?> tableStorage;
 
     private final int partitionId;
+
+    private final PartitionPageMemory partitionPageMemory;
 
     private final IndexMetaTree indexMetaTree;
 
@@ -66,13 +68,14 @@ class IndexStorageFactory {
     }
 
     IndexStorageFactory(
-            AbstractPageMemoryTableStorage tableStorage,
-            int partitionId,
+            AbstractPageMemoryTableStorage<?> tableStorage,
+            PartitionPageMemory partitionPageMemory,
             IndexMetaTree indexMetaTree,
             FreeListImpl freeList
     ) {
         this.tableStorage = tableStorage;
-        this.partitionId = partitionId;
+        this.partitionId = partitionPageMemory.partitionId();
+        this.partitionPageMemory = partitionPageMemory;
         this.indexMetaTree = indexMetaTree;
         this.freeList = freeList;
     }
@@ -128,7 +131,7 @@ class IndexStorageFactory {
                         tableStorage.getTableId(),
                         Integer.toString(tableStorage.getTableId()),
                         partitionId,
-                        tableStorage.dataRegion().pageMemory(),
+                        partitionPageMemory,
                         tableStorage.engine().generateGlobalRemoveId(),
                         metaPageId,
                         freeList,
@@ -142,7 +145,7 @@ class IndexStorageFactory {
                     tableStorage.getTableId(),
                     Integer.toString(tableStorage.getTableId()),
                     partitionId,
-                    tableStorage.dataRegion().pageMemory(),
+                    partitionPageMemory,
                     tableStorage.engine().generateGlobalRemoveId(),
                     indexMeta.metaPageId(),
                     freeList
@@ -196,6 +199,13 @@ class IndexStorageFactory {
         );
     }
 
+    /**
+     * This method notifies the factory that an index with a given descriptor has been fully destroyed.
+     */
+    void sortedIndexDestroyed(StorageSortedIndexDescriptor indexDescriptor) {
+        tableStorage.engine().disposeSortedIndexComparator(indexDescriptor);
+    }
+
     private IndexTreeAndMeta<SortedIndexTree> createSortedIndexTreeAndMeta(StorageSortedIndexDescriptor indexDescriptor) {
         return createIndexTree(
                 indexDescriptor,
@@ -203,11 +213,12 @@ class IndexStorageFactory {
                         tableStorage.getTableId(),
                         Integer.toString(tableStorage.getTableId()),
                         partitionId,
-                        tableStorage.dataRegion().pageMemory(),
+                        partitionPageMemory,
                         tableStorage.engine().generateGlobalRemoveId(),
                         metaPageId,
                         freeList,
-                        indexDescriptor
+                        indexDescriptor,
+                        tableStorage.engine().createSortedIndexComparator(indexDescriptor)
                 )
         );
     }
@@ -218,11 +229,12 @@ class IndexStorageFactory {
                     tableStorage.getTableId(),
                     Integer.toString(tableStorage.getTableId()),
                     partitionId,
-                    tableStorage.dataRegion().pageMemory(),
+                    partitionPageMemory,
                     tableStorage.engine().generateGlobalRemoveId(),
                     indexMeta.metaPageId(),
                     freeList,
-                    indexDescriptor
+                    indexDescriptor,
+                    tableStorage.engine().createSortedIndexComparator(indexDescriptor)
             );
         } catch (IgniteInternalCheckedException e) {
             throw new StorageException(e);
@@ -235,7 +247,7 @@ class IndexStorageFactory {
                     tableStorage.getTableId(),
                     Integer.toString(tableStorage.getTableId()),
                     partitionId,
-                    tableStorage.dataRegion().pageMemory(),
+                    partitionPageMemory,
                     tableStorage.engine().generateGlobalRemoveId(),
                     indexMeta.metaPageId(),
                     freeList
@@ -265,9 +277,7 @@ class IndexStorageFactory {
 
     private <T> IndexTreeAndMeta<T> createIndexTree(StorageIndexDescriptor descriptor, IndexTreeConstructor<T> treeConstructor) {
         try {
-            PageMemory pageMemory = tableStorage.dataRegion().pageMemory();
-
-            long metaPageId = pageMemory.allocatePage(freeList, tableStorage.getTableId(), partitionId, PageIdAllocator.FLAG_AUX);
+            long metaPageId = partitionPageMemory.allocatePage(freeList, tableStorage.getTableId(), partitionId, PageIdAllocator.FLAG_AUX);
 
             T tree = treeConstructor.createTree(metaPageId);
 

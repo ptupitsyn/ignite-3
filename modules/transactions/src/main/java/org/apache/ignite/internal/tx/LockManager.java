@@ -35,6 +35,8 @@ public interface LockManager extends EventProducer<LockEvent, LockEventParameter
      */
     void start(DeadlockPreventionPolicy deadlockPreventionPolicy);
 
+    DeadlockPreventionPolicy policy();
+
     /**
      * Attempts to acquire a lock for the specified {@code lockKey} in specified {@code lockMode}.
      *
@@ -84,6 +86,14 @@ public interface LockManager extends EventProducer<LockEvent, LockEventParameter
      * @param txId Tx id.
      */
     void releaseAll(UUID txId);
+
+    /**
+     * Fail all waiters with the cause.
+     *
+     * @param txId Tx id.
+     * @param cause The cause.
+     */
+    void failAllWaiters(UUID txId, Exception cause);
 
     /**
      * Returns a collection of transaction ids that is associated with the specified {@code key}.

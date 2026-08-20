@@ -55,15 +55,17 @@ import org.apache.ignite.internal.network.utils.ClusterServiceTestUtils;
 import org.apache.ignite.internal.raft.RaftGroupConfiguration;
 import org.apache.ignite.internal.raft.RaftGroupOptionsConfigurer;
 import org.apache.ignite.internal.raft.TestLozaFactory;
+import org.apache.ignite.internal.raft.configuration.LogStorageConfiguration;
 import org.apache.ignite.internal.raft.configuration.RaftConfiguration;
-import org.apache.ignite.internal.raft.storage.LogStorageFactory;
-import org.apache.ignite.internal.raft.util.SharedLogStorageFactoryUtils;
+import org.apache.ignite.internal.raft.storage.LogStorageManager;
+import org.apache.ignite.internal.raft.util.SharedLogStorageManagerUtils;
 import org.apache.ignite.internal.storage.configurations.StorageConfiguration;
 import org.apache.ignite.internal.util.IgniteUtils;
 import org.apache.ignite.internal.util.ReverseIterator;
 import org.apache.ignite.internal.vault.VaultManager;
 import org.apache.ignite.internal.vault.persistence.PersistentVaultService;
 import org.apache.ignite.network.NetworkAddress;
+import org.apache.ignite.raft.jraft.rpc.impl.RaftGroupEventsClientListener;
 import org.junit.jupiter.api.TestInfo;
 
 /**
@@ -90,6 +92,7 @@ public class MockNode {
             Path workDir,
             RaftConfiguration raftConfiguration,
             SystemLocalConfiguration systemLocalConfiguration,
+            LogStorageConfiguration logStorageConfiguration,
             NodeAttributesConfiguration nodeAttributes,
             StorageConfiguration storageProfilesConfiguration,
             Consumer<RaftGroupConfiguration> onConfigurationCommittedListener
@@ -101,6 +104,7 @@ public class MockNode {
                 workDir,
                 raftConfiguration,
                 systemLocalConfiguration,
+                logStorageConfiguration,
                 nodeAttributes,
                 () -> Map.of(COLOCATION_FEATURE_FLAG, Boolean.TRUE.toString()),
                 storageProfilesConfiguration,
@@ -118,6 +122,7 @@ public class MockNode {
             Path workDir,
             RaftConfiguration raftConfiguration,
             SystemLocalConfiguration systemLocalConfiguration,
+            LogStorageConfiguration logStorageConfiguration,
             NodeAttributesConfiguration nodeAttributes,
             NodeAttributesProvider attributesProvider,
             StorageConfiguration storageProfilesConfiguration,
@@ -140,26 +145,36 @@ public class MockNode {
 
         this.clusterService = ClusterServiceTestUtils.clusterService(nodeName, addr.port(), nodeFinder);
 
-        LogStorageFactory partitionsLogStorageFactory = SharedLogStorageFactoryUtils.create(
-                clusterService.nodeName(),
-                this.workDir.resolve("partitions/log")
+        LogStorageManager partitionsLogStorageManager = SharedLogStorageManagerUtils.create(
+                clusterService.staticLocalNode().name(),
+                this.workDir.resolve("partitions/log"),
+                logStorageConfiguration
         );
 
-        var raftManager = TestLozaFactory.create(clusterService, raftConfiguration, systemLocalConfiguration, new HybridClockImpl());
+        var eventsClientListener = new RaftGroupEventsClientListener();
+
+        var raftManager = TestLozaFactory.create(
+                clusterService,
+                raftConfiguration,
+                systemLocalConfiguration,
+                new HybridClockImpl(),
+                eventsClientListener
+        );
 
         var clusterStateStorage =
-                new RocksDbClusterStateStorage(this.workDir.resolve("cmg/data"), clusterService.nodeName());
+                new RocksDbClusterStateStorage(this.workDir.resolve("cmg/data"), clusterService.staticLocalNode().name());
 
         FailureManager failureManager = new NoOpFailureManager();
 
-        LogStorageFactory cmgLogStorageFactory =
-                SharedLogStorageFactoryUtils.create(
-                        clusterService.nodeName(),
-                        this.workDir.resolve("cmg/log")
+        LogStorageManager cmgLogStorageManager =
+                SharedLogStorageManagerUtils.create(
+                        clusterService.staticLocalNode().name(),
+                        this.workDir.resolve("cmg/log"),
+                        logStorageConfiguration
                 );
 
         RaftGroupOptionsConfigurer cmgRaftConfigurer =
-                RaftGroupOptionsConfigHelper.configureProperties(cmgLogStorageFactory, this.workDir.resolve("cmg/meta"));
+                RaftGroupOptionsConfigHelper.configureProperties(cmgLogStorageManager, this.workDir.resolve("cmg/meta"));
 
         var collector = new NodeAttributesCollector(nodeAttributes, storageProfilesConfiguration);
 
@@ -179,6 +194,7 @@ public class MockNode {
                 new LogicalTopologyImpl(clusterStateStorage, failureManager),
                 collector,
                 failureManager,
+                eventsClientListener,
                 clusterIdHolder,
                 cmgRaftConfigurer,
                 new NoOpMetricManager(),
@@ -188,8 +204,8 @@ public class MockNode {
         components = List.of(
                 vaultManager,
                 clusterService,
-                partitionsLogStorageFactory,
-                cmgLogStorageFactory,
+                partitionsLogStorageManager,
+                cmgLogStorageManager,
                 raftManager,
                 clusterStateStorage,
                 failureManager,
@@ -234,7 +250,7 @@ public class MockNode {
     }
 
     public InternalClusterNode localMember() {
-        return clusterService.topologyService().localMember();
+        return clusterService.staticLocalNode();
     }
 
     public String name() {

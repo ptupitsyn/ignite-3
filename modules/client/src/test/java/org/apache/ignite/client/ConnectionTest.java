@@ -20,6 +20,7 @@ package org.apache.ignite.client;
 import static org.apache.ignite.internal.testframework.IgniteTestUtils.assertThrowsWithCause;
 import static org.apache.ignite.internal.testframework.matchers.CompletableFutureExceptionMatcher.willTimeoutIn;
 import static org.apache.ignite.internal.testframework.matchers.CompletableFutureMatcher.willCompleteSuccessfully;
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.endsWith;
@@ -76,7 +77,7 @@ public class ConnectionTest extends AbstractClientTest {
         var ex = assertThrows(IgniteClientConnectionException.class,
                 () -> testConnection("127.0.0.1:47500"));
 
-        String errMsg = ex.getCause().getMessage();
+        String errMsg = ex.getMessage();
 
         // It does not seem possible to verify that it's a 'Connection refused' exception because with different
         // user locales the message differs, so let's just check that the message ends with the known suffix.
@@ -194,6 +195,29 @@ public class ConnectionTest extends AbstractClientTest {
             testServer.enableClientRequestHandling();
 
             assertThat(fut, willCompleteSuccessfully());
+        }
+    }
+
+    @Test
+    public void testServerDisconnect() throws InterruptedException {
+        var loggerFactory = new TestLoggerFactory("client");
+
+        try (var server = TestServer.builder().build();
+                var client = IgniteClient.builder()
+                        .addresses("localhost:" + server.port())
+                        .heartbeatInterval(100)
+                        .retryPolicy(new RetryLimitPolicy().retryLimit(1))
+                        .loggerFactory(loggerFactory)
+                        .build()) {
+            int port = server.port();
+            server.close();
+            await().until(() -> client.connections().isEmpty());
+
+            loggerFactory.waitForLogMatches(
+                    "client:Connection closed \\[remoteAddress=.*?:" + port + ", graceful=false, message=.*",
+                    1000);
+
+            loggerFactory.assertLogDoesNotContain("exception");
         }
     }
 

@@ -24,6 +24,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -34,6 +36,7 @@ import org.apache.ignite.internal.configuration.testframework.InjectConfiguratio
 import org.apache.ignite.internal.lang.IgniteBiTuple;
 import org.apache.ignite.internal.testframework.BaseIgniteAbstractTest;
 import org.apache.ignite.internal.tx.impl.HeapLockManager;
+import org.apache.ignite.internal.tx.impl.VolatileTxStateMetaStorage;
 import org.apache.ignite.internal.tx.test.TestTransactionIds;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,23 +47,48 @@ import org.junit.jupiter.api.extension.ExtendWith;
 @ExtendWith(ConfigurationExtension.class)
 public abstract class AbstractLockingTest extends BaseIgniteAbstractTest {
     @InjectConfiguration
-    private SystemLocalConfiguration systemLocalConfiguration;
+    protected SystemLocalConfiguration systemLocalConfiguration;
 
     protected LockManager lockManager;
+    protected VolatileTxStateMetaStorage txStateVolatileStorage;
     private final Map<UUID, Map<IgniteBiTuple<LockKey, LockMode>, CompletableFuture<Lock>>> locks = new HashMap<>();
+
+    private UUID[] txns;
+
+    protected UUID tx1() {
+        return txns[0];
+    }
+
+    protected UUID tx2() {
+        return txns[1];
+    }
+
+    protected UUID tx3() {
+        return txns[2];
+    }
+
+    protected UUID tx4() {
+        return txns[3];
+    }
 
     @BeforeEach
     void setUp() {
-        lockManager = lockManager();
+        txns = new UUID[4];
+        for (int i = 0; i < txns.length; i++) {
+            txns[i] = beginTx();
+        }
+
+        txStateVolatileStorage = VolatileTxStateMetaStorage.createStarted();
+        lockManager = new HeapLockManager(systemLocalConfiguration, txStateVolatileStorage);
+        DeadlockPreventionPolicy policy = deadlockPreventionPolicy();
+        lockManager.start(policy);
+        if (!policy.invertedWaitOrder()) {
+            // Tests are written for inverted wait order first, so ids are reversed. Need to fix that to make test logic reusable.
+            Arrays.sort(txns, Comparator.reverseOrder());
+        }
     }
 
-    protected abstract LockManager lockManager();
-
-    protected LockManager lockManager(DeadlockPreventionPolicy deadlockPreventionPolicy) {
-        HeapLockManager lockManager = new HeapLockManager(systemLocalConfiguration);
-        lockManager.start(deadlockPreventionPolicy);
-        return lockManager;
-    }
+    protected abstract DeadlockPreventionPolicy deadlockPreventionPolicy();
 
     protected UUID beginTx() {
         return TestTransactionIds.newTransactionId();
@@ -70,7 +98,7 @@ public abstract class AbstractLockingTest extends BaseIgniteAbstractTest {
         return TestTransactionIds.newTransactionId(priority);
     }
 
-    protected LockKey key(Object key) {
+    protected static LockKey lockKey(Object key) {
         ByteBuffer b = ByteBuffer.allocate(Integer.BYTES);
         b.putInt(key.hashCode());
         b.position(0);
@@ -78,15 +106,19 @@ public abstract class AbstractLockingTest extends BaseIgniteAbstractTest {
         return new LockKey(0, b);
     }
 
-    protected CompletableFuture<?> xlock(UUID tx, LockKey key) {
+    protected static LockKey lockKey() {
+        return lockKey(0);
+    }
+
+    protected CompletableFuture<Lock> xlock(UUID tx, LockKey key) {
         return acquire(tx, key, X);
     }
 
-    protected CompletableFuture<?> slock(UUID tx, LockKey key) {
+    protected CompletableFuture<Lock> slock(UUID tx, LockKey key) {
         return acquire(tx, key, S);
     }
 
-    protected CompletableFuture<?> acquire(UUID tx, LockKey key, LockMode mode) {
+    protected CompletableFuture<Lock> acquire(UUID tx, LockKey key, LockMode mode) {
         CompletableFuture<Lock> fut = lockManager.acquire(tx, key, mode);
 
         locks.compute(tx, (k, v) -> {
@@ -114,7 +146,9 @@ public abstract class AbstractLockingTest extends BaseIgniteAbstractTest {
 
     protected void finishTx(UUID tx) {
         Map<IgniteBiTuple<LockKey, LockMode>, CompletableFuture<Lock>> txLocks = locks.remove(tx);
-        assertNotNull(txLocks);
+        if (txLocks == null) {
+            return; // Finishing the tx is idempotent operation and allowed to call multiple times.
+        }
 
         for (Map.Entry<IgniteBiTuple<LockKey, LockMode>, CompletableFuture<Lock>> e : txLocks.entrySet()) {
             CompletableFuture<Lock> fut = e.getValue();

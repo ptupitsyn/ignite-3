@@ -15,9 +15,7 @@
 # limitations under the License.
 #
 
-project(ignite-client-test)
-
-set(TARGET ${PROJECT_NAME})
+set(TARGET ignite-client-test)
 
 set(SOURCES
     basic_authenticator_test.cpp
@@ -35,6 +33,7 @@ set(SOURCES
     ssl_test.cpp
     tables_test.cpp
     transactions_test.cpp
+    partition_awareness_test.cpp
 )
 
-ignite_test(${TARGET} SOURCES ${SOURCES} LIBS ignite-test-common ignite3-client)
+ignite_test(${TARGET} SOURCES ${SOURCES} LIBS ignite-test-common ignite3-client-static)

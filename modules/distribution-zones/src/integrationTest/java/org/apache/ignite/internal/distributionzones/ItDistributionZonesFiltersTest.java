@@ -18,6 +18,7 @@
 package org.apache.ignite.internal.distributionzones;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static org.apache.ignite.internal.ConfigTemplates.renderConfigTemplate;
 import static org.apache.ignite.internal.TestDefaultProfilesNames.DEFAULT_AIPERSIST_PROFILE_NAME;
 import static org.apache.ignite.internal.TestDefaultProfilesNames.DEFAULT_ROCKSDB_PROFILE_NAME;
 import static org.apache.ignite.internal.TestWrappers.unwrapIgniteImpl;
@@ -93,17 +94,10 @@ public class ItDistributionZonesFiltersTest extends ClusterPerTestIntegrationTes
 
     @Language("HOCON")
     private static String createStartConfig(@Language("HOCON") String nodeAttributes, @Language("HOCON") String storageProfiles) {
-        return "ignite {\n"
-                + "  network: {\n"
-                + "    port: {},\n"
-                + "    nodeFinder.netClusterNodes: [ {} ]\n"
-                + "  },"
-                + "  nodeAttributes.nodeAttributes: " + nodeAttributes + ",\n"
+        return renderConfigTemplate(
+                "  nodeAttributes.nodeAttributes: " + nodeAttributes + ",\n"
                 + "  storage.profiles: " + storageProfiles + ",\n"
-                + "  clientConnector.port: {},\n"
-                + "  rest.port: {},\n"
-                + "  failureHandler.dumpThreadsOnFailure: false\n"
-                + "}";
+        );
     }
 
     @Override
@@ -133,11 +127,10 @@ public class ItDistributionZonesFiltersTest extends ClusterPerTestIntegrationTes
         IgniteImpl node = unwrapIgniteImpl(startNode(1, createStartConfig(firstNodeAttributes, STORAGE_PROFILES_CONFIGS)));
 
         node.sql().execute(
-                null,
                 createZoneSql(2, 3, IMMEDIATE_TIMER_VALUE, IMMEDIATE_TIMER_VALUE, filter, STORAGE_PROFILES, consistencyMode)
         );
 
-        node.sql().execute(null, createTableSql());
+        node.sql().execute(createTableSql());
 
         MetaStorageManager metaStorageManager = node.metaStorageManager();
 
@@ -157,7 +150,7 @@ public class ItDistributionZonesFiltersTest extends ClusterPerTestIntegrationTes
 
         // This node pass the filter but storage profiles of a node do not match zone's storage profiles.
         // TODO: https://issues.apache.org/jira/browse/IGNITE-21387 recovery of this node is failing,
-        // TODO: because there are no appropriate storage profile on the node
+        //  because there are no appropriate storage profile on the node
         @Language("HOCON") String notMatchingProfiles = "{dummy:{engine:\"dummy\"},another_dummy:{engine:\"dummy\"}}";
         startNode(2, createStartConfig(secondNodeAttributes, notMatchingProfiles));
 
@@ -203,11 +196,10 @@ public class ItDistributionZonesFiltersTest extends ClusterPerTestIntegrationTes
         IgniteImpl node0 = unwrapIgniteImpl(node(0));
 
         node0.sql().execute(
-                null,
                 createZoneSql(2, 3, 10_000, 10_000, filter, STORAGE_PROFILES, consistencyMode)
         );
 
-        node0.sql().execute(null, createTableSql());
+        node0.sql().execute(createTableSql());
 
         MetaStorageManager metaStorageManager = node0.metaStorageManager();
 
@@ -232,7 +224,7 @@ public class ItDistributionZonesFiltersTest extends ClusterPerTestIntegrationTes
         // Expected size is 1 because we have timers equals to 10000, so no scale up will be propagated.
         waitDataNodeAndListenersAreHandled(metaStorageManager, 1, getZoneId(node0));
 
-        node0.sql().execute(null, alterZoneSql(DEFAULT_FILTER));
+        node0.sql().execute(alterZoneSql(DEFAULT_FILTER));
 
         // We check that all nodes that pass the filter are presented in the stable key because altering filter triggers immediate scale up.
         assertValueInStorage(
@@ -259,11 +251,10 @@ public class ItDistributionZonesFiltersTest extends ClusterPerTestIntegrationTes
         IgniteImpl node0 = unwrapIgniteImpl(node(0));
 
         node0.sql().execute(
-                null,
                 createZoneSql(2, 3, 10_000, 10_000, filter, STORAGE_PROFILES, consistencyMode)
         );
 
-        node0.sql().execute(null, createTableSql());
+        node0.sql().execute(createTableSql());
 
         MetaStorageManager metaStorageManager = node0.metaStorageManager();
 
@@ -293,7 +284,7 @@ public class ItDistributionZonesFiltersTest extends ClusterPerTestIntegrationTes
         // There is no node that match the filter
         String newFilter = "$[?(@.region == \"FOO\" && @.storage == \"BAR\")]";
 
-        assertThrowsWithCode(SqlException.class, STMT_VALIDATION_ERR, () -> node0.sql().execute(null, alterZoneSql(newFilter)), null);
+        assertThrowsWithCode(SqlException.class, STMT_VALIDATION_ERR, () -> node0.sql().execute(alterZoneSql(newFilter)), null);
 
         assertValueInStorage(
                 metaStorageManager,
@@ -325,7 +316,6 @@ public class ItDistributionZonesFiltersTest extends ClusterPerTestIntegrationTes
         Ignite node1 = startNode(1, createStartConfig(firstNodeAttributes, STORAGE_PROFILES_CONFIGS));
 
         node1.sql().execute(
-                null,
                 createZoneSql(1, 1, IMMEDIATE_TIMER_VALUE, IMMEDIATE_TIMER_VALUE, filter, STORAGE_PROFILES, consistencyMode)
         );
 
@@ -339,7 +329,7 @@ public class ItDistributionZonesFiltersTest extends ClusterPerTestIntegrationTes
 
         waitDataNodeAndListenersAreHandled(metaStorageManager, 1, zoneId);
 
-        node1.sql().execute(null, createTableSql());
+        node1.sql().execute(createTableSql());
 
         TableViewInternal table = unwrapTableViewInternal(node0.distributedTableManager().table(TABLE_NAME));
 
@@ -371,7 +361,6 @@ public class ItDistributionZonesFiltersTest extends ClusterPerTestIntegrationTes
         startNode(1, createStartConfig(firstNodeAttributes, STORAGE_PROFILES_CONFIGS));
 
         node0.sql().execute(
-                null,
                 createZoneSql(1, 1, IMMEDIATE_TIMER_VALUE, IMMEDIATE_TIMER_VALUE, filter, STORAGE_PROFILES, consistencyMode)
         );
 
@@ -385,7 +374,7 @@ public class ItDistributionZonesFiltersTest extends ClusterPerTestIntegrationTes
 
         waitDataNodeAndListenersAreHandled(metaStorageManager, 1, zoneId);
 
-        node0.sql().execute(null, createTableSql());
+        node0.sql().execute(createTableSql());
 
         TableViewInternal table = unwrapTableViewInternal(node0.distributedTableManager().table(TABLE_NAME));
 
@@ -402,7 +391,7 @@ public class ItDistributionZonesFiltersTest extends ClusterPerTestIntegrationTes
         // Check that stable and pending are null, so there wasn't any rebalance.
         assertPendingAssignmentsNeverExisted(metaStorageManager, partId);
 
-        node0.sql().execute(null, alterZoneSql(2));
+        node0.sql().execute(alterZoneSql(2));
 
         CountDownLatch latch = new CountDownLatch(1);
 
@@ -415,7 +404,7 @@ public class ItDistributionZonesFiltersTest extends ClusterPerTestIntegrationTes
             return falseCompletedFuture();
         });
 
-        node0.sql().execute(null, alterZoneSql(3));
+        node0.sql().execute(alterZoneSql(3));
 
         assertTrue(latch.await(10_000, MILLISECONDS));
 
@@ -478,7 +467,7 @@ public class ItDistributionZonesFiltersTest extends ClusterPerTestIntegrationTes
     }
 
     private static void executeSql(IgniteImpl node, String sql) {
-        node.sql().execute(null, sql);
+        node.sql().execute(sql);
     }
 
     private static void waitDataNodeAndListenersAreHandled(

@@ -17,6 +17,8 @@
 
 package org.apache.ignite.internal.partition.replicator.raft;
 
+import static java.util.Collections.emptySet;
+import static java.util.Collections.singletonMap;
 import static java.util.UUID.randomUUID;
 import static java.util.concurrent.CompletableFuture.allOf;
 import static java.util.concurrent.CompletableFuture.runAsync;
@@ -26,10 +28,16 @@ import static org.apache.ignite.internal.util.CompletableFutures.nullCompletedFu
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Answers.RETURNS_DEEP_STUBS;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -44,10 +52,12 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
+import org.apache.ignite.internal.catalog.Catalog;
 import org.apache.ignite.internal.catalog.CatalogService;
+import org.apache.ignite.internal.catalog.descriptors.CatalogIndexDescriptor;
 import org.apache.ignite.internal.hlc.ClockService;
 import org.apache.ignite.internal.hlc.HybridClock;
 import org.apache.ignite.internal.hlc.HybridClockImpl;
@@ -55,11 +65,16 @@ import org.apache.ignite.internal.hlc.HybridTimestamp;
 import org.apache.ignite.internal.partition.replicator.network.PartitionReplicationMessageGroup;
 import org.apache.ignite.internal.partition.replicator.network.PartitionReplicationMessageGroup.Commands;
 import org.apache.ignite.internal.partition.replicator.network.PartitionReplicationMessagesFactory;
+import org.apache.ignite.internal.partition.replicator.network.command.BuildIndexCommandV3;
 import org.apache.ignite.internal.partition.replicator.network.command.FinishTxCommand;
 import org.apache.ignite.internal.partition.replicator.network.command.FinishTxCommandV2;
+import org.apache.ignite.internal.partition.replicator.network.command.UpdateAllCommandV2;
+import org.apache.ignite.internal.partition.replicator.network.command.UpdateCommand;
 import org.apache.ignite.internal.partition.replicator.network.command.UpdateCommandV2;
+import org.apache.ignite.internal.partition.replicator.network.command.UpdateMinimumActiveTxBeginTimeCommand;
 import org.apache.ignite.internal.partition.replicator.network.command.WriteIntentSwitchCommand;
-import org.apache.ignite.internal.partition.replicator.raft.snapshot.ZonePartitionKey;
+import org.apache.ignite.internal.partition.replicator.network.command.WriteIntentSwitchCommandV2;
+import org.apache.ignite.internal.partition.replicator.raft.snapshot.PartitionKey;
 import org.apache.ignite.internal.partition.replicator.raft.snapshot.outgoing.OutgoingSnapshotsManager;
 import org.apache.ignite.internal.partition.replicator.raft.snapshot.outgoing.PartitionSnapshots;
 import org.apache.ignite.internal.placementdriver.LeasePlacementDriver;
@@ -68,9 +83,11 @@ import org.apache.ignite.internal.raft.RaftGroupConfigurationSerializer;
 import org.apache.ignite.internal.raft.WriteCommand;
 import org.apache.ignite.internal.raft.service.CommandClosure;
 import org.apache.ignite.internal.replicator.ZonePartitionId;
+import org.apache.ignite.internal.replicator.command.SafeTimePropagatingCommand;
 import org.apache.ignite.internal.replicator.command.SafeTimeSyncCommand;
 import org.apache.ignite.internal.replicator.message.PrimaryReplicaChangeCommand;
 import org.apache.ignite.internal.replicator.message.ReplicaMessagesFactory;
+import org.apache.ignite.internal.replicator.message.TablePartitionIdMessage;
 import org.apache.ignite.internal.schema.SchemaRegistry;
 import org.apache.ignite.internal.storage.MvPartitionStorage;
 import org.apache.ignite.internal.storage.MvPartitionStorage.Locker;
@@ -79,8 +96,8 @@ import org.apache.ignite.internal.storage.impl.TestMvPartitionStorage;
 import org.apache.ignite.internal.storage.lease.LeaseInfo;
 import org.apache.ignite.internal.table.distributed.StorageUpdateHandler;
 import org.apache.ignite.internal.table.distributed.index.IndexMetaStorage;
+import org.apache.ignite.internal.table.distributed.raft.DefaultTablePartitionRaftProcessor;
 import org.apache.ignite.internal.table.distributed.raft.MinimumRequiredTimeCollectorService;
-import org.apache.ignite.internal.table.distributed.raft.TablePartitionProcessor;
 import org.apache.ignite.internal.table.distributed.raft.snapshot.SnapshotAwarePartitionDataStorage;
 import org.apache.ignite.internal.testframework.BaseIgniteAbstractTest;
 import org.apache.ignite.internal.testframework.ExecutorServiceExtension;
@@ -89,6 +106,7 @@ import org.apache.ignite.internal.tx.TxManager;
 import org.apache.ignite.internal.tx.TxMeta;
 import org.apache.ignite.internal.tx.TxState;
 import org.apache.ignite.internal.tx.UpdateCommandResult;
+import org.apache.ignite.internal.tx.message.TxMessagesFactory;
 import org.apache.ignite.internal.tx.storage.state.TxStatePartitionStorage;
 import org.apache.ignite.internal.tx.storage.state.test.TestTxStatePartitionStorage;
 import org.apache.ignite.internal.tx.test.TestTransactionIds;
@@ -101,8 +119,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -116,10 +138,14 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
 
     private static final int TABLE_ID = 1;
 
-    private static final ZonePartitionKey ZONE_PARTITION_KEY = new ZonePartitionKey(ZONE_ID, PARTITION_ID);
+    private static final int NON_EXISTENT_TABLE_ID = 999;
+
+    private static final PartitionKey ZONE_PARTITION_KEY = new PartitionKey(ZONE_ID, PARTITION_ID);
 
     private static final PartitionReplicationMessagesFactory PARTITION_REPLICATION_MESSAGES_FACTORY =
             new PartitionReplicationMessagesFactory();
+
+    private static final TxMessagesFactory TX_MESSAGES_FACTORY = new TxMessagesFactory();
 
     private static final ReplicaMessagesFactory REPLICA_MESSAGES_FACTORY = new ReplicaMessagesFactory();
 
@@ -140,31 +166,48 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
     @Spy
     private TxStatePartitionStorage txStatePartitionStorage = new TestTxStatePartitionStorage();
 
-    @Mock
-    private MvPartitionStorage mvPartitionStorage;
+    @Spy
+    private MvPartitionStorage mvPartitionStorage = new TestMvPartitionStorage(PARTITION_ID);
 
     @InjectExecutorService
     private ExecutorService executor;
 
-    @Mock
-    private SafeTimeValuesTracker safeTimeTracker;
+    private final SafeTimeValuesTracker safeTimeTracker = new SafeTimeValuesTracker(HybridTimestamp.MIN_VALUE);
+
+    @Spy
+    private final PendingComparableValuesTracker<Long, Void> storageIndexTracker = new PendingComparableValuesTracker<>(0L);
 
     private final HybridClock clock = new HybridClockImpl();
+
+    @Mock
+    private PartitionSnapshots partitionSnapshots;
+
+    @Mock
+    private CatalogService catalogService;
 
     @BeforeEach
     void setUp() {
         listener = createListener();
+
+        when(outgoingSnapshotsManager.partitionSnapshots(ZONE_PARTITION_KEY)).thenReturn(partitionSnapshots);
     }
 
     private ZonePartitionRaftListener createListener() {
+        HybridClock clock = mock(HybridClock.class);
+        ClockService clockService = mock(ClockService.class);
+        lenient().when(clockService.updateClock(any(), anyBoolean())).thenAnswer(invocation -> {
+            HybridTimestamp requestTime = invocation.getArgument(0);
+            return clock.update(requestTime);
+        });
         return new ZonePartitionRaftListener(
                 new ZonePartitionId(ZONE_ID, PARTITION_ID),
                 txStatePartitionStorage,
                 txManager,
-                new SafeTimeValuesTracker(HybridTimestamp.MIN_VALUE),
-                new PendingComparableValuesTracker<>(0L),
+                safeTimeTracker,
+                storageIndexTracker,
                 outgoingSnapshotsManager,
-                executor
+                executor,
+                clockService
         );
     }
 
@@ -174,7 +217,7 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
     }
 
     @Test
-    void closesOngoingSnapshots(@Mock PartitionSnapshots partitionSnapshots) {
+    void closesOngoingSnapshots() {
         listener.onShutdown();
 
         verify(outgoingSnapshotsManager).cleanupOutgoingSnapshots(ZONE_PARTITION_KEY);
@@ -184,7 +227,7 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
     void savesSnapshotInfoToTxStorageOnSnapshotSave(
             @Mock CommandClosure<WriteCommand> writeCommandClosure,
             @Mock PrimaryReplicaChangeCommand command,
-            @Mock RaftTableProcessor tableProcessor
+            @Mock TablePartitionRaftProcessor tableProcessor
     ) {
         when(writeCommandClosure.command()).thenReturn(command);
         when(writeCommandClosure.index()).thenReturn(25L);
@@ -256,19 +299,19 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
         when(command.primaryReplicaNodeId()).thenReturn(leaseInfo.primaryReplicaNodeId());
         when(command.primaryReplicaNodeName()).thenReturn(leaseInfo.primaryReplicaNodeName());
 
-        when(mvPartitionStorage.runConsistently(any())).thenAnswer(invocation -> {
+        doAnswer(invocation -> {
             WriteClosure<?> closure = invocation.getArgument(0);
 
             return closure.execute(locker);
-        });
+        }).when(mvPartitionStorage).runConsistently(any());
 
         listener.onWrite(List.of(writeCommandClosure).iterator());
 
         listener.onConfigurationCommitted(raftGroupConfiguration, 2L, 3L);
 
-        TablePartitionProcessor tablePartitionProcessor = partitionListener(TABLE_ID);
+        DefaultTablePartitionRaftProcessor tablePartitionRaftProcessor = partitionListener(TABLE_ID);
 
-        listener.addTableProcessor(TABLE_ID, tablePartitionProcessor);
+        listener.addTableProcessor(TABLE_ID, tablePartitionRaftProcessor);
 
         verify(mvPartitionStorage).lastApplied(2L, 3L);
         verify(mvPartitionStorage).committedGroupConfiguration(any());
@@ -282,7 +325,7 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
 
         var raftGroupConfiguration = new RaftGroupConfiguration(index, term, 111L, 110L, List.of("foo"), List.of("bar"), null, null);
 
-        var tableProcessor = new TestRaftTableProcessor();
+        var tableProcessor = new TestTablePartitionRaftProcessor();
 
         CompletableFuture<Void> f1 = runAsync(() -> listener.onConfigurationCommitted(raftGroupConfiguration, index, term), executor);
 
@@ -328,7 +371,7 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
             }
         });
 
-        var tableProcessor = new TestRaftTableProcessor();
+        var tableProcessor = new TestTablePartitionRaftProcessor();
 
         CompletableFuture<Void> f1 = runAsync(() -> listener.onWrite(closure.iterator()), executor);
 
@@ -349,9 +392,9 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
 
     @Test
     void usesSnapshotInfoForRecovery(
-            @Mock RaftTableProcessor tableProcessor1,
-            @Mock RaftTableProcessor tableProcessor2,
-            @Mock RaftTableProcessor tableProcessor3,
+            @Mock TablePartitionRaftProcessor tableProcessor1,
+            @Mock TablePartitionRaftProcessor tableProcessor2,
+            @Mock TablePartitionRaftProcessor tableProcessor3,
             @Mock CommandClosure<WriteCommand> writeCommandClosure,
             @Mock PrimaryReplicaChangeCommand command
     ) {
@@ -400,7 +443,7 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
     }
 
     @Test
-    void processorsAreNotInitializedWithoutSnapshot(@Mock RaftTableProcessor tableProcessor) {
+    void processorsAreNotInitializedWithoutSnapshot(@Mock TablePartitionRaftProcessor tableProcessor) {
         listener.addTableProcessorOnRecovery(42, tableProcessor);
 
         verify(tableProcessor, never()).initialize(any(), any(), anyLong(), anyLong());
@@ -410,7 +453,7 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
     void testSkipWriteCommandByAppliedIndex() {
         mvPartitionStorage = spy(new TestMvPartitionStorage(PARTITION_ID));
 
-        TablePartitionProcessor tableProcessor = partitionListener(TABLE_ID);
+        DefaultTablePartitionRaftProcessor tableProcessor = partitionListener(TABLE_ID);
 
         listener.addTableProcessor(TABLE_ID, tableProcessor);
         // Update(All)Command handling requires both information about raft group topology and the primary replica,
@@ -440,22 +483,22 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
                 .leaseStartTime(HybridTimestamp.MIN_VALUE.addPhysicalTime(1).longValue())
                 .build();
 
-        listener.onWrite(List.of(writeCommandClosure(raftIndex.incrementAndGet(), 1, command, null, null)).iterator());
+        listener.onWrite(List.of(writeCommandClosureWithoutSafeTime(raftIndex.incrementAndGet(), 1, command)).iterator());
 
         mvPartitionStorage.lastApplied(10L, 1L);
 
         UpdateCommandV2 updateCommand = mock(UpdateCommandV2.class);
         when(updateCommand.tableId()).thenReturn(TABLE_ID);
 
-        WriteIntentSwitchCommand writeIntentSwitchCommand = mock(WriteIntentSwitchCommand.class);
+        WriteIntentSwitchCommand writeIntentSwitchCommand = writeIntentSwitchCommand();
 
-        SafeTimeSyncCommand safeTimeSyncCommand = mock(SafeTimeSyncCommand.class);
+        SafeTimeSyncCommand safeTimeSyncCommand = safeTimeSyncCommand();
 
         FinishTxCommandV2 finishTxCommand = mock(FinishTxCommandV2.class);
         when(finishTxCommand.groupType()).thenReturn(PartitionReplicationMessageGroup.GROUP_TYPE);
         when(finishTxCommand.messageType()).thenReturn(Commands.FINISH_TX_V2);
 
-        PrimaryReplicaChangeCommand primaryReplicaChangeCommand = mock(PrimaryReplicaChangeCommand.class);
+        PrimaryReplicaChangeCommand primaryReplicaChangeCommand = primaryReplicaChangeCommand();
 
         // Checks for MvPartitionStorage.
         listener.onWrite(List.of(
@@ -489,7 +532,8 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
 
         verify(txStatePartitionStorage, never())
                 .compareAndSet(any(UUID.class), any(TxState.class), any(TxMeta.class), anyLong(), anyLong());
-        verify(txStatePartitionStorage, times(1)).lastApplied(anyLong(), anyLong());
+        // First time for safe time command above, second time for explicit call of lastApplied() in this test.
+        verify(txStatePartitionStorage, times(2)).lastApplied(anyLong(), anyLong());
 
         assertThat(commandClosureResultCaptor.getAllValues(), containsInAnyOrder(new Throwable[]{null, null}));
 
@@ -512,6 +556,353 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
 
         assertThat(txStatePartitionStorage.lastAppliedIndex(), is(3L));
         assertThat(txStatePartitionStorage.lastAppliedTerm(), is(2L));
+    }
+
+    @Test
+    void onlyUpdatesMvStorageLastAppliedForWriteIntentSwitchCommandsThatTouchSomeTableStorages() {
+        mockCatalogForUpdateExecution();
+
+        listener.addTableProcessor(TABLE_ID, partitionListener(TABLE_ID));
+
+        WriteIntentSwitchCommand command = PARTITION_REPLICATION_MESSAGES_FACTORY.writeIntentSwitchCommandV2()
+                .txId(TestTransactionIds.newTransactionId())
+                .initiatorTime(clock.now())
+                .commit(true)
+                .tableIds(Set.of(TABLE_ID))
+                .build();
+
+        listener.onWrite(List.of(
+                writeCommandClosure(3, 2, command)
+        ).iterator());
+
+        verify(mvPartitionStorage).lastApplied(3, 2);
+        verify(txStatePartitionStorage, never()).lastApplied(anyLong(), anyLong());
+    }
+
+    private void mockCatalogForUpdateExecution() {
+        Catalog catalog = mock(Catalog.class);
+        when(catalogService.activeCatalog(anyLong())).thenReturn(catalog);
+        when(catalog.indexes(anyInt())).thenReturn(List.of(mock(CatalogIndexDescriptor.class)));
+    }
+
+    @Test
+    void updatesTxStateStorageLastAppliedForWriteIntentSwitchCommandsThatTouchNoTableStorages() {
+        WriteIntentSwitchCommand command = writeIntentSwitchCommandForMissingTable();
+
+        listener.onWrite(List.of(
+                writeCommandClosure(3, 2, command)
+        ).iterator());
+
+        assertThat(txStatePartitionStorage.lastAppliedIndex(), is(3L));
+        assertThat(txStatePartitionStorage.lastAppliedTerm(), is(2L));
+    }
+
+    private WriteIntentSwitchCommand writeIntentSwitchCommandForMissingTable() {
+        return PARTITION_REPLICATION_MESSAGES_FACTORY.writeIntentSwitchCommandV2()
+                .txId(TestTransactionIds.newTransactionId())
+                .initiatorTime(clock.now())
+                .commit(true)
+                .tableIds(Set.of(NON_EXISTENT_TABLE_ID))
+                .build();
+    }
+
+    @Test
+    void skipsTxStateStorageLastAppliedUpdateForWriteIntentSwitchCommandsWhenIndexIsAhead() {
+        txStatePartitionStorage.lastApplied(10L, 10L);
+
+        WriteIntentSwitchCommand command = writeIntentSwitchCommandForMissingTable();
+
+        listener.onWrite(List.of(
+                writeCommandClosure(3, 2, command)
+        ).iterator());
+
+        assertThat(txStatePartitionStorage.lastAppliedIndex(), is(10L));
+        assertThat(txStatePartitionStorage.lastAppliedTerm(), is(10L));
+    }
+
+    @Test
+    void onlyUpdatesMvStorageLastAppliedForTableAwareCommandsThatTouchTableStorages() {
+        mockCatalogForUpdateExecution();
+        when(mvPartitionStorage.leaseInfo()).thenReturn(new LeaseInfo(0, randomUUID(), "test"));
+
+        listener.addTableProcessor(TABLE_ID, partitionListener(TABLE_ID));
+
+        UpdateCommand command = updateCommand(TABLE_ID);
+
+        listener.onWrite(List.of(
+                writeCommandClosure(3, 2, command)
+        ).iterator());
+
+        verify(mvPartitionStorage).lastApplied(3, 2);
+        verify(txStatePartitionStorage, never()).lastApplied(anyLong(), anyLong());
+    }
+
+    @Test
+    void updatesTxStateStorageLastAppliedForTableAwareCommandsThatTouchNoTableStorages() {
+        UpdateCommand command = updateCommand(NON_EXISTENT_TABLE_ID);
+
+        listener.onWrite(List.of(
+                writeCommandClosure(3, 2, command)
+        ).iterator());
+
+        assertThat(txStatePartitionStorage.lastAppliedIndex(), is(3L));
+        assertThat(txStatePartitionStorage.lastAppliedTerm(), is(2L));
+    }
+
+    @Test
+    void skipsUpdateToTxStateStorageLastAppliedForTableAwareCommandsThatTouchNoTableStoragesButIndexIsAlreadyApplied() {
+        txStatePartitionStorage.lastApplied(10L, 10L);
+
+        UpdateCommand command = updateCommand(NON_EXISTENT_TABLE_ID);
+
+        listener.onWrite(List.of(
+                writeCommandClosure(3, 2, command)
+        ).iterator());
+
+        assertThat(txStatePartitionStorage.lastAppliedIndex(), is(10L));
+        assertThat(txStatePartitionStorage.lastAppliedTerm(), is(10L));
+    }
+
+    @Test
+    void updatesTxStateStorageLastAppliedForUpdateMinimumActiveTxBeginTimeCommandsThatTouchNoTableStorages() {
+        WriteCommand command = updateMinimumActiveTxBeginTimeCommand();
+
+        listener.onWrite(List.of(
+                writeCommandClosure(3, 2, command)
+        ).iterator());
+
+        assertThat(txStatePartitionStorage.lastAppliedIndex(), is(3L));
+        assertThat(txStatePartitionStorage.lastAppliedTerm(), is(2L));
+    }
+
+    @Test
+    void skipsUpdateToTxStateStorageLastAppliedForUpdateMinimumActiveTxBeginTimeCommandsThatTouchNoTableStoragesButIndexIsAlreadyApplied() {
+        txStatePartitionStorage.lastApplied(10L, 10L);
+
+        WriteCommand command = updateMinimumActiveTxBeginTimeCommand();
+
+        listener.onWrite(List.of(
+                writeCommandClosure(3, 2, command)
+        ).iterator());
+
+        assertThat(txStatePartitionStorage.lastAppliedIndex(), is(10L));
+        assertThat(txStatePartitionStorage.lastAppliedTerm(), is(10L));
+    }
+
+    @Test
+    void updatesLeaseInfoAndTxStateStorageLastAppliedForPrimaryReplicaChangeCommandsThatTouchNoTableStorages() {
+        WriteCommand command = primaryReplicaChangeCommand();
+
+        listener.onWrite(List.of(
+                writeCommandClosureWithoutSafeTime(3, 2, command)
+        ).iterator());
+
+        verify(txStatePartitionStorage).leaseInfo(any(), eq(3L), eq(2L));
+    }
+
+    @Test
+    void updatesLeaseInfoAndTxStateStorageLastAppliedForPrimaryReplicaChangeCommandsThatTouchSomeTableStorages() {
+        listener.addTableProcessor(TABLE_ID, partitionListener(TABLE_ID));
+
+        WriteCommand command = primaryReplicaChangeCommand();
+
+        listener.onWrite(List.of(
+                writeCommandClosureWithoutSafeTime(3, 2, command)
+        ).iterator());
+
+        verify(txStatePartitionStorage).leaseInfo(any(), eq(3L), eq(2L));
+    }
+
+    @Test
+    void updatesTxStateStorageLastAppliedForVacuumTxStateCommands() {
+        WriteCommand command = TX_MESSAGES_FACTORY.vacuumTxStatesCommand()
+                .txIds(Set.of(randomUUID()))
+                .build();
+
+        listener.onWrite(List.of(
+                writeCommandClosureWithoutSafeTime(3, 2, command)
+        ).iterator());
+
+        assertThat(txStatePartitionStorage.lastAppliedIndex(), is(3L));
+        assertThat(txStatePartitionStorage.lastAppliedTerm(), is(2L));
+    }
+
+    @Test
+    public void testSafeTime() {
+        HybridTimestamp timestamp = clock.now();
+        SafeTimePropagatingCommand command = mock((Class<? extends SafeTimePropagatingCommand>) SafeTimeSyncCommand.class);
+
+        listener.onWrite(List.of(
+                writeCommandClosure(3, 1, command, null, timestamp)
+        ).iterator());
+
+        assertEquals(timestamp, safeTimeTracker.current());
+    }
+
+    @Test
+    void updatesLastAppliedForSafeTimeSyncCommands() {
+        safeTimeTracker.update(clock.now(), null);
+
+        SafeTimeSyncCommand safeTimeSyncCommand = new ReplicaMessagesFactory()
+                .safeTimeSyncCommand()
+                .initiatorTime(clock.now())
+                .safeTime(clock.now())
+                .build();
+
+        listener.onWrite(List.of(
+                writeCommandClosure(3, 2, safeTimeSyncCommand, null, clock.now())
+        ).iterator());
+
+        verify(txStatePartitionStorage).lastApplied(3, 2);
+    }
+
+    @Test
+    void locksOnConfigCommit(@Mock TablePartitionRaftProcessor tableProcessor) {
+        listener.addTableProcessor(TABLE_ID, tableProcessor);
+
+        long index = 10;
+        listener.onConfigurationCommitted(
+                new RaftGroupConfiguration(
+                        index,
+                        2,
+                        111L,
+                        110L,
+                        List.of("peer"),
+                        List.of("learner"),
+                        List.of("old-peer"),
+                        List.of("old-learner")
+                ),
+                index,
+                2
+        );
+
+        InOrder inOrder = inOrder(partitionSnapshots, tableProcessor);
+
+        inOrder.verify(partitionSnapshots).acquireReadLock();
+        inOrder.verify(tableProcessor).onConfigurationCommitted(any(), anyLong(), anyLong());
+        inOrder.verify(partitionSnapshots).releaseReadLock();
+    }
+
+    private void applyCommand(WriteCommand command, long index, long term, @Nullable HybridTimestamp safeTimestamp) {
+        listener.onWrite(List.of(
+                writeCommandClosure(index, term, command, null, safeTimestamp)
+        ).iterator());
+    }
+
+    private static UpdateCommandV2 updateCommand() {
+        return updateCommand(TABLE_ID);
+    }
+
+    private static UpdateCommandV2 updateCommand(int tableId) {
+        return PARTITION_REPLICATION_MESSAGES_FACTORY.updateCommandV2()
+                .rowUuid(randomUUID())
+                .tableId(tableId)
+                .commitPartitionId(defaultPartitionIdMessage())
+                .txCoordinatorId(randomUUID())
+                .txId(TestTransactionIds.newTransactionId())
+                .initiatorTime(anyTime())
+                .build();
+    }
+
+    private static TablePartitionIdMessage defaultPartitionIdMessage() {
+        return REPLICA_MESSAGES_FACTORY.tablePartitionIdMessage()
+                .tableId(TABLE_ID)
+                .partitionId(PARTITION_ID)
+                .build();
+    }
+
+    private static UpdateAllCommandV2 updateAllCommand() {
+        return PARTITION_REPLICATION_MESSAGES_FACTORY.updateAllCommandV2()
+                .messageRowsToUpdate(singletonMap(
+                        randomUUID(),
+                        PARTITION_REPLICATION_MESSAGES_FACTORY.timedBinaryRowMessage().build())
+                )
+                .tableId(TABLE_ID)
+                .commitPartitionId(defaultPartitionIdMessage())
+                .txCoordinatorId(randomUUID())
+                .txId(TestTransactionIds.newTransactionId())
+                .initiatorTime(anyTime())
+                .build();
+    }
+
+    @ParameterizedTest
+    @MethodSource("tableCommands")
+    void locksOnApplicationOfTableCommands(WriteCommand command, @Mock TablePartitionRaftProcessor tableProcessor) {
+        listener.addTableProcessor(TABLE_ID, tableProcessor);
+        when(tableProcessor.processCommand(any(), anyLong(), anyLong(), any()))
+                .thenReturn(EMPTY_APPLIED_RESULT);
+
+        applyCommand(command, 3, 2, null);
+
+        InOrder inOrder = inOrder(partitionSnapshots, tableProcessor);
+
+        inOrder.verify(partitionSnapshots).acquireReadLock();
+        inOrder.verify(tableProcessor).processCommand(any(), anyLong(), anyLong(), any());
+        inOrder.verify(partitionSnapshots).releaseReadLock();
+    }
+
+    private static Stream<Arguments> tableCommands() {
+        return Stream.of(
+                updateCommand(),
+                updateAllCommand(),
+                writeIntentSwitchCommand(),
+                primaryReplicaChangeCommand(),
+                buildIndexCommand(),
+                updateMinimumActiveTxBeginTimeCommand()
+        ).map(Arguments::of);
+    }
+
+    private static WriteIntentSwitchCommandV2 writeIntentSwitchCommand() {
+        return PARTITION_REPLICATION_MESSAGES_FACTORY.writeIntentSwitchCommandV2()
+                .txId(TestTransactionIds.newTransactionId())
+                .tableIds(Set.of(1))
+                .initiatorTime(anyTime())
+                .safeTime(anyTime())
+                .build();
+    }
+
+    private static PrimaryReplicaChangeCommand primaryReplicaChangeCommand() {
+        return new ReplicaMessagesFactory().primaryReplicaChangeCommand()
+                .primaryReplicaNodeId(randomUUID())
+                .primaryReplicaNodeName("test-node")
+                .build();
+    }
+
+    private static BuildIndexCommandV3 buildIndexCommand() {
+        return PARTITION_REPLICATION_MESSAGES_FACTORY.buildIndexCommandV3()
+                .tableId(TABLE_ID)
+                .rowIds(List.of(randomUUID()))
+                .abortedTransactionIds(emptySet())
+                .build();
+    }
+
+    private static HybridTimestamp anyTime() {
+        return HybridTimestamp.MIN_VALUE.addPhysicalTime(1000);
+    }
+
+    private static UpdateMinimumActiveTxBeginTimeCommand updateMinimumActiveTxBeginTimeCommand() {
+        return PARTITION_REPLICATION_MESSAGES_FACTORY.updateMinimumActiveTxBeginTimeCommand()
+                .initiatorTime(anyTime())
+                .safeTime(anyTime())
+                .build();
+    }
+
+    @Test
+    void locksOnApplicationOfSafeTimeSyncCommand() {
+        applyCommand(safeTimeSyncCommand(), 3, 2, null);
+
+        InOrder inOrder = inOrder(partitionSnapshots, txStatePartitionStorage);
+
+        inOrder.verify(partitionSnapshots).acquireReadLock();
+        inOrder.verify(txStatePartitionStorage).lastApplied(3, 2);
+        inOrder.verify(partitionSnapshots).releaseReadLock();
+    }
+
+    private static SafeTimeSyncCommand safeTimeSyncCommand() {
+        return new ReplicaMessagesFactory()
+                .safeTimeSyncCommand()
+                .initiatorTime(anyTime())
+                .build();
     }
 
     private CommandClosure<WriteCommand> writeCommandClosure(
@@ -552,14 +943,43 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
         return commandClosure;
     }
 
-    private TablePartitionProcessor partitionListener(int tableId) {
+    private static CommandClosure<WriteCommand> writeCommandClosureWithoutSafeTime(
+            long index,
+            long term,
+            WriteCommand writeCommand
+    ) {
+        return writeCommandClosure(index, term, writeCommand, null, null);
+    }
+
+    private DefaultTablePartitionRaftProcessor partitionListener(int tableId) {
         LeasePlacementDriver placementDriver = mock(LeasePlacementDriver.class);
         lenient().when(placementDriver.getCurrentPrimaryReplica(any(), any())).thenReturn(null);
 
         ClockService clockService = mock(ClockService.class);
         lenient().when(clockService.current()).thenReturn(clock.current());
+        lenient().when(clockService.updateClock(any(), anyBoolean())).thenAnswer(invocation -> {
+            HybridTimestamp requestTime = invocation.getArgument(0);
+            return clock.update(requestTime);
+        });
 
-        return new TablePartitionProcessor(
+        StorageUpdateHandler storageUpdateHandler = mock(StorageUpdateHandler.class);
+
+        lenient().doAnswer(invocation -> {
+            Runnable onApplication = invocation.getArgument(3);
+            if (onApplication != null) {
+                onApplication.run();
+            }
+            return null;
+        }).when(storageUpdateHandler).switchWriteIntents(any(), anyBoolean(), any(), any(Runnable.class), any());
+        lenient().doAnswer(invocation -> {
+            Runnable onApplication = invocation.getArgument(5);
+            if (onApplication != null) {
+                onApplication.run();
+            }
+            return null;
+        }).when(storageUpdateHandler).handleUpdate(any(), any(), any(), any(), anyBoolean(), any(Runnable.class), any(), any(), any());
+
+        return new DefaultTablePartitionRaftProcessor(
                 txManager,
                 new SnapshotAwarePartitionDataStorage(
                         tableId,
@@ -567,21 +987,19 @@ class ZonePartitionRaftListenerTest extends BaseIgniteAbstractTest {
                         outgoingSnapshotsManager,
                         ZONE_PARTITION_KEY
                 ),
-                mock(StorageUpdateHandler.class),
-                new SafeTimeValuesTracker(HybridTimestamp.MIN_VALUE),
-                mock(CatalogService.class),
+                storageUpdateHandler,
+                catalogService,
                 mock(SchemaRegistry.class),
                 mock(IndexMetaStorage.class),
                 randomUUID(),
                 mock(MinimumRequiredTimeCollectorService.class),
-                mock(Executor.class),
                 placementDriver,
                 clockService,
                 new ZonePartitionId(ZONE_ID, PARTITION_ID)
         );
     }
 
-    private static class TestRaftTableProcessor implements RaftTableProcessor {
+    private static class TestTablePartitionRaftProcessor implements TablePartitionRaftProcessor {
         @Nullable
         private RaftGroupConfiguration raftGroupConfiguration;
 

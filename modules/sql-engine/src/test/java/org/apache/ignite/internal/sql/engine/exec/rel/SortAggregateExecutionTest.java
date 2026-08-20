@@ -34,8 +34,8 @@ import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.util.ImmutableBitSet;
 import org.apache.calcite.util.ImmutableIntList;
 import org.apache.calcite.util.mapping.Mapping;
+import org.apache.ignite.internal.sql.engine.api.expressions.RowFactory;
 import org.apache.ignite.internal.sql.engine.exec.ExecutionContext;
-import org.apache.ignite.internal.sql.engine.exec.RowFactory;
 import org.apache.ignite.internal.sql.engine.exec.exp.SqlComparator;
 import org.apache.ignite.internal.sql.engine.rel.agg.MapReduceAggregates;
 import org.apache.ignite.internal.sql.engine.rel.agg.MapReduceAggregates.MapReduceAgg;
@@ -73,7 +73,7 @@ public class SortAggregateExecutionTest extends BaseAggregateTest {
             cmp = (r1, r2) -> comparator.compare(ctx, r1, r2);
         }
 
-        StructNativeType outputRowSchema = createOutputSchema(ctx, call, inRowType, grpSet);
+        StructNativeType outputRowSchema = createOutputSchema(call, inRowType, grpSet);
         RowFactory<Object[]> outputRowFactory = ctx.rowFactoryFactory().create(outputRowSchema);
 
         SortAggregateNode<Object[]> agg = new SortAggregateNode<>(
@@ -173,7 +173,7 @@ public class SortAggregateExecutionTest extends BaseAggregateTest {
                 true
         );
 
-        StructNativeType outputRowSchema = createOutputSchema(ctx, call, inRowType, grpSet);
+        StructNativeType outputRowSchema = createOutputSchema(call, inRowType, grpSet);
         RowFactory<Object[]> outputRowFactory = ctx.rowFactoryFactory().create(outputRowSchema);
 
         SortAggregateNode<Object[]> aggRdc = new SortAggregateNode<>(

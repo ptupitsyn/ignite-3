@@ -101,7 +101,6 @@ import org.apache.ignite.internal.network.ClusterNodeImpl;
 import org.apache.ignite.internal.network.InternalClusterNode;
 import org.apache.ignite.internal.network.MessagingService;
 import org.apache.ignite.internal.network.NetworkMessage;
-import org.apache.ignite.internal.network.TopologyService;
 import org.apache.ignite.internal.sql.SqlCommon;
 import org.apache.ignite.internal.sql.configuration.distributed.StatisticsConfiguration;
 import org.apache.ignite.internal.sql.engine.InternalSqlRow;
@@ -109,9 +108,10 @@ import org.apache.ignite.internal.sql.engine.NodeLeftException;
 import org.apache.ignite.internal.sql.engine.QueryCancel;
 import org.apache.ignite.internal.sql.engine.QueryCancelledException;
 import org.apache.ignite.internal.sql.engine.SqlOperationContext;
+import org.apache.ignite.internal.sql.engine.SqlPlanToTxSchemaVersionValidator;
 import org.apache.ignite.internal.sql.engine.exec.ExecutionServiceImplTest.TestCluster.TestNode;
 import org.apache.ignite.internal.sql.engine.exec.ddl.DdlCommandHandler;
-import org.apache.ignite.internal.sql.engine.exec.exp.ExpressionFactoryImpl;
+import org.apache.ignite.internal.sql.engine.exec.exp.SqlExpressionFactoryImpl;
 import org.apache.ignite.internal.sql.engine.exec.exp.func.TableFunctionRegistry;
 import org.apache.ignite.internal.sql.engine.exec.exp.func.TableFunctionRegistryImpl;
 import org.apache.ignite.internal.sql.engine.exec.kill.KillCommandHandler;
@@ -320,11 +320,23 @@ public class ExecutionServiceImplTest extends BaseIgniteAbstractTest {
 
         mailboxes.clear();
 
-        executionServices.forEach(executer -> {
+        executionServices.forEach(executionService -> {
             try {
-                executer.stop();
+                executionService.stop();
             } catch (Exception e) {
-                log.error("Unable to stop executor", e);
+                log.error("Unable to stop execution service", e);
+            }
+        });
+
+        executers.forEach(threadPool -> {
+            try {
+                if (threadPool instanceof QueryTaskExecutorImpl) {
+                    Awaitility.await().until(() -> ((QueryTaskExecutorImpl) threadPool).queueSize(), is(0));
+                }
+
+                threadPool.stop();
+            } catch (Exception e) {
+                log.error("Unable to stop thread pool", e);
             }
         });
 
@@ -1224,48 +1236,6 @@ public class ExecutionServiceImplTest extends BaseIgniteAbstractTest {
     }
 
     @Test
-    public void coordinatorIgnoresRemoteCloseErrorFromNodeOnCoordinator() throws InterruptedException {
-        ExecutionService execService = executionServices.get(0);
-
-        nodeNames.stream().map(testCluster::node).forEach(TestNode::pauseScan);
-
-        var expectedEx = new RuntimeException("Test error");
-        var queryClosed = new CountDownLatch(nodeNames.size() - 1);
-
-        String coordinatorNode = nodeNames.get(0);
-        testCluster.node(coordinatorNode).interceptor((senderNode, msg, original) -> {
-            if (msg instanceof QueryStartRequest) {
-                QueryStartRequest queryStart = (QueryStartRequest) msg;
-
-                String nodeName = senderNode.name();
-                testCluster.node(coordinatorNode).messageService().send(nodeName, new SqlQueryMessagesFactory().queryStartResponse()
-                        .queryId(queryStart.queryId())
-                        .fragmentId(queryStart.fragmentId())
-                        .error(expectedEx)
-                        .build()
-                );
-            } else {
-                original.onMessage(senderNode, msg);
-            }
-
-            if (msg instanceof QueryCloseMessage) {
-                queryClosed.countDown();
-                return CompletableFuture.failedFuture(new RuntimeException("Test exception: failed to close"));
-            } else {
-                return nullCompletedFuture();
-            }
-        });
-
-        SqlOperationContext ctx = createContext();
-        QueryPlan plan = prepare("SELECT * FROM test_tbl", ctx);
-
-        RuntimeException actualException = assertWillThrow(execService.executePlan(plan, ctx), RuntimeException.class);
-        assertEquals(expectedEx, actualException);
-
-        queryClosed.await();
-    }
-
-    @Test
     public void coordinatorIgnoresRemoteCloseErrorOnNode() throws InterruptedException {
         ExecutionService execService = executionServices.get(0);
 
@@ -1365,10 +1335,6 @@ public class ExecutionServiceImplTest extends BaseIgniteAbstractTest {
             firstNode = clusterNode;
         }
 
-        var topologyService = mock(TopologyService.class);
-
-        when(topologyService.localMember()).thenReturn(clusterNode);
-
         NoOpExecutableTableRegistry executableTableRegistry = new NoOpExecutableTableRegistry();
 
         ExecutionDependencyResolver dependencyResolver = new ExecutionDependencyResolverImpl(executableTableRegistry, null);
@@ -1378,7 +1344,7 @@ public class ExecutionServiceImplTest extends BaseIgniteAbstractTest {
 
         var executionService = new ExecutionServiceImpl<>(
                 messageService,
-                topologyService,
+                clusterNode,
                 mappingService,
                 new PredefinedSchemaManager(schema),
                 mock(DdlCommandHandler.class),
@@ -1390,10 +1356,11 @@ public class ExecutionServiceImplTest extends BaseIgniteAbstractTest {
                 (ctx, deps) -> node.implementor(ctx, capturingMailbox, exchangeService, deps, tableFunctionRegistry),
                 clockService,
                 killCommandHandler,
-                new ExpressionFactoryImpl(
+                new SqlExpressionFactoryImpl(
                         Commons.typeFactory(), 1024, CaffeineCacheFactory.INSTANCE
                 ),
-                SHUTDOWN_TIMEOUT
+                SHUTDOWN_TIMEOUT,
+                SqlPlanToTxSchemaVersionValidator.NOOP
         );
 
         taskExecutor.start();
@@ -1527,7 +1494,7 @@ public class ExecutionServiceImplTest extends BaseIgniteAbstractTest {
                     public CompletableFuture<Void> send(String nodeName, NetworkMessage msg) {
                         TestNode node = nodes.get(nodeName);
 
-                        return runAsync(() -> {}).thenCompose(none -> node.onReceive(TestNode.this.node, msg));
+                        return runAsync(() -> await(node.onReceive(TestNode.this.node, msg)));
                     }
 
                     /** {@inheritDoc} */

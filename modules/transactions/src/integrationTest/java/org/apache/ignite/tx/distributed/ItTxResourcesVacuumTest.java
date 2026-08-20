@@ -18,6 +18,7 @@
 package org.apache.ignite.tx.distributed;
 
 import static java.util.stream.Collectors.toSet;
+import static org.apache.ignite.internal.ConfigTemplates.renderConfigTemplate;
 import static org.apache.ignite.internal.TestWrappers.unwrapIgniteImpl;
 import static org.apache.ignite.internal.catalog.CatalogService.DEFAULT_STORAGE_PROFILE;
 import static org.apache.ignite.internal.sql.engine.util.SqlTestUtils.executeUpdate;
@@ -104,18 +105,9 @@ public class ItTxResourcesVacuumTest extends ClusterPerTestIntegrationTest {
     private static final int REPLICAS = 2;
 
     /** Nodes bootstrap configuration pattern. */
-    private static final String NODE_BOOTSTRAP_CFG_TEMPLATE = "ignite {\n"
-            + "  network: {\n"
-            + "    port: {},\n"
-            + "    nodeFinder: {\n"
-            + "      netClusterNodes: [ {} ]\n"
-            + "    }\n"
-            + "  },\n"
-            + "  clientConnector: { port:{} },\n"
-            + "  rest.port: {},\n"
-            + "  raft: { responseTimeoutMillis: 30000 },"
-            + "  failureHandler.dumpThreadsOnFailure: false\n"
-            + "}";
+    private static final String NODE_BOOTSTRAP_CFG_TEMPLATE = renderConfigTemplate(
+            "  raft.responseTimeoutMillis: 30000,\n"
+    );
 
     private final ExecutorService txStateStorageExecutor = Executors.newSingleThreadExecutor(
             IgniteThreadFactory.create("test", "tx-state-storage-test-pool-itrvt", log, ThreadOperation.STORAGE_READ)
@@ -1076,10 +1068,6 @@ public class ItTxResourcesVacuumTest extends ClusterPerTestIntegrationTest {
                 });
     }
 
-    private IgniteImpl anyNode() {
-        return runningNodes().map(TestWrappers::unwrapIgniteImpl).findFirst().orElseThrow();
-    }
-
     @Nullable
     private static TransactionMeta volatileTxState(IgniteImpl node, UUID txId) {
         TxManagerImpl txManager = (TxManagerImpl) node.txManager();
@@ -1117,5 +1105,4 @@ public class ItTxResourcesVacuumTest extends ClusterPerTestIntegrationTest {
             return txStatePartitionStorage.get(txId);
         });
     }
-
 }

@@ -15,8 +15,10 @@ object Project : Project({
     listOf(
         CliDeb,
         CliRpm,
+        CppClientPackages,
         Deb,
         Docs,
+        Docker,
         DotnetBinariesDocs,
         JavaBinariesDocs,
         OdbcDeb,
@@ -29,7 +31,7 @@ object Project : Project({
     ).forEach {
         buildType(
             ApacheIgnite3CustomBuildType.Builder(it)
-                .ignite3VCS().ignite3BuildDependency()
+                .ignite3VCS().ignite3BuildDependency().setupMavenProxy()
                 .defaultBuildTypeSettings().requireLinux()
                 .build().buildType
         )

@@ -52,6 +52,7 @@ import org.apache.ignite.internal.metrics.NoOpMetricManager;
 import org.apache.ignite.internal.network.ClusterNodeImpl;
 import org.apache.ignite.internal.network.ClusterService;
 import org.apache.ignite.internal.network.InternalClusterNode;
+import org.apache.ignite.internal.sql.engine.api.expressions.RowFactoryFactory;
 import org.apache.ignite.internal.sql.engine.exec.ExchangeService;
 import org.apache.ignite.internal.sql.engine.exec.ExchangeServiceImpl;
 import org.apache.ignite.internal.sql.engine.exec.ExecutionContext;
@@ -59,7 +60,6 @@ import org.apache.ignite.internal.sql.engine.exec.MailboxRegistry;
 import org.apache.ignite.internal.sql.engine.exec.MailboxRegistryImpl;
 import org.apache.ignite.internal.sql.engine.exec.QueryTaskExecutor;
 import org.apache.ignite.internal.sql.engine.exec.QueryTaskExecutorImpl;
-import org.apache.ignite.internal.sql.engine.exec.RowFactoryFactory;
 import org.apache.ignite.internal.sql.engine.exec.RowHandler;
 import org.apache.ignite.internal.sql.engine.exec.mapping.FragmentDescription;
 import org.apache.ignite.internal.sql.engine.framework.ArrayRowHandler;
@@ -113,7 +113,7 @@ public class ExchangeExecutionTest extends AbstractExecutionTest<Object[]> {
      * Schema of the rows used in the tests. All data providers created within this test class must
      * conform to this row schema.
      */
-    private static final StructNativeType ROW_SCHEMA = NativeTypes.rowBuilder()
+    private static final StructNativeType ROW_SCHEMA = NativeTypes.structBuilder()
             .addField("C1", NativeTypes.INT32, true)
             .addField("C2", NativeTypes.INT32, true)
             .build();
@@ -531,7 +531,7 @@ public class ExchangeExecutionTest extends AbstractExecutionTest<Object[]> {
         }
 
         RewindableAsyncRoot<Object[], Object[]> root = new RewindableAsyncRoot<>(
-                node, Function.identity()
+                targetCtx, node, Function.identity()
         );
 
         node.onRegister(root);
@@ -627,7 +627,7 @@ public class ExchangeExecutionTest extends AbstractExecutionTest<Object[]> {
         ClockService clockService = new TestClockService(clock);
 
         MessageService messageService = new MessageServiceImpl(
-                clusterService.topologyService().localMember(),
+                clusterService.staticLocalNode(),
                 clusterService.messagingService(),
                 taskExecutor,
                 new IgniteSpinBusyLock(),
@@ -665,8 +665,8 @@ public class ExchangeExecutionTest extends AbstractExecutionTest<Object[]> {
          * @param source A source to requests rows from.
          * @param converter A converter to convert rows from an internal format to desired output format.
          */
-        RewindableAsyncRoot(AbstractNode<InT> source, Function<InT, OutT> converter) {
-            super(source, converter);
+        RewindableAsyncRoot(ExecutionContext<InT> ctx, AbstractNode<InT> source, Function<InT, OutT> converter) {
+            super(ctx, source, converter);
         }
 
         @Override

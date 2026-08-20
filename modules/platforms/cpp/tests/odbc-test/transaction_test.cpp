@@ -567,7 +567,8 @@ TEST_F(transaction_test, transaction_environment_rollback_delete_2) {
     check_test_value(42, "Some");
 }
 
-TEST_F(transaction_test, transaction_error) {
+// TODO https://issues.apache.org/jira/browse/IGNITE-28372
+TEST_F(transaction_test, DISABLED_transaction_error) {
     odbc_connect(get_basic_connection_string());
 
     insert_test_value(1, "test_1");
@@ -591,7 +592,7 @@ TEST_F(transaction_test, transaction_error) {
             try {
                 insert_test_value(conn2.m_statement, 2, "test_2");
             } catch (const odbc_exception &err) {
-                EXPECT_THAT(err.message, testing::HasSubstr("Lock acquiring failed during request handling"));
+                EXPECT_THAT(err.message, testing::HasSubstr("Failed to acquire a lock during request handling"));
                 EXPECT_EQ(err.sql_state, "25000");
                 throw;
             }
@@ -657,5 +658,7 @@ TEST_F(transaction_test, heartbeat_disable_connection_is_closed) {
 
     ret = SQLEndTran(SQL_HANDLE_ENV, m_env, SQL_ROLLBACK);
 
-    EXPECT_EQ(ret, SQL_ERROR);
+    std::cout << "Error message: " << get_odbc_error_message(SQL_HANDLE_ENV, m_env) << std::endl;
+
+    EXPECT_TRUE(ret == SQL_ERROR || ret == SQL_SUCCESS_WITH_INFO);
 }

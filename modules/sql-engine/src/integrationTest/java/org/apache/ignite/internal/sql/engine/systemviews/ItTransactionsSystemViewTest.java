@@ -39,6 +39,7 @@ import org.apache.ignite.internal.tx.impl.IgniteTransactionsImpl;
 import org.apache.ignite.internal.tx.views.TransactionsViewProvider;
 import org.apache.ignite.sql.ColumnType;
 import org.apache.ignite.tx.Transaction;
+import org.apache.ignite.tx.TransactionOptions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -60,6 +61,7 @@ public class ItTransactionsSystemViewTest extends AbstractSystemViewTest {
                         new MetadataMatcher().name("TRANSACTION_START_TIME").type(ColumnType.TIMESTAMP).nullable(true),
                         new MetadataMatcher().name("TRANSACTION_TYPE").type(ColumnType.STRING).nullable(true),
                         new MetadataMatcher().name("TRANSACTION_PRIORITY").type(ColumnType.STRING).nullable(true),
+                        new MetadataMatcher().name("TRANSACTION_LABEL").type(ColumnType.STRING).nullable(true),
 
                         // Legacy columns.
                         new MetadataMatcher().name("STATE").type(ColumnType.STRING).nullable(true),
@@ -84,7 +86,7 @@ public class ItTransactionsSystemViewTest extends AbstractSystemViewTest {
                 txs.add(transactions.beginWithPriority(false, priority));
             }
 
-            InternalClusterNode localMember = unwrapIgniteImpl(node).clusterService().topologyService().localMember();
+            InternalClusterNode localMember = unwrapIgniteImpl(node).clusterService().staticLocalNode();
 
             nodeIdToName.put(localMember.id(), localMember.name());
         });
@@ -122,6 +124,24 @@ public class ItTransactionsSystemViewTest extends AbstractSystemViewTest {
 
             assertThat(resultRow, hasSize(1));
             assertThat(resultRow.get(0), equalTo(Arrays.asList(expected)));
+        } finally {
+            tx.rollback();
+        }
+    }
+
+    @Test
+    public void testTransactionLabel() {
+        String customLabel = "TEST-CUSTOM-LABEL";
+        Transaction tx = CLUSTER.aliveNode().transactions().begin(new TransactionOptions().label(customLabel));
+        InternalTransaction internalTx = (InternalTransaction) tx;
+
+        try {
+            UUID txId = internalTx.id();
+
+            // Verify the label appears in the system view
+            assertQuery("SELECT TRANSACTION_LABEL FROM SYSTEM.TRANSACTIONS WHERE TRANSACTION_ID = '" + txId + "'")
+                    .returns(customLabel)
+                    .check();
         } finally {
             tx.rollback();
         }

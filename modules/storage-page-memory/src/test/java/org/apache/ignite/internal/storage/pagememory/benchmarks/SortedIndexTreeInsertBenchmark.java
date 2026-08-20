@@ -18,6 +18,7 @@
 package org.apache.ignite.internal.storage.pagememory.benchmarks;
 
 import static org.apache.ignite.internal.pagememory.PageIdAllocator.FLAG_AUX;
+import static org.apache.ignite.internal.storage.pagememory.AbstractPageMemoryStorageEngine.createNewJitComparator;
 
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -25,6 +26,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.apache.ignite.internal.binarytuple.BinaryTupleBuilder;
+import org.apache.ignite.internal.pagememory.PartitionPageMemory;
 import org.apache.ignite.internal.pagememory.benchmark.VolatilePageMemoryBenchmarkBase;
 import org.apache.ignite.internal.storage.RowId;
 import org.apache.ignite.internal.storage.index.StorageSortedIndexDescriptor;
@@ -115,15 +117,19 @@ public class SortedIndexTreeInsertBenchmark extends VolatilePageMemoryBenchmarkB
     public void setup() throws Exception {
         super.setup();
 
+        StorageSortedIndexDescriptor indexDescriptor = new StorageSortedIndexDescriptor(INDEX_ID, columnTypes.columnDescriptors(), false);
+
+        PartitionPageMemory partitionPageMemory = volatilePageMemory.createPartitionPageMemory(GROUP_ID, PARTITION_ID);
         sortedIndexTree = SortedIndexTree.createNew(
                 GROUP_ID,
                 "sortedIndex",
                 PARTITION_ID,
-                volatilePageMemory,
+                partitionPageMemory,
                 new AtomicLong(),
-                volatilePageMemory.allocatePageNoReuse(GROUP_ID, PARTITION_ID, FLAG_AUX),
+                partitionPageMemory.allocatePageNoReuse(GROUP_ID, PARTITION_ID, FLAG_AUX),
                 freeList,
-                new StorageSortedIndexDescriptor(INDEX_ID, columnTypes.columnDescriptors(), false)
+                indexDescriptor,
+                createNewJitComparator(indexDescriptor)
         );
     }
 
@@ -147,7 +153,7 @@ public class SortedIndexTreeInsertBenchmark extends VolatilePageMemoryBenchmarkB
     }
 
     private static StorageSortedIndexColumnDescriptor descriptor(int i, NativeType nativeType) {
-        return new StorageSortedIndexColumnDescriptor("col" + i, nativeType, false, true, true);
+        return new StorageSortedIndexColumnDescriptor("col" + i, nativeType, true, true, true);
     }
 
     private static ByteBuffer newLongTuple() {

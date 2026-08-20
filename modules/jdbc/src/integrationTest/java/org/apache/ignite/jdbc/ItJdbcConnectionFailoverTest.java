@@ -34,7 +34,6 @@ import org.apache.ignite.internal.ClusterPerTestIntegrationTest;
 import org.apache.ignite.internal.jdbc.JdbcConnection;
 import org.apache.ignite.internal.lang.RunnableX;
 import org.awaitility.Awaitility;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -89,7 +88,6 @@ public class ItJdbcConnectionFailoverTest extends ClusterPerTestIntegrationTest 
      * Ensures that the partition aware query is forwarded to the alive node.
      */
     @Test
-    @Disabled("https://issues.apache.org/jira/browse/IGNITE-27180")
     void testPartitionAwareQueryForwardedToRandomNode() throws SQLException {
         int nodesCount = 3;
         cluster.startAndInit(nodesCount, new int[]{0, 1, 2});
@@ -131,7 +129,6 @@ public class ItJdbcConnectionFailoverTest extends ClusterPerTestIntegrationTest 
      *          JDBC connection property is correctly applied to the underlying client.
      */
     @Test
-    @Disabled("https://issues.apache.org/jira/browse/IGNITE-27188")
     void testConnectionRestoredAfterBackgroundReconnectInterval() throws Exception {
         int nodesCount = 3;
         cluster.startAndInit(nodesCount, new int[]{2});
@@ -199,7 +196,6 @@ public class ItJdbcConnectionFailoverTest extends ClusterPerTestIntegrationTest 
      * Ensures that the client receives a meaningful exception when the node holding the client transaction goes down.
      */
     @Test
-    @Disabled("https://issues.apache.org/jira/browse/IGNITE-27091")
     void testTransactionCannotBeUsedAfterNodeRestart() throws SQLException {
         int nodesCount = 3;
         cluster.startAndInit(nodesCount, new int[]{2});
@@ -217,14 +213,13 @@ public class ItJdbcConnectionFailoverTest extends ClusterPerTestIntegrationTest 
                 cluster.stopNode(1);
 
                 //noinspection ThrowableNotThrown
-                assertThrowsSqlException("Connection refused", () -> stmt.execute(dummyQuery));
+                assertThrowsSqlException("Transaction context has been lost due to connection errors", () -> stmt.execute(dummyQuery));
 
                 cluster.startNode(0);
                 cluster.startNode(1);
 
                 //noinspection ThrowableNotThrown
-                assertThrowsSqlException("Transaction context has been lost due to connection errors",
-                        () -> stmt.execute(dummyQuery));
+                assertThrowsSqlException("Transaction context has been lost due to connection errors", () -> stmt.execute(dummyQuery));
             }
         }
     }

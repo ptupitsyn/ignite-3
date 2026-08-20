@@ -19,6 +19,7 @@ package org.apache.ignite.internal.sql.engine.util;
 
 import static org.apache.calcite.rel.hint.HintPredicates.AGGREGATE;
 import static org.apache.calcite.rel.hint.HintPredicates.JOIN;
+import static org.apache.calcite.rel.hint.HintPredicates.TABLE_SCAN;
 import static org.apache.ignite.internal.sql.engine.prepare.PlanningContext.CLUSTER;
 import static org.apache.ignite.internal.util.CollectionUtils.nullOrEmpty;
 import static org.apache.ignite.lang.ErrorGroups.Common.INTERNAL_ERR;
@@ -55,7 +56,10 @@ import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.RelCollationTraitDef;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.JoinInfo;
+import org.apache.calcite.rel.hint.HintPredicate;
+import org.apache.calcite.rel.hint.HintPredicates;
 import org.apache.calcite.rel.hint.HintStrategyTable;
+import org.apache.calcite.rel.hint.Hintable;
 import org.apache.calcite.rel.logical.LogicalJoin;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
@@ -83,8 +87,8 @@ import org.apache.ignite.internal.lang.InternalTuple;
 import org.apache.ignite.internal.schema.InvalidTypeException;
 import org.apache.ignite.internal.sql.engine.SqlProperties;
 import org.apache.ignite.internal.sql.engine.SqlQueryType;
-import org.apache.ignite.internal.sql.engine.exec.exp.ExpressionFactoryImpl;
 import org.apache.ignite.internal.sql.engine.exec.exp.RexExecutorImpl;
+import org.apache.ignite.internal.sql.engine.exec.exp.SqlExpressionFactoryImpl;
 import org.apache.ignite.internal.sql.engine.hint.IgniteHint;
 import org.apache.ignite.internal.sql.engine.metadata.IgniteMetadata;
 import org.apache.ignite.internal.sql.engine.metadata.RelMetadataQueryEx;
@@ -93,7 +97,6 @@ import org.apache.ignite.internal.sql.engine.prepare.IgniteConvertletTable;
 import org.apache.ignite.internal.sql.engine.prepare.IgniteTypeCoercion;
 import org.apache.ignite.internal.sql.engine.prepare.PlanningContext;
 import org.apache.ignite.internal.sql.engine.rel.IgniteProject;
-import org.apache.ignite.internal.sql.engine.rel.logical.IgniteLogicalTableScan;
 import org.apache.ignite.internal.sql.engine.sql.IgniteSqlCommitTransaction;
 import org.apache.ignite.internal.sql.engine.sql.IgniteSqlConformance;
 import org.apache.ignite.internal.sql.engine.sql.IgniteSqlKill;
@@ -138,13 +141,6 @@ public final class Commons {
             SqlKind.OTHER_DDL
     );
 
-    /**
-     * The number of elements to be prefetched from each partition when scanning the sorted index.
-     * The higher the value, the fewer calls to the upstream will be, but at the same time, the bigger
-     * internal buffer will be.
-     */
-    public static final int SORTED_IDX_PART_PREFETCH_SIZE = 100;
-
     @SuppressWarnings("rawtypes")
     public static final List<RelTraitDef> DISTRIBUTED_TRAITS_SET = List.of(
             ConventionTraitDef.INSTANCE,
@@ -171,8 +167,9 @@ public final class Commons {
                                     .hintStrategy(IgniteHint.ENFORCE_JOIN_ORDER.name(), JOIN)
                                     .hintStrategy(IgniteHint.DISABLE_RULE.name(), (hint, rel) -> true)
                                     .hintStrategy(IgniteHint.EXPAND_DISTINCT_AGG.name(), AGGREGATE)
-                                    .hintStrategy(IgniteHint.NO_INDEX.name(), (hint, rel) -> rel instanceof IgniteLogicalTableScan)
-                                    .hintStrategy(IgniteHint.FORCE_INDEX.name(), (hint, rel) -> rel instanceof IgniteLogicalTableScan)
+                                    .hintStrategy(IgniteHint.NO_INDEX.name(), indexHintPropagationStrategy())
+                                    .hintStrategy(IgniteHint.FORCE_INDEX.name(), indexHintPropagationStrategy())
+                                    .hintStrategy(IgniteHint.DISABLE_DECORRELATION.name(), (hint, rel) -> true)
                                     .build()
                     )
             )
@@ -181,7 +178,7 @@ public final class Commons {
             .sqlValidatorConfig(SqlValidator.Config.DEFAULT
                     .withIdentifierExpansion(true)
                     .withDefaultNullCollation(NullCollation.HIGH)
-                    .withSqlConformance(IgniteSqlConformance.INSTANCE)
+                    .withConformance(IgniteSqlConformance.INSTANCE)
                     .withTypeCoercionRules(standardCompatibleCoercionRules())
                     .withTypeCoercionFactory(IgniteTypeCoercion::new))
             // Dialects support.
@@ -193,6 +190,18 @@ public final class Commons {
             .typeSystem(IgniteTypeSystem.INSTANCE)
             .traitDefs(DISTRIBUTED_TRAITS_SET)
             .build();
+
+    private static HintPredicate indexHintPropagationStrategy() {
+        return HintPredicates.and(
+                TABLE_SCAN,
+                (hint, rel) -> ((Hintable) rel).getHints().stream()
+                        .filter(h -> h.hintName.equals(IgniteHint.FORCE_INDEX.name())
+                                || h.hintName.equals(IgniteHint.NO_INDEX.name()))
+                        // Ignore all that overlaps existed hint.
+                        // See RelHint javadoc.
+                        .filter(h -> h.inheritPath.size() < hint.inheritPath.size())
+                        .findAny().isEmpty());
+    }
 
     private static volatile @Nullable Boolean fastOptimizationsEnabled = null;
 
@@ -336,7 +345,7 @@ public final class Commons {
     /**
      * Flattens a list of lists into a single list containing all elements from the nested lists.
      *
-     * <p>This method takes a source list where each element is itself a list and combines 
+     * <p>This method takes a source list where each element is itself a list and combines
      * all the nested lists into a single list containing all their elements in order.
      *
      * <p>For example:
@@ -374,7 +383,7 @@ public final class Commons {
             final ICompilerFactory compilerFactory;
 
             try {
-                compilerFactory = CompilerFactoryFactory.getDefaultCompilerFactory(ExpressionFactoryImpl.class.getClassLoader());
+                compilerFactory = CompilerFactoryFactory.getDefaultCompilerFactory(SqlExpressionFactoryImpl.class.getClassLoader());
             } catch (Exception e) {
                 throw new IllegalStateException(
                         "Unable to instantiate java compiler", e);
@@ -855,5 +864,16 @@ public final class Commons {
                 Mappings.createIdentity(sourceCount),
                 offset
         );
+    }
+
+    /**
+     * Packs two integers into a single long value.
+     *
+     * @param high The first integer to pack.
+     * @param low The second integer to pack.
+     * @return A long value containing both integers.
+     */
+    public static long packIntsToLong(int high, int low) {
+        return (((long) high) << 32) | (low & 0xffffffffL);
     }
 }

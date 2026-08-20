@@ -23,6 +23,7 @@ import static org.apache.ignite.internal.client.proto.ProtocolBitmaskFeature.TX_
 import static org.apache.ignite.internal.client.proto.ProtocolBitmaskFeature.TX_PIGGYBACK;
 import static org.apache.ignite.internal.client.table.ClientTableMapUtils.mapAndRetry;
 import static org.apache.ignite.internal.client.table.ClientTableMapUtils.reduceWithKeepOrder;
+import static org.apache.ignite.internal.util.CompletableFutures.copyStateTo;
 import static org.apache.ignite.internal.util.ExceptionUtils.sneakyThrow;
 import static org.apache.ignite.internal.util.ExceptionUtils.unwrapCause;
 import static org.apache.ignite.lang.ErrorGroups.Common.INTERNAL_ERR;
@@ -65,6 +66,7 @@ import org.apache.ignite.internal.marshaller.MarshallersProvider;
 import org.apache.ignite.internal.marshaller.UnmappedColumnsException;
 import org.apache.ignite.internal.tostring.IgniteToStringBuilder;
 import org.apache.ignite.internal.util.IgniteUtils;
+import org.apache.ignite.internal.util.ViewUtils;
 import org.apache.ignite.lang.IgniteException;
 import org.apache.ignite.table.KeyValueView;
 import org.apache.ignite.table.QualifiedName;
@@ -495,7 +497,7 @@ public class ClientTable implements Table {
                     return txStartFut.thenCompose(tx0 -> {
                         return ch.serviceAsync(
                                 opCode,
-                                w -> writer.accept(schema, w, ctx),
+                                DirectTxUtils.payloadWriter(ctx, tx, w -> writer.accept(schema, w, ctx)),
                                 r -> readSchemaAndReadData(schema, r, reader, defaultValue, responseSchemaRequired, ctx, tx0),
                                 () -> DirectTxUtils.resolveChannel(ctx, ch, ClientOp.isWrite(opCode), tx0, pm),
                                 retryPolicyOverride,
@@ -504,21 +506,15 @@ public class ClientTable implements Table {
                                 .thenCompose(t -> loadSchemaAndReadData(t, reader))
                                 .handle((ret, ex) -> {
                                     if (ex != null) {
-                                        // Retry schema errors, if any.
                                         Throwable cause = ex;
 
-                                        if (ctx.firstReqFut != null) {
-                                            // Create failed transaction.
-                                            ClientTransaction failed = new ClientTransaction(ctx.channel, id, ctx.readOnly, null, ctx.pm,
-                                                    null, ch.observableTimestamp(), 0);
-                                            failed.fail();
-                                            ctx.firstReqFut.complete(failed);
+                                        if (DirectTxUtils.tryHandleErrorOnFirstRequest(ctx, ch)) {
                                             fut.completeExceptionally(unwrapCause(ex));
                                             return null;
                                         }
 
-                                        // Don't attempt retrying in case of direct mapping. This may be improved in the future.
                                         if (ctx.enlistmentToken == null) {
+                                            // Retry schema errors, if any, in proxy mode.
                                             while (cause != null) {
                                                 if (cause instanceof ClientSchemaVersionMismatchException) {
                                                     // Retry with specific schema version.
@@ -527,13 +523,7 @@ public class ClientTable implements Table {
                                                     doSchemaOutInOpAsync(opCode, writer, reader, defaultValue, responseSchemaRequired,
                                                             provider,
                                                             retryPolicyOverride, expectedVersion, expectNotifications, tx)
-                                                            .whenComplete((res0, err0) -> {
-                                                                if (err0 != null) {
-                                                                    fut.completeExceptionally(err0);
-                                                                } else {
-                                                                    fut.complete(res0);
-                                                                }
-                                                            });
+                                                            .whenComplete(copyStateTo(fut));
 
                                                     return null;
                                                 } else if (schemaVersionOverride == null && cause instanceof UnmappedColumnsException) {
@@ -544,38 +534,27 @@ public class ClientTable implements Table {
                                                     doSchemaOutInOpAsync(opCode, writer, reader, defaultValue, responseSchemaRequired,
                                                             provider,
                                                             retryPolicyOverride, UNKNOWN_SCHEMA_VERSION, expectNotifications, tx)
-                                                            .whenComplete((res0, err0) -> {
-                                                                if (err0 != null) {
-                                                                    fut.completeExceptionally(err0);
-                                                                } else {
-                                                                    fut.complete(res0);
-                                                                }
-                                                            });
+                                                            .whenComplete(copyStateTo(fut));
 
                                                     return null;
                                                 }
 
                                                 cause = cause.getCause();
                                             }
+                                        }
 
+                                        if (tx0 == null) {
                                             fut.completeExceptionally(ex);
                                         } else {
-                                            // In case of direct mapping failure for any reason try to roll back the transaction.
-                                            tx0.rollbackAsync().handle((ignored, err0) -> {
-                                                if (err0 != null) {
-                                                    ex.addSuppressed(err0);
-                                                }
-
-                                                fut.completeExceptionally(ex);
-
-                                                return (T) null;
-                                            });
+                                            DirectTxUtils.handleErrorOnOtherRequests(ctx, tx0, ex)
+                                                    .whenComplete((ignored, err0) -> fut.completeExceptionally(err0));
                                         }
+
+                                        return null;
                                     } else {
                                         fut.complete(ret);
+                                        return null;
                                     }
-
-                                    return null;
                                 });
                     });
                 }).exceptionally(ex -> {
@@ -584,7 +563,14 @@ public class ClientTable implements Table {
                     return null;
                 });
 
-        return fut;
+        return fut.handle((v, err) -> {
+            if (err == null) {
+                return v;
+            }
+
+            var cause = unwrapCause(err);
+            throw sneakyThrow(ViewUtils.ensurePublicException(cause));
+        });
     }
 
     private <T> @Nullable Object readSchemaAndReadData(
@@ -597,7 +583,7 @@ public class ClientTable implements Table {
             @Nullable ClientTransaction tx0
     ) {
         ClientMessageUnpacker in1 = in.in();
-        DirectTxUtils.readTx(in, ctx, tx0, ch.observableTimestamp());
+        DirectTxUtils.readTx(in, ch, ctx, tx0, ch.observableTimestamp());
 
         int schemaVer = in1.unpackInt();
 

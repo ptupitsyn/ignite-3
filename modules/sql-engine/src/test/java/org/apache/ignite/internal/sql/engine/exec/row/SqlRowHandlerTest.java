@@ -34,10 +34,9 @@ import java.util.List;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.stream.Stream;
-import org.apache.ignite.internal.schema.BinaryTuple;
-import org.apache.ignite.internal.sql.engine.exec.RowFactory;
-import org.apache.ignite.internal.sql.engine.exec.RowFactory.RowBuilder;
+import org.apache.ignite.internal.binarytuple.BinaryTuple;
+import org.apache.ignite.internal.sql.engine.api.expressions.RowFactory;
+import org.apache.ignite.internal.sql.engine.api.expressions.RowFactory.RowBuilder;
 import org.apache.ignite.internal.sql.engine.exec.SqlRowHandler;
 import org.apache.ignite.internal.sql.engine.exec.SqlRowHandler.RowWrapper;
 import org.apache.ignite.internal.sql.engine.util.SqlTestUtils;
@@ -45,15 +44,13 @@ import org.apache.ignite.internal.sql.engine.util.TypeUtils;
 import org.apache.ignite.internal.testframework.IgniteAbstractTest;
 import org.apache.ignite.internal.type.NativeType;
 import org.apache.ignite.internal.type.NativeTypes;
-import org.apache.ignite.internal.type.NativeTypes.RowTypeBuilder;
+import org.apache.ignite.internal.type.NativeTypes.StructTypeBuilder;
 import org.apache.ignite.internal.type.StructNativeType;
 import org.apache.ignite.sql.ColumnType;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -142,7 +139,7 @@ public class SqlRowHandlerTest extends IgniteAbstractTest {
     public void testUpdateRowSchemaOnMapping() {
         SqlRowHandler handler = SqlRowHandler.INSTANCE;
 
-        StructNativeType rowSchema = NativeTypes.rowBuilder()
+        StructNativeType rowSchema = NativeTypes.structBuilder()
                 .addField("C1", NativeTypes.INT32, false)
                 .addField("C2", NativeTypes.STRING, false)
                 .build();
@@ -151,7 +148,7 @@ public class SqlRowHandlerTest extends IgniteAbstractTest {
                 .addField(1).addField("2")
                 .build();
 
-        StructNativeType reverseRowSchema = NativeTypes.rowBuilder()
+        StructNativeType reverseRowSchema = NativeTypes.structBuilder()
                 .addField("C1", NativeTypes.STRING, false)
                 .addField("C2", NativeTypes.INT32, false)
                 .build();
@@ -163,15 +160,6 @@ public class SqlRowHandlerTest extends IgniteAbstractTest {
         BinaryTuple mappedBinaryTuple = handler.toBinaryTuple(reverseMapping);
         assertEquals("2", mappedBinaryTuple.stringValue(0));
         assertEquals(1, mappedBinaryTuple.intValue(1));
-    }
-
-    private static Stream<Arguments> concatTestArguments() {
-        return Stream.of(
-                Arguments.of(Named.of("array", false), Named.of("array", false)),
-                Arguments.of(Named.of("array", false), Named.of("tuple", true)),
-                Arguments.of(Named.of("tuple", true), Named.of("array", false)),
-                Arguments.of(Named.of("tuple", true), Named.of("tuple", true))
-        );
     }
 
     @ParameterizedTest
@@ -248,7 +236,7 @@ public class SqlRowHandlerTest extends IgniteAbstractTest {
 
     @Test
     public void testRowBuilderEmptyRow() {
-        RowFactory<RowWrapper> rowFactory = handler.create(NativeTypes.rowBuilder().build());
+        RowFactory<RowWrapper> rowFactory = handler.create(NativeTypes.structBuilder().build());
         RowBuilder<RowWrapper> rowBuilder = rowFactory.rowBuilder();
         assertNotNull(rowBuilder.build());
     }
@@ -259,7 +247,7 @@ public class SqlRowHandlerTest extends IgniteAbstractTest {
     public void testIsNull(ColumnType columnType) {
         NativeType nativeType = TypeUtils.columnType2NativeType(columnType, 3, 3, 0);
 
-        StructNativeType rowSchema = NativeTypes.rowBuilder()
+        StructNativeType rowSchema = NativeTypes.structBuilder()
                 .addField("C1", nativeType, true)
                 .build();
 
@@ -279,7 +267,7 @@ public class SqlRowHandlerTest extends IgniteAbstractTest {
     }
 
     private StructNativeType rowSchema(List<ColumnType> columnTypes, Object[] values) {
-        RowTypeBuilder schemaBuilder = NativeTypes.rowBuilder();
+        StructTypeBuilder schemaBuilder = NativeTypes.structBuilder();
 
         for (int i = 0; i < values.length; i++) {
             ColumnType type = columnTypes.get(i);

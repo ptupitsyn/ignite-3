@@ -347,7 +347,7 @@ public class ClientMessagePacker implements AutoCloseable {
      *
      * @param s the value to be written.
      */
-    public void packString(@Nullable String s) {
+    public void packString(@Nullable CharSequence s) {
         assert !closed : "Packer is closed";
 
         if (s == null) {
@@ -627,6 +627,27 @@ public class ClientMessagePacker implements AutoCloseable {
 
         for (long i : arr) {
             packLong(i);
+        }
+    }
+
+    /**
+     * Writes a long array as a single binary value.
+     *
+     * @param arr Long array value.
+     */
+    public void packLongArrayAsBinary(long @Nullable [] arr) {
+        assert !closed : "Packer is closed";
+
+        if (arr == null) {
+            packNil();
+
+            return;
+        }
+
+        packBinaryHeader(arr.length * 8);
+
+        for (long value : arr) {
+            buf.writeLong(value);
         }
     }
 

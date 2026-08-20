@@ -20,15 +20,16 @@ package org.apache.ignite.client.handler;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.ignite.client.handler.ClientPrimaryReplicaTracker.PrimaryReplicasResult;
 import org.apache.ignite.internal.TestHybridClock;
-import org.apache.ignite.internal.components.SystemPropertiesNodeProperties;
 import org.apache.ignite.internal.hlc.TestClockService;
 import org.apache.ignite.internal.lowwatermark.TestLowWatermark;
 import org.apache.ignite.internal.schema.AlwaysSyncedSchemaSyncService;
@@ -76,8 +77,7 @@ class ClientPrimaryReplicaTrackerTest extends BaseIgniteAbstractTest {
                 new FakeCatalogService(PARTITIONS, tableId -> ZONE_ID),
                 new TestClockService(new TestHybridClock(currentTime::get)),
                 new AlwaysSyncedSchemaSyncService(),
-                new TestLowWatermark(),
-                new SystemPropertiesNodeProperties()
+                new TestLowWatermark()
         );
     }
 
@@ -134,6 +134,25 @@ class ClientPrimaryReplicaTrackerTest extends BaseIgniteAbstractTest {
         assertEquals(PARTITIONS, replicas.nodeNames().size());
         assertEquals("s1", replicas.nodeNames().get(0));
         assertEquals("s2", replicas.nodeNames().get(1));
+    }
+
+    @Test
+    public void testFailedPrimaryReplicaRequestPropagatesOriginalError() {
+        driver.returnError(true);
+        tracker.start();
+
+        try {
+            tracker.primaryReplicasAsync(TABLE_ID, null).join();
+            fail("Expected completion to fail");
+        } catch (CompletionException e) {
+            Throwable cause = e.getCause();
+            while (cause instanceof CompletionException && cause.getCause() != null) {
+                cause = cause.getCause();
+            }
+
+            assertTrue(cause instanceof RuntimeException);
+            assertEquals("FakePlacementDriver expected error", cause.getMessage());
+        }
     }
 
     @Test

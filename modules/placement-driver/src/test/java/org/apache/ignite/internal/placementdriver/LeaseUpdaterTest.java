@@ -21,10 +21,6 @@ import static java.util.Collections.emptyMap;
 import static java.util.UUID.randomUUID;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.stream.Collectors.toSet;
-import static org.apache.ignite.internal.distributionzones.rebalance.RebalanceUtil.PENDING_ASSIGNMENTS_QUEUE_PREFIX_BYTES;
-import static org.apache.ignite.internal.distributionzones.rebalance.RebalanceUtil.STABLE_ASSIGNMENTS_PREFIX_BYTES;
-import static org.apache.ignite.internal.distributionzones.rebalance.RebalanceUtil.pendingPartAssignmentsQueueKey;
-import static org.apache.ignite.internal.distributionzones.rebalance.RebalanceUtil.stablePartAssignmentsKey;
 import static org.apache.ignite.internal.util.ArrayUtils.BYTE_EMPTY_ARRAY;
 import static org.apache.ignite.internal.util.ByteUtils.toByteArray;
 import static org.apache.ignite.internal.util.CompletableFutures.trueCompletedFuture;
@@ -42,9 +38,12 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
@@ -53,11 +52,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.apache.ignite.internal.cluster.management.topology.api.LogicalNode;
 import org.apache.ignite.internal.cluster.management.topology.api.LogicalTopologyService;
 import org.apache.ignite.internal.cluster.management.topology.api.LogicalTopologySnapshot;
-import org.apache.ignite.internal.components.SystemPropertiesNodeProperties;
 import org.apache.ignite.internal.configuration.testframework.ConfigurationExtension;
 import org.apache.ignite.internal.configuration.testframework.InjectConfiguration;
 import org.apache.ignite.internal.distributionzones.rebalance.ZoneRebalanceUtil;
@@ -66,7 +65,6 @@ import org.apache.ignite.internal.hlc.HybridClockImpl;
 import org.apache.ignite.internal.hlc.HybridTimestamp;
 import org.apache.ignite.internal.hlc.TestClockService;
 import org.apache.ignite.internal.lang.ByteArray;
-import org.apache.ignite.internal.lang.IgniteSystemProperties;
 import org.apache.ignite.internal.metastorage.Entry;
 import org.apache.ignite.internal.metastorage.MetaStorageManager;
 import org.apache.ignite.internal.metastorage.Revisions;
@@ -84,9 +82,7 @@ import org.apache.ignite.internal.placementdriver.leases.LeaseBatch;
 import org.apache.ignite.internal.placementdriver.leases.LeaseTracker;
 import org.apache.ignite.internal.placementdriver.leases.Leases;
 import org.apache.ignite.internal.placementdriver.message.PlacementDriverMessagesFactory;
-import org.apache.ignite.internal.replicator.PartitionGroupId;
 import org.apache.ignite.internal.replicator.ReplicationGroupId;
-import org.apache.ignite.internal.replicator.TablePartitionId;
 import org.apache.ignite.internal.replicator.ZonePartitionId;
 import org.apache.ignite.internal.replicator.configuration.ReplicationConfiguration;
 import org.apache.ignite.internal.testframework.BaseIgniteAbstractTest;
@@ -118,7 +114,7 @@ public class LeaseUpdaterTest extends BaseIgniteAbstractTest {
     private final LogicalNode stableNode = new LogicalNode(randomUUID(), "test-node-stable", NetworkAddress.from("127.0.0.1:10000"));
     private final LogicalNode pendingNode = new LogicalNode(randomUUID(), "test-node-pending", NetworkAddress.from("127.0.0.1:10001"));
 
-    @InjectConfiguration("mock.leaseExpirationIntervalMillis = " + TEST_LEASE_INTERVAL_MILLIS)
+    @InjectConfiguration(value = "mock.leaseExpirationIntervalMillis = " + TEST_LEASE_INTERVAL_MILLIS, validate = false)
     private ReplicationConfiguration replicationConfiguration;
 
     @Mock
@@ -126,6 +122,9 @@ public class LeaseUpdaterTest extends BaseIgniteAbstractTest {
 
     @Mock
     MetaStorageManager metaStorageManager;
+
+    @Mock
+    private LeaseTracker leaseTracker;
 
     /** Lease updater for tests. */
     private LeaseUpdater leaseUpdater;
@@ -135,37 +134,35 @@ public class LeaseUpdaterTest extends BaseIgniteAbstractTest {
     /** Closure to get a lease that is passed in Meta storage. */
     private volatile Consumer<Lease> renewLeaseConsumer = null;
 
-    private final boolean enabledColocation = IgniteSystemProperties.colocationEnabled();
+    /** Closure to get a lease batch that is passed in Meta storage. */
+    private volatile Consumer<LeaseBatch> renewLeaseBatchConsumer = null;
 
-    private PartitionGroupId replicationGroupId(int objectId, int partId) {
-        return enabledColocation ? new ZonePartitionId(objectId, partId) : new TablePartitionId(objectId, partId);
+    private static ZonePartitionId replicationGroupId(int objectId, int partId) {
+        return new ZonePartitionId(objectId, partId);
     }
 
-    private ByteArray stableAssignmentsKey(PartitionGroupId groupId) {
-        return enabledColocation ? ZoneRebalanceUtil.stablePartAssignmentsKey((ZonePartitionId) groupId)
-                : stablePartAssignmentsKey((TablePartitionId) groupId);
+    private static ByteArray stableAssignmentsKey(ZonePartitionId groupId) {
+        return ZoneRebalanceUtil.stablePartAssignmentsKey(groupId);
     }
 
-    private ByteArray pendingAssignmentsQueueKey(PartitionGroupId groupId) {
-        return enabledColocation ? ZoneRebalanceUtil.pendingPartAssignmentsQueueKey((ZonePartitionId) groupId)
-                : pendingPartAssignmentsQueueKey((TablePartitionId) groupId);
+    private static ByteArray pendingAssignmentsQueueKey(ZonePartitionId groupId) {
+        return ZoneRebalanceUtil.pendingPartAssignmentsQueueKey(groupId);
     }
 
     @BeforeEach
     void setUp(
             @Mock ClusterService clusterService,
-            @Mock LeaseTracker leaseTracker,
             @Mock MessagingService messagingService
     ) {
         mockStableAssignments(Set.of(Assignment.forPeer(stableNode.name())));
         mockPendingAssignments(Set.of(Assignment.forPeer(pendingNode.name())));
 
-        when(messagingService.invoke(anyString(), any(), anyLong()))
+        lenient().when(messagingService.invoke(anyString(), any(), anyLong()))
                 .then(i -> completedFuture(PLACEMENT_DRIVER_MESSAGES_FACTORY.leaseGrantedMessageResponse().accepted(true).build()));
 
         when(clusterService.messagingService()).thenReturn(messagingService);
 
-        lenient().when(leaseTracker.leasesCurrent()).thenReturn(leases);
+        lenient().when(leaseTracker.latestLeases()).thenReturn(leases);
         lenient().when(leaseTracker.getLease(any(ReplicationGroupId.class))).then(i -> Lease.emptyLease(i.getArgument(0)));
 
         when(metaStorageManager.recoveryFinishedFuture()).thenReturn(completedFuture(new Revisions(1, -1)));
@@ -175,6 +172,7 @@ public class LeaseUpdaterTest extends BaseIgniteAbstractTest {
         lenient().when(metaStorageManager.invoke(any(Condition.class), any(Operation.class), any(Operation.class)))
                 .thenAnswer(invocation -> {
                     Consumer<Lease> leaseConsumer = renewLeaseConsumer;
+                    Consumer<LeaseBatch> leaseBatchConsumer = renewLeaseBatchConsumer;
 
                     if (leaseConsumer != null) {
                         OperationImpl op = invocation.getArgument(1);
@@ -185,15 +183,21 @@ public class LeaseUpdaterTest extends BaseIgniteAbstractTest {
                         leaseConsumer.accept(lease);
                     }
 
+                    if (leaseBatchConsumer != null) {
+                        OperationImpl op = invocation.getArgument(1);
+
+                        LeaseBatch batch = LeaseBatch.fromBytes(toByteArray(op.value()));
+
+                        leaseBatchConsumer.accept(batch);
+                    }
+
                     return trueCompletedFuture();
                 });
 
         assignmentsTracker = new AssignmentsTracker(
                 metaStorageManager,
                 mock(FailureProcessor.class),
-                new SystemPropertiesNodeProperties(),
-                zoneId -> completedFuture(Set.of()),
-                zoneId -> null
+                zoneId -> completedFuture(Set.of())
         );
         assignmentsTracker.startTrack();
 
@@ -353,6 +357,171 @@ public class LeaseUpdaterTest extends BaseIgniteAbstractTest {
     }
 
     @Test
+    public void testStaleLeaseholderIdCanCoexistWithCurrentNodeIdsInBatch() throws Exception {
+        List<LogicalNode> currentTopologyNodes = IntStream.range(0, 8)
+                .mapToObj(i -> new LogicalNode(
+                        randomUUID(),
+                        "node-" + i,
+                        NetworkAddress.from("127.0.0.1:" + (11_000 + i))
+                ))
+                .collect(Collectors.toList());
+
+        when(topologyService.logicalTopologyOnLeader()).thenReturn(completedFuture(new LogicalTopologySnapshot(1, currentTopologyNodes)));
+
+        Map<ZonePartitionId, Set<Assignment>> stableAssignmentsByGroup = new LinkedHashMap<>();
+        Map<ReplicationGroupId, Lease> staleLeasesByGroup = new LinkedHashMap<>();
+
+        List<LogicalNode> leaseholdersByGroup = List.of(0, 0, 1, 2, 3, 4, 5, 6, 7).stream()
+                .map(currentTopologyNodes::get)
+                .collect(Collectors.toList());
+
+        long now = System.currentTimeMillis();
+        UUID staleNode0Id = randomUUID();
+
+        for (int i = 0; i < leaseholdersByGroup.size(); i++) {
+            ZonePartitionId grpId = replicationGroupId(1, i);
+            LogicalNode logicalNode = leaseholdersByGroup.get(i);
+
+            stableAssignmentsByGroup.put(grpId, Set.of(Assignment.forPeer(logicalNode.name())));
+
+            boolean expiredLease = i == 0;
+            UUID leaseholderId = i == 1
+                    ? staleNode0Id
+                    : logicalNode.id();
+            HybridTimestamp expirationTime = new HybridTimestamp(expiredLease ? now - 1_000 : now + 60_000, 0);
+
+            staleLeasesByGroup.put(
+                    grpId,
+                    new Lease(
+                            logicalNode.name(),
+                            leaseholderId,
+                            new HybridTimestamp(now - 10_000, 0),
+                            expirationTime,
+                            true,
+                            true,
+                            null,
+                            grpId
+                    )
+            );
+        }
+
+        mockStableAssignments(stableAssignmentsByGroup);
+        mockPendingAssignments(Map.of());
+
+        Leases currentLeases = new Leases(staleLeasesByGroup, BYTE_EMPTY_ARRAY);
+
+        lenient().when(leaseTracker.latestLeases()).thenReturn(currentLeases);
+        lenient().when(leaseTracker.getLease(any(ReplicationGroupId.class))).thenAnswer(invocation ->
+                currentLeases.leaseByGroupId().getOrDefault(invocation.getArgument(0), Lease.emptyLease(invocation.getArgument(0))));
+
+        initAndActivateLeaseUpdater();
+
+        LeaseBatch renewedBatch = awaitForLeaseBatch(5_000);
+
+        assertEquals(leaseholdersByGroup.size(), renewedBatch.leases().size());
+        assertEquals(8, renewedBatch.leases().stream().map(Lease::getLeaseholder).distinct().count());
+        assertEquals(9, renewedBatch.leases().stream().map(Lease::getLeaseholderId).distinct().count());
+
+        Map<ReplicationGroupId, Lease> renewedLeaseByGroup = renewedBatch.leases().stream()
+                .collect(Collectors.toMap(Lease::replicationGroupId, lease -> lease));
+
+        Lease expiredLeaseWithCurrentId = renewedLeaseByGroup.get(replicationGroupId(1, 0));
+        assertEquals(leaseholdersByGroup.get(0).id(), expiredLeaseWithCurrentId.getLeaseholderId());
+
+        Lease nonExpiredLeaseWithStaleId = renewedLeaseByGroup.get(replicationGroupId(1, 1));
+        assertEquals(staleNode0Id, nonExpiredLeaseWithStaleId.getLeaseholderId());
+    }
+
+    @Test
+    public void testNonExpiredAcceptedLeasesKeepLeaseholderIdentity() throws Exception {
+        List<LogicalNode> currentTopologyNodes = IntStream.range(0, 3)
+                .mapToObj(i -> new LogicalNode(
+                        randomUUID(),
+                        "node-" + i,
+                        NetworkAddress.from("127.0.0.1:" + (11_000 + i))
+                ))
+                .collect(Collectors.toList());
+
+        when(topologyService.logicalTopologyOnLeader()).thenReturn(completedFuture(new LogicalTopologySnapshot(1, currentTopologyNodes)));
+
+        long now = System.currentTimeMillis();
+        UUID staleNode1Id = randomUUID();
+
+        ZonePartitionId expiredGrpId = replicationGroupId(1, 0);
+        ZonePartitionId nonExpiredStaleIdGrpId = replicationGroupId(1, 1);
+        ZonePartitionId nonExpiredCurrentIdGrpId = replicationGroupId(1, 2);
+
+        Map<ZonePartitionId, Set<Assignment>> stableAssignmentsByGroup = Map.of(
+                expiredGrpId, Set.of(Assignment.forPeer(currentTopologyNodes.get(0).name())),
+                nonExpiredStaleIdGrpId, Set.of(Assignment.forPeer(currentTopologyNodes.get(1).name())),
+                nonExpiredCurrentIdGrpId, Set.of(Assignment.forPeer(currentTopologyNodes.get(2).name()))
+        );
+
+        mockStableAssignments(stableAssignmentsByGroup);
+        mockPendingAssignments(Map.of());
+
+        Lease expiredLease = new Lease(
+                currentTopologyNodes.get(0).name(),
+                currentTopologyNodes.get(0).id(),
+                new HybridTimestamp(now - 10_000, 0),
+                new HybridTimestamp(now - 1_000, 0),
+                true,
+                true,
+                null,
+                expiredGrpId
+        );
+
+        Lease nonExpiredLeaseWithStaleId = new Lease(
+                currentTopologyNodes.get(1).name(),
+                staleNode1Id,
+                new HybridTimestamp(now - 10_000, 0),
+                new HybridTimestamp(now + 60_000, 0),
+                true,
+                true,
+                null,
+                nonExpiredStaleIdGrpId
+        );
+
+        Lease nonExpiredLeaseWithCurrentId = new Lease(
+                currentTopologyNodes.get(2).name(),
+                currentTopologyNodes.get(2).id(),
+                new HybridTimestamp(now - 10_000, 0),
+                new HybridTimestamp(now + 60_000, 0),
+                true,
+                true,
+                null,
+                nonExpiredCurrentIdGrpId
+        );
+
+        Map<ReplicationGroupId, Lease> leasesByGroup = Map.of(
+                expiredGrpId, expiredLease,
+                nonExpiredStaleIdGrpId, nonExpiredLeaseWithStaleId,
+                nonExpiredCurrentIdGrpId, nonExpiredLeaseWithCurrentId
+        );
+
+        Leases currentLeases = new Leases(leasesByGroup, BYTE_EMPTY_ARRAY);
+
+        lenient().when(leaseTracker.latestLeases()).thenReturn(currentLeases);
+        lenient().when(leaseTracker.getLease(any(ReplicationGroupId.class))).thenAnswer(invocation ->
+                currentLeases.leaseByGroupId().getOrDefault(invocation.getArgument(0), Lease.emptyLease(invocation.getArgument(0))));
+
+        initAndActivateLeaseUpdater();
+
+        LeaseBatch renewedBatch = awaitForLeaseBatch(5_000);
+
+        Map<ReplicationGroupId, Lease> renewedLeaseByGroup = renewedBatch.leases().stream()
+                .collect(Collectors.toMap(Lease::replicationGroupId, lease -> lease));
+
+        Lease renewedNonExpiredWithStaleId = renewedLeaseByGroup.get(nonExpiredStaleIdGrpId);
+        assertEquals(nonExpiredLeaseWithStaleId.getLeaseholder(), renewedNonExpiredWithStaleId.getLeaseholder());
+        assertEquals(nonExpiredLeaseWithStaleId.getLeaseholderId(), renewedNonExpiredWithStaleId.getLeaseholderId());
+
+        Lease renewedNonExpiredWithCurrentId = renewedLeaseByGroup.get(nonExpiredCurrentIdGrpId);
+        assertEquals(nonExpiredLeaseWithCurrentId.getLeaseholder(), renewedNonExpiredWithCurrentId.getLeaseholder());
+        assertEquals(nonExpiredLeaseWithCurrentId.getLeaseholderId(), renewedNonExpiredWithCurrentId.getLeaseholderId());
+    }
+
+    @Test
     public void testLeaseAmongPendings() throws Exception {
         when(topologyService.logicalTopologyOnLeader()).thenReturn(completedFuture(new LogicalTopologySnapshot(1, List.of(pendingNode))));
 
@@ -396,30 +565,43 @@ public class LeaseUpdaterTest extends BaseIgniteAbstractTest {
     }
 
     private void mockPendingAssignments(Set<Assignment> assignments) {
-        Entry pendingEntry = new EntryImpl(
-                pendingAssignmentsQueueKey(replicationGroupId(1, 0)).bytes(),
-                AssignmentsQueue.toBytes(Assignments.of(HybridTimestamp.MIN_VALUE.longValue(), assignments.toArray(Assignment[]::new))),
-                1,
-                new HybridClockImpl().now()
-        );
+        mockPendingAssignments(Map.of(replicationGroupId(1, 0), assignments));
+    }
 
-        byte[] prefixBytes = enabledColocation ? ZoneRebalanceUtil.PENDING_ASSIGNMENTS_QUEUE_PREFIX_BYTES
-                : PENDING_ASSIGNMENTS_QUEUE_PREFIX_BYTES;
+    private void mockPendingAssignments(Map<ZonePartitionId, Set<Assignment>> assignmentsByGroup) {
+        List<Entry> pendingEntries = assignmentsByGroup.entrySet().stream()
+                .map(entry -> new EntryImpl(
+                        pendingAssignmentsQueueKey(entry.getKey()).bytes(),
+                        AssignmentsQueue.toBytes(
+                                Assignments.of(HybridTimestamp.MIN_VALUE.longValue(), entry.getValue().toArray(Assignment[]::new))
+                        ),
+                        1,
+                        new HybridClockImpl().now()
+                ))
+                .collect(Collectors.toList());
+
+        byte[] prefixBytes = ZoneRebalanceUtil.PENDING_ASSIGNMENTS_QUEUE_PREFIX_BYTES;
         when(metaStorageManager.prefixLocally(eq(new ByteArray(prefixBytes)), anyLong()))
-                .thenReturn(Cursor.fromIterable(List.of(pendingEntry)));
+                .thenReturn(Cursor.fromIterable(pendingEntries));
     }
 
     private void mockStableAssignments(Set<Assignment> assignments) {
-        Entry stableEntry = new EntryImpl(
-                stableAssignmentsKey(replicationGroupId(1, 0)).bytes(),
-                Assignments.of(HybridTimestamp.MIN_VALUE.longValue(), assignments.toArray(Assignment[]::new)).toBytes(),
-                1,
-                new HybridClockImpl().now()
-        );
+        mockStableAssignments(Map.of(replicationGroupId(1, 0), assignments));
+    }
 
-        byte[] prefixBytes = enabledColocation ? ZoneRebalanceUtil.STABLE_ASSIGNMENTS_PREFIX_BYTES : STABLE_ASSIGNMENTS_PREFIX_BYTES;
+    private void mockStableAssignments(Map<ZonePartitionId, Set<Assignment>> assignmentsByGroup) {
+        List<Entry> stableEntries = assignmentsByGroup.entrySet().stream()
+                .map(entry -> new EntryImpl(
+                        stableAssignmentsKey(entry.getKey()).bytes(),
+                        Assignments.of(HybridTimestamp.MIN_VALUE.longValue(), entry.getValue().toArray(Assignment[]::new)).toBytes(),
+                        1,
+                        new HybridClockImpl().now()
+                ))
+                .collect(Collectors.toList());
+
+        byte[] prefixBytes = ZoneRebalanceUtil.STABLE_ASSIGNMENTS_PREFIX_BYTES;
         when(metaStorageManager.prefixLocally(eq(new ByteArray(prefixBytes)), anyLong()))
-                .thenReturn(Cursor.fromIterable(List.of(stableEntry)));
+                .thenReturn(Cursor.fromIterable(stableEntries));
     }
 
     private void initAndActivateLeaseUpdater() {
@@ -468,8 +650,8 @@ public class LeaseUpdaterTest extends BaseIgniteAbstractTest {
      * Waits for lease write to Meta storage.
      *
      * @param needAccepted Whether to wait only for accepted lease.
-     * @param previousLease Previous lease. If not null, then wait for any lease having expiration time other than the previous has (i.e.
-     *      either another lease or prolonged lease).
+     * @param previousLease Previous lease. If not null, then wait for any lease having expiration time other than the previous has
+     *         (i.e. either another lease or prolonged lease).
      * @param timeoutMillis Timeout in milliseconds to wait for lease.
      * @return A lease.
      * @throws InterruptedException if the wait is interrupted.
@@ -494,6 +676,19 @@ public class LeaseUpdaterTest extends BaseIgniteAbstractTest {
         assertTrue(IgniteTestUtils.waitForCondition(() -> renewedLease.get() != null, timeoutMillis));
 
         return renewedLease.get();
+    }
+
+    private LeaseBatch awaitForLeaseBatch(long timeoutMillis) throws InterruptedException {
+        AtomicReference<LeaseBatch> renewedBatch = new AtomicReference<>();
+
+        renewLeaseBatchConsumer = batch -> {
+            renewedBatch.set(batch);
+            renewLeaseBatchConsumer = null;
+        };
+
+        assertTrue(IgniteTestUtils.waitForCondition(() -> renewedBatch.get() != null, timeoutMillis));
+
+        return renewedBatch.get();
     }
 
     /**

@@ -18,11 +18,10 @@
 package org.apache.ignite.internal.pagememory.inmemory;
 
 import static java.lang.System.lineSeparator;
-import static org.apache.ignite.internal.util.GridUnsafe.wrapPointer;
+import static org.apache.ignite.internal.util.OffheapReadWriteLock.TAG_LOCK_ALWAYS;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -31,6 +30,7 @@ import org.apache.ignite.internal.lang.IgniteInternalException;
 import org.apache.ignite.internal.logger.IgniteLogger;
 import org.apache.ignite.internal.logger.Loggers;
 import org.apache.ignite.internal.pagememory.PageMemory;
+import org.apache.ignite.internal.pagememory.PartitionPageMemory;
 import org.apache.ignite.internal.pagememory.configuration.VolatileDataRegionConfiguration;
 import org.apache.ignite.internal.pagememory.io.PageIo;
 import org.apache.ignite.internal.pagememory.io.PageIoRegistry;
@@ -58,11 +58,11 @@ import org.apache.ignite.internal.util.StringUtils;
  * <p/>
  * When page is allocated and is in use:
  * <pre>
- * +--------+--------+--------+--------+---------------------------+
- * |8 bytes |8 bytes |8 bytes |8 bytes |        PAGE_SIZE          |
- * +--------+--------+--------+--------+---------------------------+
- * | Marker |Page ID |Pin CNT |  Lock  |        Page data          |
- * +--------+--------+--------+--------+---------------------------+
+ * +--------+--------+---------+---------------------------+
+ * |8 bytes |8 bytes |16 bytes |        PAGE_SIZE          |
+ * +--------+--------+---------+---------------------------+
+ * | Marker |Page ID |  Lock   |        Page data          |
+ * +--------+--------+---------+---------------------------+
  * </pre>
  *
  * <p>Note that first 8 bytes of page header are used either for page marker or for next relative pointer depending
@@ -180,54 +180,48 @@ public class VolatilePageMemory implements PageMemory {
         totalPages = (int) (this.dataRegionConfiguration.maxSizeBytes() / sysPageSize);
 
         this.rwLock = rwLock;
+
+        long startSize = dataRegionConfiguration.initSizeBytes();
+        long maxSize = dataRegionConfiguration.maxSizeBytes();
+
+        long[] chunks = new long[SEG_CNT];
+
+        chunks[0] = startSize;
+
+        long total = startSize;
+
+        long allocChunkSize = Math.max((maxSize - startSize) / (SEG_CNT - 1), 256L * 1024 * 1024);
+
+        int lastIdx = 0;
+
+        for (int i = 1; i < SEG_CNT; i++) {
+            long allocSize = Math.min(allocChunkSize, maxSize - total);
+
+            if (allocSize <= 0) {
+                break;
+            }
+
+            chunks[i] = allocSize;
+
+            total += allocSize;
+
+            lastIdx = i;
+        }
+
+        if (lastIdx != SEG_CNT - 1) {
+            chunks = Arrays.copyOf(chunks, lastIdx + 1);
+        }
+
+        directMemoryProvider.initialize(chunks);
+
+        addSegment(null);
+
+        started = true;
     }
 
     @Override
-    public void start() throws IgniteInternalException {
-        synchronized (segmentsLock) {
-            if (started) {
-                return;
-            }
-
-            started = true;
-
-            long startSize = dataRegionConfiguration.initSizeBytes();
-            long maxSize = dataRegionConfiguration.maxSizeBytes();
-
-            long[] chunks = new long[SEG_CNT];
-
-            chunks[0] = startSize;
-
-            long total = startSize;
-
-            long allocChunkSize = Math.max((maxSize - startSize) / (SEG_CNT - 1), 256L * 1024 * 1024);
-
-            int lastIdx = 0;
-
-            for (int i = 1; i < SEG_CNT; i++) {
-                long allocSize = Math.min(allocChunkSize, maxSize - total);
-
-                if (allocSize <= 0) {
-                    break;
-                }
-
-                chunks[i] = allocSize;
-
-                total += allocSize;
-
-                lastIdx = i;
-            }
-
-            if (lastIdx != SEG_CNT - 1) {
-                chunks = Arrays.copyOf(chunks, lastIdx + 1);
-            }
-
-            if (segments == null) {
-                directMemoryProvider.initialize(chunks);
-            }
-
-            addSegment(null);
-        }
+    public PartitionPageMemory createPartitionPageMemory(int groupId, int partitionId) {
+        return new VolatilePageMemoryDelegate(this, groupId, partitionId);
     }
 
     @Override
@@ -249,11 +243,7 @@ public class VolatilePageMemory implements PageMemory {
         }
     }
 
-    @Override public ByteBuffer pageBuffer(long pageAddr) {
-        return wrapPointer(pageAddr, pageSize());
-    }
-
-    @Override public long allocatePageNoReuse(int grpId, int partId, byte flags) {
+    long allocatePageNoReuse(int partId, byte flags) {
         assert started;
 
         long relPtr = borrowFreePage();
@@ -297,7 +287,7 @@ public class VolatilePageMemory implements PageMemory {
                     + "  ^-- Enable eviction or expiration policies"
             );
 
-            // TODO Fail node with failure handler.
+            // TODO: https://issues.apache.org/jira/browse/IGNITE-28125 Fail node with failure handler.
 
             throw oom;
         }
@@ -314,7 +304,7 @@ public class VolatilePageMemory implements PageMemory {
         return pageId;
     }
 
-    @Override public boolean freePage(int grpId, long pageId) {
+    boolean freePage(long pageId) {
         assert started;
 
         releaseFreePage(pageId);
@@ -330,7 +320,7 @@ public class VolatilePageMemory implements PageMemory {
         return sysPageSize;
     }
 
-    @Override public int realPageSize(int grpId) {
+    int realPageSize() {
         return pageSize();
     }
 
@@ -416,9 +406,7 @@ public class VolatilePageMemory implements PageMemory {
         return res;
     }
 
-    // *** PageSupport methods ***
-
-    @Override public long acquirePage(int cacheId, long pageId) {
+    long acquirePage(long pageId) {
         assert started;
 
         int pageIdx = PageIdUtils.pageIndex(pageId);
@@ -428,7 +416,7 @@ public class VolatilePageMemory implements PageMemory {
         return seg.acquirePage(pageIdx);
     }
 
-    @Override public void releasePage(int cacheId, long pageId, long page) {
+    void releasePage(long pageId) {
         assert started;
 
         if (trackAcquiredPages) {
@@ -438,7 +426,7 @@ public class VolatilePageMemory implements PageMemory {
         }
     }
 
-    @Override public long readLock(int cacheId, long pageId, long page) {
+    long readLock(long pageId, long page) {
         assert started;
 
         if (rwLock.readLock(page + LOCK_OFFSET, PageIdUtils.tag(pageId))) {
@@ -448,33 +436,33 @@ public class VolatilePageMemory implements PageMemory {
         return 0L;
     }
 
-    @Override public long readLockForce(int cacheId, long pageId, long page) {
+    long readLockForce(long page) {
         assert started;
 
-        if (rwLock.readLock(page + LOCK_OFFSET, -1)) {
+        if (rwLock.readLock(page + LOCK_OFFSET, TAG_LOCK_ALWAYS)) {
             return page + PAGE_OVERHEAD;
         }
 
         return 0L;
     }
 
-    @Override public void readUnlock(int cacheId, long pageId, long page) {
+    void readUnlock(long page) {
         assert started;
 
         rwLock.readUnlock(page + LOCK_OFFSET);
     }
 
-    @Override public long writeLock(int cacheId, long pageId, long page) {
+    long writeLock(long pageId, long page, boolean force) {
         assert started;
 
-        if (rwLock.writeLock(page + LOCK_OFFSET, PageIdUtils.tag(pageId))) {
+        if (rwLock.writeLock(page + LOCK_OFFSET, force ? TAG_LOCK_ALWAYS : PageIdUtils.tag(pageId))) {
             return page + PAGE_OVERHEAD;
         }
 
         return 0L;
     }
 
-    @Override public long tryWriteLock(int cacheId, long pageId, long page) {
+    long tryWriteLock(long pageId, long page) {
         assert started;
 
         if (rwLock.tryWriteLock(page + LOCK_OFFSET, PageIdUtils.tag(pageId))) {
@@ -484,13 +472,7 @@ public class VolatilePageMemory implements PageMemory {
         return 0L;
     }
 
-    @Override
-    public void writeUnlock(
-            int cacheId,
-            long pageId,
-            long page,
-            boolean dirtyFlag
-    ) {
+    void writeUnlock(long page) {
         assert started;
 
         long actualId = PageIo.getPageId(page + PAGE_OVERHEAD);
@@ -498,13 +480,7 @@ public class VolatilePageMemory implements PageMemory {
         rwLock.writeUnlock(page + LOCK_OFFSET, PageIdUtils.tag(actualId));
     }
 
-    @Override public boolean isDirty(int cacheId, long pageId, long page) {
-        // always false for page no store.
-        return false;
-    }
-
-    @Override
-    public PageIoRegistry ioRegistry() {
+    PageIoRegistry ioRegistry() {
         return ioRegistry;
     }
 
